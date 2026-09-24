@@ -1,6 +1,6 @@
 # Bundled tunnel watchdog
 
-Implemented in this skill's `scripts/` directory. The helper is optional and must be installed;
+Implemented in this skill's `scripts/` directory. Install it on every tunnel setup;
 a bundled file or an alive cloudflared process is not proof that monitoring is running.
 
 ## Ownership and installation
@@ -18,8 +18,8 @@ top. The helper validates the owned cloudflared plist before any recovery and us
 `launchctl kickstart -k gui/<uid>/sh.ringo.yachiyo.cloudflared`. It does not reinstall the tunnel,
 rewrite ingress, change protocol flags, touch other agents, revoke pairings, or create secrets.
 
-Quick-tunnel installation already selects HTTP/2. HTTP/2 reduces dependence on QUIC/UDP but does
-not prevent edge-registration failures. Named tunnels retain their current configuration; the
+Both tunnel modes select HTTP/2. HTTP/2 reduces dependence on QUIC/UDP but does
+not prevent edge-registration failures. Named tunnels retain their routing configuration; the
 probe supports the app-generated single-origin named ingress, not arbitrary user YAML.
 
 ## Health and recovery policy

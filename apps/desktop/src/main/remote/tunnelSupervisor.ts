@@ -83,14 +83,14 @@ export function cloudflaredArguments(input: {
   namedConfigPath: string
 }): string[] {
   const metrics = ['--metrics', `127.0.0.1:${input.metricsPort}`]
+  // Avoid QUIC/UDP instability on TUN-proxied networks in both tunnel modes.
+  const protocol = ['--protocol', 'http2']
   if (input.install.mode === 'quick') {
     return [
       input.cloudflaredPath,
       'tunnel',
       '--no-autoupdate',
-      // Avoid QUIC/UDP instability on TUN-proxied networks.
-      '--protocol',
-      'http2',
+      ...protocol,
       '--url',
       `http://127.0.0.1:${input.port}`,
       ...metrics
@@ -100,6 +100,7 @@ export function cloudflaredArguments(input: {
     input.cloudflaredPath,
     'tunnel',
     '--no-autoupdate',
+    ...protocol,
     '--config',
     input.namedConfigPath,
     ...metrics,

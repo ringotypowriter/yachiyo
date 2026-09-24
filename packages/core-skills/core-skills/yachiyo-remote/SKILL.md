@@ -1,6 +1,6 @@
 ---
 name: yachiyo-remote
-description: Set up and troubleshoot phone remote access on this Mac — check iCloud address recovery, manage Cloudflare tunnels, verify HTTP/2 and public WebSocket health, and install the bundled automatic-recovery watchdog. Use for iPhone remote setup, pairing, disconnections, tunnels, or automatic recovery. macOS only.
+description: Set up and troubleshoot phone remote access on this Mac — require HTTP/2 and the bundled automatic-recovery watchdog on every tunnel setup, check iCloud address recovery and public WebSocket health. Use for iPhone remote setup, pairing, disconnections, tunnels, or automatic recovery. macOS only.
 platforms: darwin
 ---
 
@@ -32,7 +32,12 @@ All commands print JSON and need the app running (it is, since you are running i
 
 ## Setup flow
 
-Follow these steps in order. Tell the user what each step is for in one short sentence.
+Follow these steps in order. Tell the user what each step is for in one short sentence. A tunnel
+setup is not complete until its launch arguments explicitly select HTTP/2 **and** the watchdog
+is installed and producing fresh samples. Do this proactively, including when an existing tunnel
+is already running; do not wait for the user to ask for HTTP/2 or automatic recovery. If either
+cannot be verified, report setup as incomplete and explain the blocker rather than silently
+skipping it. Explain up front that a watchdog restart can change a quick tunnel's address.
 
 ### 1. Check the current state
 
@@ -67,7 +72,8 @@ installs need the user's approval in this session). Re-run `yachiyo remote statu
 
 ### 4. Choose a tunnel
 
-Ask the user which tunnel to use:
+If a tunnel is already configured and the user is setting up a phone, keep its mode and skip
+step 5 unless step 6 finds HTTP/2 missing. Otherwise ask the user which tunnel to use:
 
 - **Quick tunnel** (default, no account): a random `*.trycloudflare.com` address. Free, no setup,
   no uptime guarantee; recreating cloudflared can change the address. Phones with the recovery
@@ -84,13 +90,6 @@ delete or rename the user's file.
 
 Otherwise run `yachiyo remote tunnel install --mode quick`.
 
-Current quick-tunnel installs explicitly use `--protocol http2`, reducing dependence on QUIC/UDP
-on proxy/TUN networks. Verify the actual launch arguments or the latest registered-connection
-log, rather than assuming an older installed agent has this setting. HTTP/2 is a transport choice,
-not a health check: edge registration can still fail while the process remains alive. Named
-tunnels are not forced to HTTP/2 by the current installer; preserve the selected mode and the
-user's routing configuration instead of silently treating it as a quick tunnel.
-
 ### 5b. Named tunnel
 
 1. Confirm the user has a Cloudflare account and a domain on Cloudflare. If not, explain that they
@@ -106,12 +105,24 @@ user's routing configuration instead of silently treating it as a quick tunnel.
 The app writes its own ingress file under `~/.yachiyo/remote/` and passes it with `--config`, so
 the user's existing cloudflared configuration is left alone.
 
+Both install modes explicitly select `--protocol http2`, reducing dependence on QUIC/UDP on
+proxy/TUN networks. Preserve the chosen mode and routing configuration.
+
 ### 6. Verify
 
 Run `yachiyo remote status` to discover the origin port, tunnel mode, and current public endpoint.
 `running` describes the local service; `cloudflared.agentRunning` describes a process, and a
 remembered hostname may be stale. None proves public reachability. Allow at least 30 seconds for
 startup/address discovery before judging a new tunnel.
+
+Inspect the **owned** `sh.ringo.yachiyo.cloudflared` LaunchAgent's `ProgramArguments` read-only:
+require `--protocol` followed by `http2`. For a pre-existing tunnel missing the flag, explain
+that reinstalling may briefly interrupt access and can change a quick-tunnel address, then run
+the supported `yachiyo remote tunnel install` command for its **existing** mode and verify the
+arguments again. Do not modify a plist or replace a named tunnel with a quick one. If the
+installed app does not generate HTTP/2 for that mode, stop and report the version blocker;
+neither an alive process nor a log from an earlier launch proves the flag is set now.
+HTTP/2 is a transport choice, not a health check: edge registration can still fail.
 
 Check the path in layers:
 
@@ -130,7 +141,14 @@ A proxy's `200 Connection established` is not the final response. The public end
 does not undo a successful upgrade. This validates transport, not authenticated phone access.
 Do not call the phone connected until its own connection/hello succeeds.
 
-### 7. Pair the phone
+### 7. Install and verify automatic recovery
+
+Run the bundled watchdog `install`, `status`, and `check` commands under **Automatic recovery**,
+even if the tunnel is healthy or a watchdog was previously installed. Verify a fresh running
+sample and another scheduled sample after startup grace. A healthy tunnel needs no restart.
+If the watchdog cannot be installed or monitored, do not claim remote setup is complete.
+
+### 8. Pair the phone
 
 For a **private, local Yachiyo conversation**, use the `createRemotePairingQr` agent tool after
 remote access is enabled. It returns Markdown containing a short local `yachiyo-asset://` image
@@ -180,19 +198,19 @@ about phone-side recovery rather than inferring it from Mac-side iCloud availabi
 
 LaunchAgent `KeepAlive` only replaces an exited process; it cannot fix a live process stuck with
 zero edge connections. This skill bundles a dependency-free Node watchdog in `scripts/`.
-When the user asks for automatic recovery, install and verify it, rather than only writing a plan.
-During setup, explain that automatic quick-tunnel recovery can change the address and confirm
-the user wants it. Read [references/tunnel-watchdog.md](references/tunnel-watchdog.md) for the
+Install and verify it during every tunnel setup; do not offer it as an optional follow-up.
+Read [references/tunnel-watchdog.md](references/tunnel-watchdog.md) for the
 policy, ownership boundaries, and operational files.
 
 Use a standalone Node.js runtime, not the Electron/Yachiyo executable. Resolve the current skill
-directory and run:
+directory (source checkout or installed bundle) and run `node <skill-directory>/scripts/watchdog.mjs`
+with these subcommands:
 
 ```
-node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs install
-node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs status
-node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs check
-node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs uninstall
+node <skill-directory>/scripts/watchdog.mjs install
+node <skill-directory>/scripts/watchdog.mjs status
+node <skill-directory>/scripts/watchdog.mjs check
+node <skill-directory>/scripts/watchdog.mjs uninstall
 ```
 
 `install` starts the managed watchdog without restarting a healthy tunnel or the app. It copies

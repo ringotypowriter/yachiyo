@@ -82,7 +82,7 @@ async function withSupervisor(
   }
 }
 
-test('only quick tunnel arguments explicitly select HTTP/2', () => {
+test('both tunnel modes explicitly select HTTP/2', () => {
   const common = {
     cloudflaredPath: '/opt/homebrew/bin/cloudflared',
     port: 47831,
@@ -109,6 +109,8 @@ test('only quick tunnel arguments explicitly select HTTP/2', () => {
       common.cloudflaredPath,
       'tunnel',
       '--no-autoupdate',
+      '--protocol',
+      'http2',
       '--config',
       common.namedConfigPath,
       '--metrics',
