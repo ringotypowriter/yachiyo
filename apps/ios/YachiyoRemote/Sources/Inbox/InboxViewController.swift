@@ -3,6 +3,40 @@ import UIKit
 import YachiyoMaterial
 import YachiyoRemoteKit
 
+private final class InboxSectionHeader: UICollectionReusableView {
+    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        blur.translatesAutoresizingMaskIntoConstraints = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(blur)
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            blur.topAnchor.constraint(equalTo: topAnchor),
+            blur.bottomAnchor.constraint(equalTo: bottomAnchor),
+            blur.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blur.trailingAnchor.constraint(equalTo: trailingAnchor),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(title: String) {
+        label.text = title
+        label.font = YachiyoFonts.sectionTitle()
+        label.textColor = .yachiyo(.textMuted)
+    }
+}
+
 /// The selected Mac's inbox: its threads, blocked ones first ("Needs you"), then starred,
 /// then by day. Filter, search, and New live in the bottom glass toolbar.
 final class InboxViewController: UIViewController {
@@ -119,17 +153,9 @@ final class InboxViewController: UIViewController {
                 isUnread: store.unreadCompletions.contains(item.id)
             )
         }
-        let headerRegistration = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionHeader) { [weak self] header, _, indexPath in
+        let headerRegistration = UICollectionView.SupplementaryRegistration<InboxSectionHeader>(elementKind: UICollectionView.elementKindSectionHeader) { [weak self] header, _, indexPath in
             guard let self, let section = dataSource.sectionIdentifier(for: indexPath.section) else { return }
-            var content = UIListContentConfiguration.plainHeader()
-            content.text = title(for: section)
-            content.textProperties.font = YachiyoFonts.sectionTitle()
-            content.textProperties.color = .yachiyo(.textMuted)
-            header.contentConfiguration = content
-            var background = UIBackgroundConfiguration.clear()
-            background.customView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
-            header.automaticallyUpdatesBackgroundConfiguration = false
-            header.backgroundConfiguration = background
+            header.configure(title: title(for: section))
         }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
             collectionView.dequeueConfiguredReusableCell(using: cellRegistration, for: indexPath, item: item)
