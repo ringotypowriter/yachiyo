@@ -116,7 +116,8 @@ final class InboxViewController: UIViewController {
             content.textProperties.color = .yachiyo(.textMuted)
             header.contentConfiguration = content
             var background = UIBackgroundConfiguration.listPlainHeaderFooter()
-            background.backgroundColor = .yachiyo(.app)
+            background.backgroundColor = .clear
+            background.customView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
             header.backgroundConfiguration = background
         }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
