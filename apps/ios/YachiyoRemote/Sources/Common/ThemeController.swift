@@ -2,7 +2,7 @@ import UIKit
 import YachiyoMaterial
 import YachiyoRemoteKit
 
-/// Color theme can follow the primary desktop; light/dark always follows this device's system.
+/// Color theme can follow the primary desktop; light/dark is a device-local preference.
 /// `-YachiyoThemeOverride <id>` can select a color theme for screenshot runs.
 @MainActor
 final class ThemeController {
@@ -10,6 +10,14 @@ final class ThemeController {
 
     private let defaults = UserDefaults.standard
     private var desktopAppearance: RemoteAppearance?
+
+    var appearancePreference: YachiyoAppearancePreference {
+        get { defaults.string(forKey: "YachiyoAppearancePreference").flatMap(YachiyoAppearancePreference.init(rawValue:)) ?? .system }
+        set {
+            defaults.set(newValue.rawValue, forKey: "YachiyoAppearancePreference")
+            apply()
+        }
+    }
 
     var themeOverride: YachiyoThemeID? {
         get { defaults.string(forKey: "YachiyoThemeOverride").flatMap(YachiyoThemeID.init(rawValue:)) }
@@ -32,6 +40,6 @@ final class ThemeController {
         let windows = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
-        YachiyoStyle.apply(themeID: effectiveTheme, appearance: .system, to: windows)
+        YachiyoStyle.apply(themeID: effectiveTheme, appearance: appearancePreference, to: windows)
     }
 }

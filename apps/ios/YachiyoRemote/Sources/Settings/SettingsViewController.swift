@@ -101,7 +101,8 @@ final class SettingsViewController: UITableViewController {
                 cell.accessoryView = menuButton(themeMenu())
             case 1:
                 content.text = String(localized: "Light or dark")
-                content.secondaryText = String(localized: "System")
+                content.secondaryText = ThemeController.shared.appearancePreference.displayName
+                cell.accessoryView = menuButton(appearanceMenu())
             default:
                 content.text = String(localized: "Primary device")
                 content.secondaryText = primaryName
@@ -253,6 +254,26 @@ final class SettingsViewController: UITableViewController {
                 self?.store.setPrimaryDesktop(desktop.id)
             }
         })
+    }
+
+    private func appearanceMenu() -> UIMenu {
+        let preferences: [YachiyoAppearancePreference] = [.system, .light, .dark]
+        return UIMenu(children: preferences.map { preference in
+            UIAction(title: preference.displayName, state: ThemeController.shared.appearancePreference == preference ? .on : .off) { [weak self] _ in
+                ThemeController.shared.appearancePreference = preference
+                self?.tableView.reloadData()
+            }
+        })
+    }
+}
+
+private extension YachiyoAppearancePreference {
+    var displayName: String {
+        switch self {
+        case .system: String(localized: "System")
+        case .light: String(localized: "Light")
+        case .dark: String(localized: "Dark")
+        }
     }
 }
 
