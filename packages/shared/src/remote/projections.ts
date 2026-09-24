@@ -177,6 +177,8 @@ export const remoteEssentialSchema = z
     /** Emoji icon. Image bytes are fetched separately by essential ID. */
     icon: z.string().optional(),
     hasImageIcon: z.boolean().optional(),
+    /** SHA-256 of normalized image bytes; absent for HTTP sources or unreadable images. */
+    iconVersion: z.string().optional(),
     label: z.string().optional(),
     workspacePath: z.string().optional(),
     workspaceName: z.string().optional(),

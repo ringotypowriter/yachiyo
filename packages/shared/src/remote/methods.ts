@@ -235,7 +235,11 @@ export const remoteMethods = {
   },
   'essentials.getIcon': {
     input: z.object({ essentialId: idSchema }),
-    output: z.object({ mediaType: z.string(), data: z.string() })
+    output: z.object({
+      mediaType: z.string(),
+      data: z.string(),
+      iconVersion: z.string().optional()
+    })
   },
   'appearance.get': {
     input: z.object({}),

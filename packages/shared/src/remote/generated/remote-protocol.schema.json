@@ -630,6 +630,9 @@
         "hasImageIcon": {
           "type": "boolean"
         },
+        "iconVersion": {
+          "type": "string"
+        },
         "label": {
           "type": "string"
         },
@@ -677,6 +680,9 @@
           "type": "string"
         },
         "data": {
+          "type": "string"
+        },
+        "iconVersion": {
           "type": "string"
         }
       },

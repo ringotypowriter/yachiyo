@@ -201,9 +201,9 @@ final class NewThreadViewController: UIViewController {
         guard let desktopId, !isStarting, store.desktops.contains(where: { $0.id == desktopId && $0.state == .online }) else { return }
         let token = UUID()
         optionsToken = token
-        essentialImages = [:]
         isLoadingOptions = true
         if optionsDesktopId != desktopId {
+            essentialImages = [:]
             optionsDesktopId = desktopId
             essentialId = nil
             workspacePath = nil
@@ -224,6 +224,11 @@ final class NewThreadViewController: UIViewController {
         guard optionsToken == token, self.desktopId == desktopId else { return }
         isLoadingOptions = false
         if let result = results.0 {
+            let previous = Dictionary(uniqueKeysWithValues: self.essentials.map { ($0.id, $0) })
+            essentialImages = essentialImages.filter { id, _ in
+                result.essentials.contains { $0.id == id && $0.hasImageIcon == true
+                    && $0.iconVersion == previous[id]?.iconVersion }
+            }
             self.essentials = result.essentials
             if let essentialId, !self.essentials.contains(where: { $0.id == essentialId }) {
                 self.essentialId = nil
@@ -248,11 +253,15 @@ final class NewThreadViewController: UIViewController {
     private func loadEssentialImages(desktopId: String, token: UUID) async {
         for essential in essentials where essential.hasImageIcon == true {
             guard optionsToken == token, self.desktopId == desktopId else { return }
-            let output: RemoteEssentialsGetIconOutput? = try? await store.call(
-                desktopId, "essentials.getIcon", RemoteEssentialsGetIconInput(essentialId: essential.id)
-            )
+            let data = await RemoteEssentialIconCache.shared.imageData(
+                desktopId: desktopId, essentialId: essential.id, iconVersion: essential.iconVersion
+            ) { [store] in
+                try? await store.call(
+                    desktopId, "essentials.getIcon", RemoteEssentialsGetIconInput(essentialId: essential.id)
+                )
+            }
             guard optionsToken == token, self.desktopId == desktopId else { return }
-            guard let output, let data = Data(base64Encoded: output.data),
+            guard let data,
                   let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 32, height: 32)) else { continue }
             essentialImages[essential.id] = image.withRenderingMode(.alwaysOriginal)
             rebuildEssentials()

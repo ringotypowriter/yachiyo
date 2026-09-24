@@ -117,15 +117,67 @@ test('Essential projection keeps emoji semantics and retrieves image bytes only 
   const ops = createRemoteHostOps({ getConfig: async () => config } as RemoteProjectionServer)
   assert.deepEqual((await ops['host.remote.listEssentials']()).essentials, [
     { id: 'emoji', icon: '🧪', privacyMode: false, order: 0 },
-    { id: 'image', hasImageIcon: true, privacyMode: false, order: 1 }
+    {
+      id: 'image',
+      hasImageIcon: true,
+      iconVersion: (await readEssentialIcon(dataUrl)).iconVersion,
+      privacyMode: false,
+      order: 1
+    }
   ])
   assert.deepEqual(
     await ops['host.remote.getEssentialIcon']({ essentialId: 'image' }),
     await readEssentialIcon(dataUrl)
   )
   await assert.rejects(ops['host.remote.getEssentialIcon']({ essentialId: 'emoji' }), /not found/)
+  const previous = (await ops['host.remote.listEssentials']()).essentials[1]!.iconVersion
+  config.essentials[1]!.icon = dataUrl.replace(
+    Buffer.from(svg).toString('base64'),
+    Buffer.from(svg.replace('red', 'blue')).toString('base64')
+  )
+  const changed = await ops['host.remote.getEssentialIcon']({ essentialId: 'image' })
+  assert.notEqual(changed.iconVersion, previous)
+  assert.equal(
+    (await ops['host.remote.listEssentials']()).essentials[1]!.iconVersion,
+    changed.iconVersion
+  )
   await assert.rejects(
     ops['host.remote.getEssentialIcon']({ essentialId: '/etc/passwd' }),
     /not found/
   )
+})
+
+test('Essential listing never fetches HTTP icons and tolerates broken local icons', async (t) => {
+  const fetch = t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('Metadata must not fetch remote icons')
+  })
+  const config = {
+    essentials: [
+      { id: 'url', iconType: 'image', icon: 'https://example.com/icon.png', order: 0 },
+      { id: 'broken', iconType: 'image', icon: 'data:image/png,broken', order: 1 }
+    ]
+  }
+  const ops = createRemoteHostOps({ getConfig: async () => config } as RemoteProjectionServer)
+  const { essentials } = await ops['host.remote.listEssentials']()
+  assert.equal(fetch.mock.callCount(), 0)
+  assert.equal(essentials.length, 2)
+  assert.ok(essentials.every((essential) => essential.hasImageIcon && !essential.iconVersion))
+})
+
+test('Essential listing versions local file content changed at the same path', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'essential-version-'))
+  try {
+    const path = join(dir, 'icon.svg')
+    await writeFile(path, svg)
+    const config = { essentials: [{ id: 'file', iconType: 'image', icon: path, order: 0 }] }
+    const ops = createRemoteHostOps({ getConfig: async () => config } as RemoteProjectionServer)
+    const before = (await ops['host.remote.listEssentials']()).essentials[0]!.iconVersion
+    assert.ok(before)
+    await writeFile(path, svg.replace('red', 'blue'))
+    const after = (await ops['host.remote.listEssentials']()).essentials[0]!.iconVersion
+    assert.ok(after)
+    assert.notEqual(after, before)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

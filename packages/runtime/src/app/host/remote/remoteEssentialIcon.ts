@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,7 +37,7 @@ function decodeDataImage(url: URL): Buffer {
 /** Only pass sources from saved Essentials settings, never a caller-supplied URL or path. */
 export async function readEssentialIcon(
   source: string
-): Promise<{ mediaType: string; data: string }> {
+): Promise<{ mediaType: string; data: string; iconVersion: string }> {
   let bytes: Buffer
   if (isAbsolute(source) || source.startsWith('file:')) {
     const path = source.startsWith('file:') ? fileURLToPath(source) : source
@@ -68,5 +69,9 @@ export async function readEssentialIcon(
     .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
     .png()
     .toBuffer()
-  return { mediaType: 'image/png', data: png.toString('base64') }
+  return {
+    mediaType: 'image/png',
+    data: png.toString('base64'),
+    iconVersion: createHash('sha256').update(png).digest('hex')
+  }
 }

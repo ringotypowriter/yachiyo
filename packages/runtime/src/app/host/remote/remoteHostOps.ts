@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path'
 import { hasPendingPlanDocument, isLatestRunPlanMode } from '@yachiyo/shared/planMode'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
@@ -80,7 +81,7 @@ export interface RemoteHostOps {
   'host.remote.listEssentials'(): Promise<{ essentials: RemoteEssential[] }>
   'host.remote.getEssentialIcon'(input: {
     essentialId: string
-  }): Promise<{ mediaType: string; data: string }>
+  }): Promise<{ mediaType: string; data: string; iconVersion: string }>
   'host.remote.getFile'(input: {
     threadId: string
     path: string
@@ -296,29 +297,43 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
   async function listEssentials(): Promise<{ essentials: RemoteEssential[] }> {
     const config = await server.getConfig()
     return {
-      essentials: [...(config.essentials ?? [])]
-        .sort((left, right) => left.order - right.order)
-        .map((essential) => {
-          const workspaceName = workspaceNameOf(essential.workspacePath)
-          return {
-            id: essential.id,
-            ...(essential.iconType === 'emoji' && essential.icon ? { icon: essential.icon } : {}),
-            ...(essential.iconType === 'image' && essential.icon ? { hasImageIcon: true } : {}),
-            ...(essential.label ? { label: essential.label } : {}),
-            ...(essential.workspacePath ? { workspacePath: essential.workspacePath } : {}),
-            ...(workspaceName ? { workspaceName } : {}),
-            privacyMode: Boolean(essential.privacyMode),
-            ...(essential.modelOverride
-              ? {
-                  modelOverride: {
-                    providerName: essential.modelOverride.providerName,
-                    model: essential.modelOverride.model
+      essentials: await Promise.all(
+        [...(config.essentials ?? [])]
+          .sort((left, right) => left.order - right.order)
+          .map(async (essential) => {
+            const workspaceName = workspaceNameOf(essential.workspacePath)
+            // Read content, not just the configured path: local files can change in place.
+            // HTTP icons remain unversioned so network timeouts never block options metadata.
+            // A broken image must not prevent loading the other new-thread options.
+            const image =
+              essential.iconType === 'image' &&
+              essential.icon &&
+              (essential.icon.startsWith('data:') ||
+                essential.icon.startsWith('file:') ||
+                isAbsolute(essential.icon))
+                ? await readEssentialIcon(essential.icon).catch(() => undefined)
+                : undefined
+            return {
+              id: essential.id,
+              ...(essential.iconType === 'emoji' && essential.icon ? { icon: essential.icon } : {}),
+              ...(essential.iconType === 'image' && essential.icon ? { hasImageIcon: true } : {}),
+              ...(image ? { iconVersion: image.iconVersion } : {}),
+              ...(essential.label ? { label: essential.label } : {}),
+              ...(essential.workspacePath ? { workspacePath: essential.workspacePath } : {}),
+              ...(workspaceName ? { workspaceName } : {}),
+              privacyMode: Boolean(essential.privacyMode),
+              ...(essential.modelOverride
+                ? {
+                    modelOverride: {
+                      providerName: essential.modelOverride.providerName,
+                      model: essential.modelOverride.model
+                    }
                   }
-                }
-              : {}),
-            order: essential.order
-          }
-        })
+                : {}),
+              order: essential.order
+            }
+          })
+      )
     }
   }
 
@@ -328,7 +343,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
 
   async function getEssentialIcon(input: {
     essentialId: string
-  }): Promise<{ mediaType: string; data: string }> {
+  }): Promise<{ mediaType: string; data: string; iconVersion: string }> {
     const config = await server.getConfig()
     const essential = config.essentials?.find((entry) => entry.id === input.essentialId)
     if (!essential?.icon || essential.iconType !== 'image') {

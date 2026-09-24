@@ -909,7 +909,7 @@ public enum RemoteEndpointKind: String, Codable, Equatable, Sendable {
 // MARK: - RemoteEssential
 public struct RemoteEssential: Codable, Equatable, Sendable {
     public let hasImageIcon: Bool?
-    public let icon: String?
+    public let icon, iconVersion: String?
     public let id: String
     public let label: String?
     public let modelOverride: RemoteModelOverride?
@@ -917,9 +917,10 @@ public struct RemoteEssential: Codable, Equatable, Sendable {
     public let privacyMode: Bool
     public let workspaceName, workspacePath: String?
 
-    public init(hasImageIcon: Bool?, icon: String?, id: String, label: String?, modelOverride: RemoteModelOverride?, order: Double, privacyMode: Bool, workspaceName: String?, workspacePath: String?) {
+    public init(hasImageIcon: Bool?, icon: String?, iconVersion: String?, id: String, label: String?, modelOverride: RemoteModelOverride?, order: Double, privacyMode: Bool, workspaceName: String?, workspacePath: String?) {
         self.hasImageIcon = hasImageIcon
         self.icon = icon
+        self.iconVersion = iconVersion
         self.id = id
         self.label = label
         self.modelOverride = modelOverride
@@ -953,10 +954,13 @@ public struct RemoteEssentialsGetIconInput: Codable, Equatable, Sendable {
 
 // MARK: - RemoteEssentialsGetIconOutput
 public struct RemoteEssentialsGetIconOutput: Codable, Equatable, Sendable {
-    public let data, mediaType: String
+    public let data: String
+    public let iconVersion: String?
+    public let mediaType: String
 
-    public init(data: String, mediaType: String) {
+    public init(data: String, iconVersion: String?, mediaType: String) {
         self.data = data
+        self.iconVersion = iconVersion
         self.mediaType = mediaType
     }
 }
