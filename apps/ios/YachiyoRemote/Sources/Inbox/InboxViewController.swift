@@ -258,7 +258,7 @@ final class InboxViewController: UIViewController {
 
     private func visibleItems() -> [InboxItem] {
         store.inbox.filter { item in
-            guard item.desktopId == selectedDesktopId else { return false }
+            guard item.desktopId == selectedDesktopId, item.summary.isVisibleInInbox else { return false }
             if filter.running, !item.summary.isRunning { return false }
             if filter.unread, !store.unreadCompletions.contains(item.id) { return false }
             if !filter.colorTags.isEmpty, !filter.colorTags.contains(item.summary.colorTag?.rawValue ?? "") { return false }

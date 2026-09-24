@@ -21,6 +21,7 @@ extension RemoteThreadSummary {
     }
 
     var isRunning: Bool { latestRun?.status == .running }
+    var isVisibleInInbox: Bool { title != "New Chat" || preview != nil || isRunning }
     var isReadOnly: Bool { !capabilities.canSend }
     var updatedDate: Date { ISO8601.parse(updatedAt) ?? .distantPast }
 }
