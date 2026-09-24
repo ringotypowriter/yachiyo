@@ -37,6 +37,21 @@ test('buildToolCallDetailsPresentation uses recovered raw input and output when 
   assert.deepEqual(presentation.output, { label: 'Output', value: 'full output' })
 })
 
+test('failed raw tool output retains its danger state', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'webSearch',
+    status: 'failed',
+    error: 'Search unavailable',
+    rawOutput: { type: 'content', value: [{ type: 'text', text: 'Search unavailable' }] }
+  })
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: 'Search unavailable',
+    tone: 'danger'
+  })
+})
+
 test('delegateTask detail shows the complete request instead of its agent name summary', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
@@ -104,6 +119,93 @@ test('buildToolCallDetailsPresentation shows read content excerpt from details w
   })
 })
 
+test('read details retain the continuation offset for truncated output', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    details: {
+      path: '/workspace/long.txt',
+      startLine: 1,
+      endLine: 100,
+      totalLines: 400,
+      totalBytes: 9000,
+      truncated: true,
+      nextOffset: 101,
+      remainingLines: 300,
+      content: 'first page'
+    }
+  })
+  assert.deepEqual(JSON.parse(presentation.metadata!.value), {
+    truncated: true,
+    nextOffset: 101,
+    remainingLines: 300
+  })
+})
+
+test('webRead keeps saved-file and truncation metadata beside recovered output', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'webRead',
+    rawOutput: { type: 'content', value: [{ type: 'text', text: 'Page excerpt' }] },
+    details: {
+      requestedUrl: 'https://example.com',
+      truncated: true,
+      originalContentChars: 30000,
+      savedFilePath: '/workspace/page.md'
+    }
+  })
+  assert.deepEqual(JSON.parse(presentation.metadata!.value), {
+    truncated: true,
+    originalContentChars: 30000,
+    savedFilePath: '/workspace/page.md'
+  })
+  assert.equal(presentation.output?.value, 'Page excerpt')
+})
+
+test('write detail-only records show content as an input preview, not tool output', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'write',
+    details: {
+      path: '/workspace/long.txt',
+      contentPreview: 'first lines',
+      bytesWritten: 9000,
+      created: true,
+      overwritten: false
+    }
+  })
+  assert.equal(presentation.input?.label, 'Input preview')
+  assert.deepEqual(JSON.parse(presentation.input!.value), {
+    path: '/workspace/long.txt',
+    contentPreview: 'first lines'
+  })
+  assert.deepEqual(JSON.parse(presentation.output!.value), {
+    bytesWritten: 9000,
+    created: true,
+    overwritten: false
+  })
+})
+
+test('write with raw input shows full content once and preserves the tool receipt', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'write',
+    rawInput: { path: '/workspace/a.txt', content: 'complete content' },
+    rawOutput: { type: 'content', value: [{ type: 'text', text: 'Wrote a.txt' }] },
+    details: {
+      path: '/workspace/a.txt',
+      contentPreview: 'complete content',
+      bytesWritten: 16,
+      created: false,
+      overwritten: true
+    }
+  })
+  assert.deepEqual(JSON.parse(presentation.input!.value), {
+    path: '/workspace/a.txt',
+    content: 'complete content'
+  })
+  assert.equal(presentation.output?.value, 'Wrote a.txt')
+})
+
 test('buildToolCallDetailsPresentation shows persisted browser snapshot content', () => {
   const content = [
     'Results',
@@ -161,6 +263,43 @@ test('buildToolCallDetailsPresentation shows complete bash command and output fr
     label: 'Output',
     value: 'stdout:\nline 1\nline 2'
   })
+})
+
+test('bash details keep the command and stdout/stderr readable when response trace is present', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'bash',
+    inputSummary: 'Run checks',
+    rawInput: { command: 'pnpm lint && pnpm typecheck', description: 'Run checks', timeout: 90 },
+    rawOutput: { type: 'content', value: [{ type: 'text', text: 'combined model output' }] },
+    details: {
+      command: 'pnpm lint && pnpm typecheck',
+      cwd: '/workspace',
+      exitCode: 0,
+      stdout: 'lint passed\n',
+      stderr: 'warning\n'
+    }
+  })
+
+  assert.equal(presentation.input?.value, 'pnpm lint && pnpm typecheck')
+  assert.deepEqual(JSON.parse(presentation.metadata!.value), {
+    cwd: '/workspace',
+    timeout: 90,
+    exitCode: 0
+  })
+  assert.equal(presentation.output?.value, 'stdout:\nlint passed\n\nstderr:\nwarning')
+})
+
+test('bash and edit retain raw responses when structured details are unavailable', () => {
+  for (const toolName of ['bash', 'edit'] as const) {
+    const presentation = buildToolCallDetailsPresentation({
+      ...BASE_TOOL_CALL,
+      toolName,
+      outputSummary: 'short summary',
+      rawOutput: { type: 'content', value: [{ type: 'text', text: 'Full tool response' }] }
+    })
+    assert.equal(presentation.output?.value, 'Full tool response')
+  }
 })
 
 test('buildToolCallDetailsPresentation shows jsRepl display and result output', () => {
@@ -258,6 +397,30 @@ test('buildToolCallDetailsPresentation omits hydrated pyRepl image payloads', ()
   assert.deepEqual(presentation.output, {
     label: 'Output',
     value: 'result:\nchart',
+    language: 'python'
+  })
+})
+
+test('pyRepl raw-only text remains visible without exposing image data', () => {
+  const call = {
+    ...BASE_TOOL_CALL,
+    toolName: 'pyRepl',
+    status: 'failed',
+    inputSummary: '',
+    outputSummary: 'short summary',
+    rawOutput: {
+      type: 'content',
+      value: [
+        { type: 'text', text: 'answer: 42' },
+        { type: 'image', data: 'sensitive-base64', mimeType: 'image/png' }
+      ]
+    }
+  }
+  assert.equal(canExpandToolCall(call), true)
+  assert.deepEqual(buildToolCallDetailsPresentation(call).output, {
+    label: 'Output',
+    value: 'answer: 42',
+    tone: 'danger',
     language: 'python'
   })
 })
@@ -404,6 +567,28 @@ test('buildToolCallDetailsPresentation renders applyPatch output as diff from op
   })
 })
 
+test('applyPatch shows the submitted patch once and the tool receipt as output', () => {
+  const patch = '*** Begin Patch\n*** Update File: src/a.ts\n@@\n-old\n+new\n*** End Patch'
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'applyPatch',
+    inputSummary: 'Update src/a.ts',
+    rawInput: { patch },
+    rawOutput: {
+      type: 'content',
+      value: [{ type: 'text', text: 'Applied 1 change:\nUpdated src/a.ts' }]
+    },
+    details: {
+      operations: [
+        { operation: 'update', path: 'src/a.ts', diff: '--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new' }
+      ]
+    }
+  })
+
+  assert.equal(presentation.input?.value, patch)
+  assert.equal(presentation.output?.value, 'Applied 1 change:\nUpdated src/a.ts')
+})
+
 test('buildToolCallDetailsPresentation renders edit output as diff from details', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
@@ -441,7 +626,10 @@ test('buildToolCallDetailsPresentation falls back to output when edit has no dif
     }
   })
 
-  assert.notEqual(presentation.output?.label, 'diff: src/a.ts')
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: '{\n  "replacements": 1\n}'
+  })
 })
 
 test('compressPath returns short paths unchanged', () => {

@@ -175,16 +175,27 @@ function buildFallbackInput(toolCall: ToolCall): string | undefined {
 function buildFallbackMetadata(toolCall: ToolCall): ToolCallDetailCodeBlock | undefined {
   if (!toolCall.details) return undefined
 
+  if (toolCall.toolName === 'read') {
+    const details = toolCall.details as ReadToolCallDetails
+    return metadataBlock({
+      truncated: details.truncated || undefined,
+      nextOffset: details.nextOffset,
+      remainingLines: details.remainingLines
+    })
+  }
+
   if (toolCall.toolName === 'bash') {
     const details = toolCall.details as BashToolCallDetails
+    const rawInput = toolCall.rawInput as { timeout?: number; background?: boolean } | undefined
     return metadataBlock({
       cwd: details.cwd,
+      timeout: rawInput?.timeout,
+      background: rawInput?.background || details.background,
       exitCode: details.exitCode,
       timedOut: details.timedOut,
       blocked: details.blocked,
       truncated: details.truncated,
       outputFile: details.outputFilePath,
-      background: details.background,
       taskId: details.taskId,
       logPath: details.logPath,
       liftedAfterTimeout: details.liftedAfterTimeout
@@ -197,6 +208,16 @@ function buildFallbackMetadata(toolCall: ToolCall): ToolCallDetailCodeBlock | un
       backend: details.backend,
       resultCount: details.resultCount,
       truncated: details.truncated
+    })
+  }
+
+  if (toolCall.toolName === 'webRead') {
+    const details = toolCall.details as WebReadToolCallDetails
+    return metadataBlock({
+      truncated: details.truncated || undefined,
+      originalContentChars: details.originalContentChars,
+      savedFilePath: details.savedFilePath,
+      failureCode: details.failureCode
     })
   }
 
@@ -263,6 +284,39 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
           ...(toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
         }
       : undefined
+  }
+
+  if (toolCall.toolName === 'write' && details) {
+    const write = details as WriteToolCallDetails
+    return {
+      label: t('chat.tools.output'),
+      value: compactJson({
+        bytesWritten: write.bytesWritten,
+        created: write.created,
+        overwritten: write.overwritten,
+        error
+      }),
+      ...(error ? { tone: 'danger' as const } : {})
+    }
+  }
+
+  if (toolCall.toolName === 'edit' && details && !(details as EditToolCallDetails).diff?.trim()) {
+    return {
+      label: t('chat.tools.output'),
+      value: compactJson({ replacements: (details as EditToolCallDetails).replacements, error }),
+      ...(error ? { tone: 'danger' as const } : {})
+    }
+  }
+
+  if (toolCall.toolName === 'applyPatch' && details) {
+    return {
+      label: t('chat.tools.output'),
+      value: compactJson({
+        operations: (details as ApplyPatchToolCallDetails).operations.length,
+        error
+      }),
+      ...(error ? { tone: 'danger' as const } : {})
+    }
   }
 
   if (toolCall.toolName === 'jsRepl' && details) {
@@ -373,13 +427,41 @@ function hasPresentableRawValue(value: unknown): boolean {
   return value !== undefined && (typeof value !== 'string' || Boolean(value.trim()))
 }
 
+function renderTextRawOutput(value: unknown): string | undefined {
+  if (typeof value === 'string') return value.trimEnd() || undefined
+  if (!value || typeof value !== 'object') return undefined
+  if ('type' in value && value.type === 'text' && 'value' in value) {
+    return typeof value.value === 'string' ? value.value.trimEnd() || undefined : undefined
+  }
+  if (
+    'type' in value &&
+    value.type === 'content' &&
+    'value' in value &&
+    Array.isArray(value.value)
+  ) {
+    const text = value.value
+      .filter(
+        (part): part is { type: 'text'; text: string } =>
+          part !== null &&
+          typeof part === 'object' &&
+          part.type === 'text' &&
+          typeof part.text === 'string'
+      )
+      .map((part) => part.text)
+      .join('')
+    return text.trimEnd() || undefined
+  }
+  return undefined
+}
+
 export function canExpandToolCall(toolCall: ToolCall): boolean {
   if (toolCall.toolName === 'askUser') return true
   if ('rawInput' in toolCall && hasPresentableRawValue(toolCall.rawInput)) return true
   if (
-    toolCall.toolName !== 'pyRepl' &&
     'rawOutput' in toolCall &&
-    hasPresentableRawValue(toolCall.rawOutput)
+    (toolCall.toolName === 'pyRepl'
+      ? Boolean(renderTextRawOutput(toolCall.rawOutput))
+      : hasPresentableRawValue(toolCall.rawOutput))
   ) {
     return true
   }
@@ -395,21 +477,49 @@ export function canExpandToolCall(toolCall: ToolCall): boolean {
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
   const rawInput = 'rawInput' in toolCall ? toolCall.rawInput : undefined
   const rawOutput = 'rawOutput' in toolCall ? toolCall.rawOutput : undefined
-  const inputValue =
-    rawInput !== undefined ? renderRawValue(rawInput) : buildFallbackInput(toolCall)
+  const pyReplTextOutput =
+    toolCall.toolName === 'pyRepl' ? renderTextRawOutput(rawOutput) : undefined
+  let inputValue = rawInput !== undefined ? renderRawValue(rawInput) : buildFallbackInput(toolCall)
+  if (toolCall.toolName === 'bash') {
+    inputValue =
+      getStringField(rawInput, 'command') ??
+      (toolCall.details as BashToolCallDetails | undefined)?.command
+  } else if (toolCall.toolName === 'applyPatch') {
+    inputValue = getStringField(rawInput, 'patch') ?? inputValue
+  } else if (toolCall.toolName === 'write' && rawInput === undefined && toolCall.details) {
+    const details = toolCall.details as WriteToolCallDetails
+    inputValue = compactJson({ path: details.path, contentPreview: details.contentPreview })
+  }
   const metadata = buildFallbackMetadata(toolCall)
   const diffOutput =
-    toolCall.toolName === 'applyPatch'
+    toolCall.toolName === 'applyPatch' && rawInput === undefined
       ? buildApplyPatchDiffOutput(toolCall.details as ApplyPatchToolCallDetails | undefined)
       : toolCall.toolName === 'edit'
         ? buildEditDiffOutput(toolCall.details as EditToolCallDetails | undefined)
         : undefined
+  const useStructuredOutput =
+    toolCall.toolName === 'pyRepl' ||
+    ((toolCall.toolName === 'bash' || toolCall.toolName === 'edit') && !!toolCall.details) ||
+    (toolCall.toolName === 'write' && !!toolCall.details && rawOutput === undefined)
   const output =
     diffOutput ??
-    (toolCall.toolName === 'pyRepl'
-      ? buildFallbackOutput(toolCall)
+    (useStructuredOutput
+      ? toolCall.toolName === 'pyRepl' && !toolCall.details && pyReplTextOutput
+        ? {
+            label: t('chat.tools.output'),
+            value: pyReplTextOutput,
+            ...(toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
+          }
+        : (buildFallbackOutput(toolCall) ??
+          (pyReplTextOutput
+            ? { label: t('chat.tools.output'), value: pyReplTextOutput }
+            : undefined))
       : rawOutput !== undefined
-        ? { label: t('chat.tools.output'), value: renderRawValue(rawOutput) }
+        ? {
+            label: t('chat.tools.output'),
+            value: renderRawValue(rawOutput),
+            ...(toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
+          }
         : buildFallbackOutput(toolCall))
   const replLanguage =
     toolCall.toolName === 'jsRepl'
@@ -422,7 +532,10 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     ...(inputValue
       ? {
           input: {
-            label: t('chat.tools.input'),
+            label:
+              toolCall.toolName === 'write' && rawInput === undefined
+                ? `${t('chat.tools.input')} preview`
+                : t('chat.tools.input'),
             value: inputValue,
             ...(replLanguage ? { language: replLanguage } : {})
           }
