@@ -179,6 +179,7 @@ final class ThreadViewController: UIViewController {
     }
 
     private func configureCapsules() {
+        capsuleGroup.isHidden = true
         capsuleGroup.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(capsuleGroup)
         capsuleRow.axis = .horizontal
