@@ -47,6 +47,7 @@ final class ToolHintView: MessageListRowView {
     }
 
     private let iconContainer = UIView()
+    private let overflowButton = UIButton(type: .system)
     private let summaryButton = SummaryButton(frame: .zero)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let stateImageView = UIImageView()
@@ -56,6 +57,8 @@ final class ToolHintView: MessageListRowView {
     private var selectedID: String?
     var onSelect: ((String?) -> Void)?
     var onDetails: ((String) -> Void)?
+    var onToggleAll: (() -> Void)?
+    private var showsAll = false
 
     static func summaryCall(in calls: [ToolCallContentPart]) -> ToolCallContentPart? {
         calls.last(where: { $0.state == .running }) ?? calls.last
@@ -112,8 +115,10 @@ final class ToolHintView: MessageListRowView {
         let iconHeight: CGFloat
         let detailFrame: CGRect
         let height: CGFloat
+        let hasOverflow: Bool
+        let visibleCallCount: Int
 
-        init(width: CGFloat, callCount: Int, isExpanded: Bool) {
+        init(width: CGFloat, callCount: Int, isExpanded: Bool, showsAll: Bool) {
             let width = max(0, width)
             let button = UIButton(configuration: ToolHintView.detailConfiguration)
             let preferredDetailWidth = max(96, button.sizeThatFits(.init(width: width, height: 44)).width)
@@ -121,7 +126,10 @@ final class ToolHintView: MessageListRowView {
             let detailWidth = isExpanded ? min(width, preferredDetailWidth) : 0
             let iconWidth = detailsOnOwnRow ? width : width - detailWidth
             columns = max(1, Int(iconWidth / 44))
-            let rows = max(1, (callCount + columns - 1) / columns)
+            hasOverflow = callCount > columns * 2
+            visibleCallCount = hasOverflow && !showsAll ? max(0, columns * 2 - 1) : callCount
+            let iconCount = visibleCallCount + (hasOverflow ? 1 : 0)
+            let rows = max(1, (iconCount + columns - 1) / columns)
             iconHeight = CGFloat(rows) * 44
             detailFrame = CGRect(x: width - detailWidth, y: detailsOnOwnRow ? iconHeight : 0,
                                  width: detailWidth, height: 44)
@@ -129,13 +137,16 @@ final class ToolHintView: MessageListRowView {
         }
     }
 
-    static func height(width: CGFloat, callCount: Int, isExpanded: Bool) -> CGFloat {
-        IconLayout(width: width, callCount: callCount, isExpanded: isExpanded).height + summaryHeight
+    static func height(width: CGFloat, callCount: Int, isExpanded: Bool, showsAll: Bool = false) -> CGFloat {
+        IconLayout(width: width, callCount: callCount, isExpanded: isExpanded, showsAll: showsAll).height + summaryHeight
     }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.addSubview(iconContainer)
+        iconContainer.addSubview(overflowButton)
+        overflowButton.addAction(UIAction { [weak self] _ in self?.onToggleAll?() }, for: .touchUpInside)
+        overflowButton.accessibilityIdentifier = "toolDeck.overflow"
         contentView.addSubview(summaryButton)
         contentView.addSubview(activityIndicator)
         contentView.addSubview(stateImageView)
@@ -159,15 +170,16 @@ final class ToolHintView: MessageListRowView {
         }, for: .touchUpInside)
     }
 
-    func configure(calls: [ToolCallContentPart], selectedID: String?) {
+    func configure(calls: [ToolCallContentPart], selectedID: String?, showsAll: Bool = false) {
         self.calls = calls
         self.selectedID = selectedID
+        self.showsAll = showsAll
         summaryButton.accessibilityIdentifier = calls.first.map { "toolDeck.summary.\($0.id)" }
         detailButton.accessibilityIdentifier = calls.first.map { "toolDeck.details.\($0.id)" }
         let selected = calls.first(where: { $0.id == selectedID })
         let displayed = selected ?? Self.summaryCall(in: calls)
         for view in iconContainer.subviews {
-            view.removeFromSuperview()
+            if view !== overflowButton { view.removeFromSuperview() }
         }
         for call in calls {
             let button = UIButton(type: .system)
@@ -229,6 +241,7 @@ final class ToolHintView: MessageListRowView {
         super.prepareForReuse()
         onSelect = nil
         onDetails = nil
+        onToggleAll = nil
         activityIndicator.stopAnimating()
     }
 
@@ -243,12 +256,32 @@ final class ToolHintView: MessageListRowView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let width = contentView.bounds.width
-        let layout = IconLayout(width: width, callCount: calls.count, isExpanded: !detailButton.isHidden)
+        let layout = IconLayout(width: width, callCount: calls.count, isExpanded: !detailButton.isHidden, showsAll: showsAll)
         let summaryHeight = Self.summaryHeight
         iconContainer.frame = CGRect(x: 0, y: 0, width: width, height: layout.iconHeight)
-        for (index, button) in iconContainer.subviews.enumerated() {
-            button.frame = CGRect(x: CGFloat(index % layout.columns) * 44,
-                                  y: CGFloat(index / layout.columns) * 44, width: 44, height: 44)
+        let hiddenCount = calls.count - layout.visibleCallCount
+        for (index, button) in iconContainer.subviews.filter({ $0 !== overflowButton }).enumerated() {
+            button.isHidden = index < hiddenCount
+            guard !button.isHidden else { continue }
+            let position = index - hiddenCount + (layout.hasOverflow && !showsAll ? 1 : 0)
+            button.frame = CGRect(x: CGFloat(position % layout.columns) * 44,
+                                  y: CGFloat(position / layout.columns) * 44, width: 44, height: 44)
+        }
+        overflowButton.isHidden = !layout.hasOverflow
+        if layout.hasOverflow {
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = showsAll ? nil : "+\(hiddenCount)"
+            configuration.image = showsAll ? UIImage(systemName: "chevron.up") : nil
+            configuration.preferredSymbolConfigurationForImage = .init(pointSize: 13, weight: .medium)
+            configuration.background.backgroundColor = .tertiarySystemFill
+            configuration.background.cornerRadius = 14
+            configuration.background.backgroundInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
+            configuration.baseForegroundColor = .secondaryLabel
+            overflowButton.configuration = configuration
+            overflowButton.accessibilityLabel = showsAll ? String(localized: "Show fewer tool calls") : String(localized: "Show \(hiddenCount) earlier tool calls")
+            let position = showsAll ? calls.count : 0
+            overflowButton.frame = CGRect(x: CGFloat(position % layout.columns) * 44,
+                                          y: CGFloat(position / layout.columns) * 44, width: 44, height: 44)
         }
         detailButton.frame = layout.detailFrame
         let showsBothStates = calls.contains { $0.state == .running } && calls.contains { $0.state == .failed }

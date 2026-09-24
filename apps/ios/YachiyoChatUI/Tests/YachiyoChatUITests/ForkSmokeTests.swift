@@ -33,16 +33,23 @@ final class ForkSmokeTests: XCTestCase {
             return false
         }
         XCTAssertEqual(decks.count, 1)
-        guard case let .toolCallHint(id, calls, selectedID) = decks.first else {
+        guard case let .toolCallHint(id, calls, selectedID, showsAll) = decks.first else {
             return XCTFail("Expected a grouped tool deck")
         }
         XCTAssertEqual(id, message.id)
         XCTAssertEqual(calls.map(\.id), [first.id, second.id])
         XCTAssertEqual(selectedID, first.id)
+        XCTAssertFalse(showsAll)
         XCTAssertEqual(ToolHintView.summaryCall(in: calls)?.id, second.id)
 
+        list.expandedToolDecks.insert(message.id)
+        guard case let .toolCallHint(_, _, _, expanded) = list.entries(from: [message]).last else {
+            return XCTFail("Expected an expanded tool deck")
+        }
+        XCTAssertTrue(expanded)
+
         message.parts = [.toolCall(second)]
-        guard case let .toolCallHint(_, _, removedSelection) = list.entries(from: [message]).last else {
+        guard case let .toolCallHint(_, _, removedSelection, _) = list.entries(from: [message]).last else {
             return XCTFail("Expected a tool deck after removal")
         }
         XCTAssertNil(removedSelection)

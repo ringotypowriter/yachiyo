@@ -117,8 +117,8 @@ extension MessageListView: ListViewAdapter {
                     .font: theme.fonts.body,
                 ])).height
                 return max(textHeight, ActivityReportingView.loadingSymbolSize.height + 16)
-            case let .toolCallHint(_, calls, selectedID):
-                return ToolHintView.height(width: containerWidth, callCount: calls.count, isExpanded: selectedID != nil)
+            case let .toolCallHint(_, calls, selectedID, showsAll):
+                return ToolHintView.height(width: containerWidth, callCount: calls.count, isExpanded: selectedID != nil, showsAll: showsAll)
             case let .questionCard(_, question):
                 return QuestionCardView.height(for: question, width: containerWidth)
             case let .planCard(_, plan):
@@ -240,9 +240,9 @@ extension MessageListView: ListViewAdapter {
                 }
             }
         } else if let toolHintView = rowView as? ToolHintView {
-            if case let .toolCallHint(messageID, calls, selectedID) = entry {
+            if case let .toolCallHint(messageID, calls, selectedID, showsAll) = entry {
                 toolHintView.theme = theme
-                toolHintView.configure(calls: calls, selectedID: selectedID)
+                toolHintView.configure(calls: calls, selectedID: selectedID, showsAll: showsAll)
                 toolHintView.onSelect = { [weak self] selectedID in
                     guard let self else { return }
                     selectedToolCalls[messageID] = selectedID
@@ -251,6 +251,16 @@ extension MessageListView: ListViewAdapter {
                 toolHintView.onDetails = { [weak self] toolCallID in
                     guard let self else { return }
                     interactionDelegate?.messageList(self, didSelectToolCall: toolCallID)
+                }
+                toolHintView.onToggleAll = { [weak self] in
+                    guard let self else { return }
+                    if expandedToolDecks.contains(messageID) {
+                        expandedToolDecks.remove(messageID)
+                        selectedToolCalls[messageID] = nil
+                    } else {
+                        expandedToolDecks.insert(messageID)
+                    }
+                    session?.notifyMessagesDidChange(scrolling: false)
                 }
             }
         }

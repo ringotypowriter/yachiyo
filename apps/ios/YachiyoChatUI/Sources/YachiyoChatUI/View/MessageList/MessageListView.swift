@@ -30,6 +30,7 @@ public final class MessageListView: UIView {
     lazy var dataSource: ListViewDiffableDataSource<Entry> = .init(listView: listView)
 
     var selectedToolCalls: [String: String] = [:]
+    var expandedToolDecks: Set<String> = []
     var questionDrafts: [String: String] = [:]
 
     private var entryCount = 0
@@ -39,6 +40,7 @@ public final class MessageListView: UIView {
     public var session: (any ChatMessageSource)? {
         didSet {
             selectedToolCalls.removeAll()
+            expandedToolDecks.removeAll()
             questionDrafts.removeAll()
             isFirstLoad = true
             isAutoScrollingToBottom = true

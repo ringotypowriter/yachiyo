@@ -22,10 +22,10 @@ final class ToolHintViewTests: XCTestCase {
                 return false
             }
             XCTAssertEqual(entries.count, 1)
-            guard case let .toolCallHint(_, calls, selectedID) = entries.first else {
+            guard case let .toolCallHint(_, calls, selectedID, showsAll) = entries.first else {
                 return XCTFail("Expected grouped tool deck")
             }
-            deck.configure(calls: calls, selectedID: selectedID)
+            deck.configure(calls: calls, selectedID: selectedID, showsAll: showsAll)
             deck.layoutIfNeeded()
         }
 
@@ -160,8 +160,8 @@ final class ToolHintViewTests: XCTestCase {
         let oneRow = ToolHintView.height(width: 132, callCount: 3, isExpanded: false)
         XCTAssertEqual(ToolHintView.height(width: 131, callCount: 3, isExpanded: false), oneRow + 44)
         XCTAssertEqual(ToolHintView.height(width: 132, callCount: 4, isExpanded: false), oneRow + 44)
-        XCTAssertEqual(ToolHintView.height(width: 44, callCount: 3, isExpanded: false), oneRow + 88)
-        XCTAssertEqual(ToolHintView.height(width: 0, callCount: 3, isExpanded: false), oneRow + 88)
+        XCTAssertEqual(ToolHintView.height(width: 44, callCount: 3, isExpanded: false), oneRow + 44)
+        XCTAssertEqual(ToolHintView.height(width: 0, callCount: 3, isExpanded: false), oneRow + 44)
         XCTAssertEqual(ToolHintView.height(width: 0, callCount: 0, isExpanded: false), oneRow)
     }
 
@@ -170,10 +170,10 @@ final class ToolHintViewTests: XCTestCase {
         let deck = ToolHintView()
         for width: CGFloat in [320, 132, 96, 44, 390] {
             for expanded in [false, true] {
-                let height = ToolHintView.height(width: width, callCount: calls.count, isExpanded: expanded)
+                let height = ToolHintView.height(width: width, callCount: calls.count, isExpanded: expanded, showsAll: true)
                 deck.frame = CGRect(x: 0, y: 0, width: width + MessageListView.listRowInsets.horizontal,
                                     height: height + MessageListView.listRowInsets.bottom)
-                deck.configure(calls: calls, selectedID: expanded ? calls[0].id : nil)
+                deck.configure(calls: calls, selectedID: expanded ? calls[0].id : nil, showsAll: true)
                 deck.layoutIfNeeded()
                 let summary = try XCTUnwrap(view("toolDeck.summary.call0", in: deck))
                 let details = try XCTUnwrap(view("toolDeck.details.call0", in: deck))
@@ -198,6 +198,36 @@ final class ToolHintViewTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testLongToolDeckShowsRecentCallsInTwoRowsUntilExpanded() throws {
+        let calls = (0..<120).map { ToolCallContentPart(id: "call\($0)", toolName: "read", state: .succeeded) }
+        let width: CGFloat = 320
+        let contentWidth = width - MessageListView.listRowInsets.horizontal
+        let compactHeight = ToolHintView.height(width: contentWidth, callCount: calls.count, isExpanded: false)
+        XCTAssertEqual(compactHeight, 44 * 3)
+        let deck = ToolHintView()
+        deck.frame = CGRect(x: 0, y: 0, width: width, height: compactHeight + MessageListView.listRowInsets.bottom)
+        deck.configure(calls: calls, selectedID: nil)
+        deck.layoutIfNeeded()
+        let more = try XCTUnwrap(view("toolDeck.overflow", in: deck) as? UIButton)
+        XCTAssertFalse(more.isHidden)
+        XCTAssertEqual(more.configuration?.title, "+109")
+        XCTAssertTrue(view("toolDeck.call.call0", in: deck)?.isHidden == true)
+        XCTAssertFalse(try XCTUnwrap(view("toolDeck.call.call119", in: deck)).isHidden)
+
+        var expandCount = 0
+        deck.onToggleAll = { expandCount += 1 }
+        more.sendActions(for: .touchUpInside)
+        XCTAssertEqual(expandCount, 1)
+        let expandedHeight = ToolHintView.height(width: contentWidth, callCount: calls.count, isExpanded: false, showsAll: true)
+        XCTAssertGreaterThan(expandedHeight, compactHeight)
+        deck.frame.size.height = expandedHeight + MessageListView.listRowInsets.bottom
+        deck.configure(calls: calls, selectedID: nil, showsAll: true)
+        deck.layoutIfNeeded()
+        XCTAssertFalse(try XCTUnwrap(view("toolDeck.call.call0", in: deck)).isHidden)
+        XCTAssertEqual(more.accessibilityLabel, "Show fewer tool calls")
+        XCTAssertEqual(more.frame.maxY, expandedHeight - 44)
     }
 
     private func view(_ identifier: String, in root: UIView) -> UIView? {

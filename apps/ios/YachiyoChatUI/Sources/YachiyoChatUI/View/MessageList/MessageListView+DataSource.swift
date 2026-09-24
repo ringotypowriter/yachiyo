@@ -43,7 +43,7 @@ extension MessageListView {
         case reasoningContent(String, MessageRepresentation)
         case responseContent(String, MessageRepresentation)
         case hint(String, String)
-        case toolCallHint(String, [ToolCallContentPart], String?)
+        case toolCallHint(String, [ToolCallContentPart], String?, Bool)
         case activityReporting(String)
         case questionCard(String, QuestionContentPart)
         case planCard(String, PlanCard)
@@ -56,7 +56,7 @@ extension MessageListView {
             case let .reasoningContent(id, _): "reasoning-\(id)"
             case let .responseContent(id, _): "response-\(id)"
             case let .hint(id, _): "hint-\(id)"
-            case let .toolCallHint(id, _, _): "tool-\(id)"
+            case let .toolCallHint(id, _, _, _): "tool-\(id)"
             case let .activityReporting(msg): "activity-\(msg)"
             case let .questionCard(id, _): "question-\(id)"
             case let .planCard(id, _): "plan-\(id)"
@@ -178,7 +178,7 @@ extension MessageListView {
                     let selectedID = selectedToolCalls[message.id].flatMap { id in
                         toolCalls.contains(where: { $0.id == id }) ? id : nil
                     }
-                    entries.append(.toolCallHint(message.id, toolCalls, selectedID))
+                    entries.append(.toolCallHint(message.id, toolCalls, selectedID, expandedToolDecks.contains(message.id)))
                 }
 
                 for part in message.parts {
