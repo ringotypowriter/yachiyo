@@ -65,6 +65,9 @@ final class InboxViewController: UIViewController {
     private var searchFailed = false
     private var refreshingDesktopIds: Set<String> = []
     private var pendingMutations: Set<String> = []
+    private var readingDelayTask: Task<Void, Never>?
+    private var showsReadingStatus = false
+    private var readingDesktopId: String?
     private let desktopButton = UIButton(type: .system)
     private let filterStatus = UIButton(type: .system)
     private lazy var filterItem = UIBarButtonItem(image: .lucide("list-filter"), menu: makeFilterMenu())
@@ -288,14 +291,33 @@ final class InboxViewController: UIViewController {
             guard let error = store.inboxLoadErrors[desktop.id] else { return nil }
             return "\(desktop.name): \(error)"
         }
-        let connections = desktops.compactMap { store.connectionText(for: $0) }
         let loading = selectedDesktopId.map { store.loadingInboxes.contains($0) } ?? false
-        navigationItem.prompt = isEmpty ? nil : (connections.first ?? (loading ? String(localized: "Loading threads…") : (failures.isEmpty ? nil : String(localized: "Couldn't refresh threads. Pull to retry."))))
-        if isEmpty, loading || !connections.isEmpty {
-            let connecting = desktops.contains { $0.state == .connecting }
+        let connecting = desktops.contains { $0.state == .connecting }
+        let waitingForInbox = isEmpty && (loading || connecting)
+        if !waitingForInbox || readingDesktopId != selectedDesktopId {
+            readingDelayTask?.cancel()
+            readingDelayTask = nil
+            showsReadingStatus = false
+            readingDesktopId = selectedDesktopId
+        }
+        if waitingForInbox, readingDelayTask == nil, !showsReadingStatus {
+            readingDelayTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled else { return }
+                self?.readingDelayTask = nil
+                self?.showsReadingStatus = true
+                self?.updateEmptyState(isEmpty: self?.visibleItems().isEmpty ?? true)
+            }
+        }
+        navigationItem.prompt = nil
+        if waitingForInbox && !showsReadingStatus {
+            contentUnavailableConfiguration = nil
+            return
+        }
+        if isEmpty, loading || connecting || desktops.contains(where: { $0.state != .online }) {
             var configuration = loading || connecting ? UIContentUnavailableConfiguration.loading() : UIContentUnavailableConfiguration.empty()
-            configuration.text = loading ? String(localized: "Loading threads…") : connections.joined(separator: "\n")
-            configuration.secondaryText = loading ? (connections.isEmpty ? String(localized: "Fetching your inbox from your Mac.") : connections.joined(separator: "\n")) : nil
+            configuration.text = loading || connecting ? String(localized: "Loading threads…") : (desktops.first.flatMap { store.connectionText(for: $0) } ?? String(localized: "Your Mac is offline"))
+            configuration.secondaryText = nil
             if !loading, !connecting, desktops.contains(where: { if case .offline = $0.state { return true }; return false }) {
                 configuration.button = YachiyoMaterialKit.primaryButtonConfiguration(title: String(localized: "Retry"), image: nil)
                 configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.refreshInbox() }

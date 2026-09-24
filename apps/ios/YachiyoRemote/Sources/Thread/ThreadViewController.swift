@@ -43,6 +43,8 @@ final class ThreadViewController: UIViewController {
     private var isSwitchingBranch = false
     private var isOpeningPlan = false
     private var openTask: Task<Void, Never>?
+    private var readingDelayTask: Task<Void, Never>?
+    private var showsReadingStatus = false
 
     init(desktopId: String, threadId: String) {
         thread = ThreadStore(desktopId: desktopId, threadId: threadId)
@@ -79,6 +81,9 @@ final class ThreadViewController: UIViewController {
         if presentedViewController == nil {
             openTask?.cancel()
             openTask = nil
+            readingDelayTask?.cancel()
+            readingDelayTask = nil
+            showsReadingStatus = false
             thread.close()
         }
     }
@@ -245,8 +250,7 @@ final class ThreadViewController: UIViewController {
     }
 
     private func configureLoadingStatus() {
-        // Status lives in the navigation bar, never over the scrollable history. Its
-        // reserved height stays constant while connecting, refreshing, or retrying.
+        // Reserve the subtitle height so delayed reading and actionable failures do not shift the title.
         loadingStatus.axis = .horizontal
         loadingStatus.spacing = 4
         loadingStatus.alignment = .center
@@ -305,20 +309,36 @@ final class ThreadViewController: UIViewController {
         let desktop = store.desktops.first { $0.id == thread.desktopId }
         subtitleLabel.text = [desktop?.name, summary?.workspaceName].compactMap { $0 }.joined(separator: " · ")
 
-        let connection = desktop.flatMap { store.connectionText(for: $0) }
-        let busy = desktop?.state == .connecting || (desktop?.state == .online && thread.isLoading) || thread.isStopping
-        let status = connection ?? (thread.isStopping ? String(localized: "Stopping response…") : (thread.isLoading ? (thread.detail == nil ? String(localized: "Loading history…") : String(localized: "Refreshing…")) : thread.loadError.map { String(localized: "Couldn't load conversation. \($0)") }))
-        emptyHistoryLabel.isHidden = thread.detail != nil || !thread.messages.isEmpty
+        let missingHistory = thread.detail == nil && thread.messages.isEmpty
+        let waitingForHistory = missingHistory && (desktop?.state == .connecting || thread.isLoading)
+        if waitingForHistory, readingDelayTask == nil, !showsReadingStatus {
+            readingDelayTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled else { return }
+                self?.readingDelayTask = nil
+                self?.showsReadingStatus = true
+                self?.updateChrome()
+            }
+        } else if !waitingForHistory {
+            readingDelayTask?.cancel()
+            readingDelayTask = nil
+            showsReadingStatus = false
+        }
+        let offline: Bool
+        if case .offline = desktop?.state { offline = true } else { offline = false }
+        let mismatch = desktop?.state == .protocolMismatch
+        let failure = missingHistory ? (mismatch ? desktop.flatMap { store.connectionText(for: $0) } : thread.loadError.map { String(localized: "Couldn't load conversation. \($0)") }) : nil
+        let status = failure ?? (thread.isStopping ? String(localized: "Stopping response…") : (waitingForHistory && showsReadingStatus ? String(localized: "Loading conversation…") : nil))
+        emptyHistoryLabel.isHidden = !missingHistory || waitingForHistory
         emptyHistoryLabel.text = desktop?.state == .online
             ? (thread.loadError == nil ? String(localized: "Loading conversation history…") : String(localized: "History couldn't be loaded. Tap Retry above."))
             : String(localized: "No saved history on this iPhone yet. History will load when your Mac connects.")
         loadingLabel.text = status ?? subtitleLabel.text
         loadingLabel.accessibilityLabel = status ?? subtitleLabel.text
+        let busy = (waitingForHistory && showsReadingStatus) || thread.isStopping
         loadingSpinner.isHidden = !busy
         if busy { loadingSpinner.startAnimating() } else { loadingSpinner.stopAnimating() }
-        let offline: Bool
-        if case .offline = desktop?.state { offline = true } else { offline = false }
-        retryButton.isHidden = busy || !(offline || (desktop?.state == .online && thread.loadError != nil))
+        retryButton.isHidden = !missingHistory || waitingForHistory || !(offline || (desktop?.state == .online && thread.loadError != nil))
         bannerLabel.text = thread.isReadOnly ? String(localized: "Read-only — synced from another device") : nil
         banner.isHidden = !thread.isReadOnly
         // Keep the draft and keyboard in place during transient connection/refresh states.

@@ -60,6 +60,7 @@ final class ThreadStore: ChatMessageSource {
     private var liveToolCalls: [String: RemoteToolCall] = [:]
     private var runFooters: [String: String] = [:]
     private var pendingPlanContent: String?
+    private var planReadToken: UUID?
     private var activeRunId: String?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -98,7 +99,8 @@ final class ThreadStore: ChatMessageSource {
                 guard let self, isOpen else { return }
                 if state == .online { Task { await self.reloadIfNeeded() } }
                 else {
-                    if loadToken != nil { needsReload = true }
+                    if loadToken != nil || planReadToken != nil { needsReload = true }
+                    planReadToken = nil
                     loadToken = nil; isLoading = false; eventsDuringLoad.removeAll()
                 }
             }
@@ -145,6 +147,7 @@ final class ThreadStore: ChatMessageSource {
         deltaRebuildTask = nil
         isOpen = false
         needsReload = true
+        planReadToken = nil
         loadToken = nil
         isLoading = false
         eventsDuringLoad.removeAll()
@@ -173,6 +176,7 @@ final class ThreadStore: ChatMessageSource {
         store.dirtyThread(desktopId: desktopId, threadId: threadId)
         reloadAgain = false
         let token = UUID()
+        planReadToken = nil
         loadToken = token
         eventsDuringLoad.removeAll()
         loadEventsOverflowed = false
@@ -194,16 +198,7 @@ final class ThreadStore: ChatMessageSource {
         do {
             let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: 50, beforeMessageId: nil))
             guard loadToken == token, isOpen, !loadEventsOverflowed, !Task.isCancelled else { return }
-            // Current plans live in a workspace file, not necessarily in a marker message.
-            // A failed preview read must not hide the pending review actions.
-            var planContent: String?
-            if loaded.pendingPlan, isOpen, loadToken == token, !Task.isCancelled {
-                let plan: RemotePlanReadOutput? = try? await store.call(desktopId, "plan.read", ThreadRefInput(threadId: threadId))
-                planContent = plan?.content
-            }
-            try Task.checkCancellation()
-            guard loadToken == token, isOpen, !loadEventsOverflowed else { return }
-            pendingPlanContent = planContent
+            pendingPlanContent = nil
             detail = loaded
             summary = loaded.thread
             store.upsert(desktopId: desktopId, summary: loaded.thread)
@@ -247,6 +242,19 @@ final class ThreadStore: ChatMessageSource {
             imageData = imageData.filter { visibleImageKeys.contains($0.key) }
             missingImages = missingImages.intersection(visibleImageKeys)
             rebuild(scrolling: initialLoad)
+            if loaded.pendingPlan, detail?.pendingPlan == true, isOpen {
+                // The file-backed preview is optional; do not delay history or review actions.
+                planReadToken = token
+                Task { [weak self] in
+                    guard let self, isOpen, planReadToken == token, !Task.isCancelled else { return }
+                    let plan: RemotePlanReadOutput? = try? await store.call(desktopId, "plan.read", ThreadRefInput(threadId: threadId))
+                    guard isOpen, planReadToken == token, detail?.pendingPlan == true,
+                          !Task.isCancelled, let plan else { return }
+                    planReadToken = nil
+                    pendingPlanContent = plan.content
+                    rebuild(scrolling: false)
+                }
+            }
         } catch {
             guard loadToken == token, !Task.isCancelled, !(error is CancellationError) else { return }
             loadError = describe(error)
@@ -350,6 +358,7 @@ final class ThreadStore: ChatMessageSource {
         case .threadInvalidated:
             if !isReplayingLoadEvents { invalidate() }
         case .threadRemoved:
+            planReadToken = nil
             imageData.removeAll()
             missingImages.removeAll()
             pendingSteerImages.removeAll()
