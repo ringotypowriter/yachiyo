@@ -32,12 +32,13 @@ All commands print JSON and need the app running (it is, since you are running i
 
 ## Setup flow
 
-Follow these steps in order. Tell the user what each step is for in one short sentence. A tunnel
-setup is not complete until its launch arguments explicitly select HTTP/2 **and** the watchdog
-is installed and producing fresh samples. Do this proactively, including when an existing tunnel
-is already running; do not wait for the user to ask for HTTP/2 or automatic recovery. If either
-cannot be verified, report setup as incomplete and explain the blocker rather than silently
-skipping it. Explain up front that a watchdog restart can change a quick tunnel's address.
+Follow these steps in order. Tell the user what each step is for in one short sentence. **HTTP/2
+and a running watchdog are prerequisites for starting a tunnel**, not optional post-setup work.
+Install and verify the watchdog before calling `yachiyo remote tunnel install` in either mode;
+use an installer that generates `--protocol http2` for that mode. Do not start the tunnel if
+either prerequisite fails. Verify the generated arguments and live health again after startup.
+Apply these checks proactively to an existing tunnel too; do not wait for the user to ask.
+Explain up front that a watchdog restart can change a quick tunnel's address.
 
 ### 1. Check the current state
 
@@ -73,7 +74,8 @@ installs need the user's approval in this session). Re-run `yachiyo remote statu
 ### 4. Choose a tunnel
 
 If a tunnel is already configured and the user is setting up a phone, keep its mode and skip
-step 5 unless step 6 finds HTTP/2 missing. Otherwise ask the user which tunnel to use:
+the tunnel installation step unless the HTTP/2 check finds it missing. Otherwise ask the user
+which tunnel to use:
 
 - **Quick tunnel** (default, no account): a random `*.trycloudflare.com` address. Free, no setup,
   no uptime guarantee; recreating cloudflared can change the address. Phones with the recovery
@@ -82,7 +84,23 @@ step 5 unless step 6 finds HTTP/2 missing. Otherwise ask the user which tunnel t
   Cloudflare account. More reliable; needs a Cloudflare account and a domain whose DNS is on
   Cloudflare.
 
-### 5a. Quick tunnel
+### 5. Preflight before starting the tunnel
+
+Both install modes must generate `--protocol http2`, reducing dependence on QUIC/UDP on proxy/TUN
+networks. Do not use an older installer that does not support this for the chosen mode. Install
+the bundled watchdog now, using `install` and `status` under **Automatic recovery**. Require a
+running watchdog before starting/restarting the tunnel. Before the tunnel exists, probes may
+report an absent origin/metrics; that is expected, not a reason to skip the watchdog. If the
+watchdog cannot start, stop here and report the blocker. Do not start a tunnel first and promise
+to install the watchdog later.
+
+For an existing tunnel, inspect its owned `sh.ringo.yachiyo.cloudflared` LaunchAgent's
+`ProgramArguments` read-only: require `--protocol` followed by `http2`. If missing, explain that
+reinstalling may briefly interrupt access and can change a quick-tunnel address; only reinstall
+its **existing** mode after the watchdog preflight succeeds. Do not modify a plist or replace a
+named tunnel with a quick one.
+
+### 6a. Quick tunnel
 
 If `cloudflared.conflictingUserConfig` is `true`, a quick tunnel cannot run while
 `~/.cloudflared/config.yaml` exists. Explain this and recommend a named tunnel instead; do not
@@ -90,7 +108,7 @@ delete or rename the user's file.
 
 Otherwise run `yachiyo remote tunnel install --mode quick`.
 
-### 5b. Named tunnel
+### 6b. Named tunnel
 
 1. Confirm the user has a Cloudflare account and a domain on Cloudflare. If not, explain that they
    can create a free account at dash.cloudflare.com and add a domain (or move an existing domain's
@@ -105,23 +123,18 @@ Otherwise run `yachiyo remote tunnel install --mode quick`.
 The app writes its own ingress file under `~/.yachiyo/remote/` and passes it with `--config`, so
 the user's existing cloudflared configuration is left alone.
 
-Both install modes explicitly select `--protocol http2`, reducing dependence on QUIC/UDP on
-proxy/TUN networks. Preserve the chosen mode and routing configuration.
+Preserve the chosen mode and routing configuration.
 
-### 6. Verify
+### 7. Verify
 
 Run `yachiyo remote status` to discover the origin port, tunnel mode, and current public endpoint.
 `running` describes the local service; `cloudflared.agentRunning` describes a process, and a
 remembered hostname may be stale. None proves public reachability. Allow at least 30 seconds for
 startup/address discovery before judging a new tunnel.
 
-Inspect the **owned** `sh.ringo.yachiyo.cloudflared` LaunchAgent's `ProgramArguments` read-only:
-require `--protocol` followed by `http2`. For a pre-existing tunnel missing the flag, explain
-that reinstalling may briefly interrupt access and can change a quick-tunnel address, then run
-the supported `yachiyo remote tunnel install` command for its **existing** mode and verify the
-arguments again. Do not modify a plist or replace a named tunnel with a quick one. If the
-installed app does not generate HTTP/2 for that mode, stop and report the version blocker;
-neither an alive process nor a log from an earlier launch proves the flag is set now.
+Verify the owned LaunchAgent's actual `ProgramArguments` contain `--protocol` followed by
+`http2`. If they do not, stop and report the version blocker; do not claim setup succeeded.
+Neither an alive process nor a log from an earlier launch proves the flag is set now.
 HTTP/2 is a transport choice, not a health check: edge registration can still fail.
 
 Check the path in layers:
@@ -141,12 +154,9 @@ A proxy's `200 Connection established` is not the final response. The public end
 does not undo a successful upgrade. This validates transport, not authenticated phone access.
 Do not call the phone connected until its own connection/hello succeeds.
 
-### 7. Install and verify automatic recovery
-
-Run the bundled watchdog `install`, `status`, and `check` commands under **Automatic recovery**,
-even if the tunnel is healthy or a watchdog was previously installed. Verify a fresh running
-sample and another scheduled sample after startup grace. A healthy tunnel needs no restart.
-If the watchdog cannot be installed or monitored, do not claim remote setup is complete.
+Confirm the watchdog is still running with `status` and a read-only `check`. Verify a fresh
+sample and another scheduled sample after startup grace. If monitoring has stopped, do not claim
+setup succeeded. A healthy tunnel needs no restart.
 
 ### 8. Pair the phone
 
@@ -198,7 +208,8 @@ about phone-side recovery rather than inferring it from Mac-side iCloud availabi
 
 LaunchAgent `KeepAlive` only replaces an exited process; it cannot fix a live process stuck with
 zero edge connections. This skill bundles a dependency-free Node watchdog in `scripts/`.
-Install and verify it during every tunnel setup; do not offer it as an optional follow-up.
+Install it **before** starting any tunnel, even if a previous watchdog is present; do not offer
+it as an optional follow-up.
 Read [references/tunnel-watchdog.md](references/tunnel-watchdog.md) for the
 policy, ownership boundaries, and operational files.
 
@@ -219,8 +230,8 @@ the bundled scripts to `~/.yachiyo/helpers/tunnel-watchdog/` and registers the s
 removes only the watchdog job, not the tunnel or phone pairings. Update code in the source skill
 and rerun `install`; do not patch the generated runtime copy or the installed skill by hand.
 
-Verify `running`, `sampleFresh`, and the observation fields in `status`. After startup grace,
-check another sample to establish that it continues running. Report the actual PID, last check,
-and probe results. A successful install command alone does not prove continuous monitoring or
-phone recovery. Keep the current healthy connection intact; use the included deterministic tests
-for failure/restart policy unless a live outage test has been explicitly approved.
+Before tunnel startup, verify `running` in `status`; after startup, verify `sampleFresh` and the
+observation fields, then check another sample after startup grace. Report the actual PID, last
+check, and probe results. A successful install command alone does not prove continuous monitoring
+or phone recovery. Keep the current healthy connection intact; use the included deterministic
+tests for failure/restart policy unless a live outage test has been explicitly approved.

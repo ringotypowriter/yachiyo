@@ -1,6 +1,6 @@
 # Bundled tunnel watchdog
 
-Implemented in this skill's `scripts/` directory. Install it on every tunnel setup;
+Implemented in this skill's `scripts/` directory. Install and verify it before tunnel startup;
 a bundled file or an alive cloudflared process is not proof that monitoring is running.
 
 ## Ownership and installation
