@@ -130,6 +130,14 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     return storage().listThreadRuns(threadId, { limit: 1 })[0]
   }
 
+  function visibleInInbox(thread: ThreadRecord, latestRun: RunRecord | undefined): boolean {
+    return (
+      thread.title !== 'New Chat' ||
+      Boolean(thread.preview || thread.headMessageId) ||
+      latestRun?.status === 'running'
+    )
+  }
+
   function requireActiveThread(threadId: string): ThreadRecord {
     const thread = storage().getThread(threadId)
     if (!thread || thread.archivedAt || thread.syncOriginDeviceId)
@@ -139,7 +147,10 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
 
   function listThreadSummaries(input: { cursor?: string; limit?: number }): ThreadListPage {
     const { threads, latestRunsByThread } = storage().bootstrap()
-    const localThreads = threads.filter((thread) => !thread.syncOriginDeviceId)
+    const localThreads = threads.filter(
+      (thread) =>
+        !thread.syncOriginDeviceId && visibleInInbox(thread, latestRunsByThread[thread.id])
+    )
     const offset = input.cursor ? Number.parseInt(input.cursor, 10) : 0
     if (!Number.isInteger(offset) || offset < 0) throw new Error('Invalid thread list cursor.')
     const limit = input.limit ?? THREAD_LIST_DEFAULT
@@ -154,7 +165,8 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
   function getThreadSummary(input: { threadId: string }): RemoteThreadSummary | null {
     const thread = storage().getThread(input.threadId)
     if (!thread || thread.archivedAt || thread.syncOriginDeviceId) return null
-    return summarize(thread, latestRunOf(thread.id))
+    const latestRun = latestRunOf(thread.id)
+    return visibleInInbox(thread, latestRun) ? summarize(thread, latestRun) : null
   }
 
   function loadThread(input: {

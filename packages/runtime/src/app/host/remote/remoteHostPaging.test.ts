@@ -17,6 +17,7 @@ function fixture(count = 3000): {
   thread: ThreadRecord
   messages: MessageRecord[]
   queued: MessageRecord[]
+  ops: ReturnType<typeof createRemoteHostOps>
   load: (input?: { limit?: number; beforeMessageId?: string }) => RemoteThreadDetail
 } {
   const storage = createInMemoryYachiyoStorage()
@@ -52,7 +53,7 @@ function fixture(count = 3000): {
   })
   const load = (input: { limit?: number; beforeMessageId?: string } = {}): RemoteThreadDetail =>
     ops['host.remote.loadThread']({ threadId: thread.id, ...input })
-  return { storage, thread, messages, queued, load }
+  return { storage, thread, messages, queued, ops, load }
 }
 
 function tool(
@@ -175,6 +176,37 @@ test('thread summaries paginate local threads without consuming cursor slots for
   assert.throws(() => ops['host.remote.loadThread']({ threadId: 'mirror-new' }), {
     name: 'RemoteNotFound'
   })
+})
+
+test('remote inbox omits only empty idle New Chat threads before pagination and push summaries', () => {
+  const { storage, ops } = fixture(1)
+  const create = (id: string, extra: Partial<ThreadRecord> = {}): ThreadRecord => {
+    const thread: ThreadRecord = { id, title: 'New Chat', updatedAt: '2026-01-02', ...extra }
+    storage.createThread({ thread, createdAt: thread.updatedAt })
+    return thread
+  }
+  create('blank')
+  create('preview', { preview: 'Hello' })
+  create('message', { headMessageId: 'image-only' })
+  const running = create('running')
+  storage.startRun({
+    runId: 'run',
+    thread: running,
+    updatedThread: running,
+    requestMessageId: 'request',
+    createdAt: running.updatedAt
+  })
+
+  assert.equal(ops['host.remote.getThreadSummary']({ threadId: 'blank' }), null)
+  assert.ok(ops['host.remote.getThreadSummary']({ threadId: 'message' }))
+  assert.ok(ops['host.remote.getThreadSummary']({ threadId: 'running' }))
+  const first = ops['host.remote.listThreadSummaries']({ limit: 2 })
+  const second = ops['host.remote.listThreadSummaries']({ cursor: first.nextCursor, limit: 2 })
+  assert.deepEqual(
+    [...first.threads, ...second.threads].map((item) => item.id),
+    ['preview', 'message', 'running', 'thread']
+  )
+  assert.equal(second.nextCursor, undefined)
 })
 
 test('ancestry order, hidden ancestors, sibling metadata and cursor rejection survive body paging', () => {

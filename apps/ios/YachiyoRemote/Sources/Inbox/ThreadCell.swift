@@ -123,8 +123,6 @@ final class ThreadCell: UICollectionViewListCell {
         }
         starView.isHidden = !(summary.starred && statusDot.status == .none)
         starView.tintColor = .yachiyo(.warning)
-        contentView.alpha = isOffline ? 0.55 : 1
-
         var background = UIBackgroundConfiguration.listPlainCell()
         background.backgroundColor = .yachiyo(.app)
         backgroundConfiguration = background
