@@ -28,7 +28,7 @@ final class DesktopLink {
     private var generation = UUID()
     private let connector: DesktopConnector
     private let onChange: @MainActor (DesktopLink) -> Void
-    private let onEvent: @MainActor (DesktopLink, RemoteEvent) -> Void
+    private let onEvent: @MainActor (DesktopLink, RemoteEvent, Int) -> Void
     private let onResync: @MainActor (DesktopLink) -> Void
     private let persist: @MainActor (PairedDesktop) -> Void
     private var lastSeen: Date?
@@ -49,7 +49,7 @@ final class DesktopLink {
         hello: RemoteHelloOutput? = nil,
         cachedCursor: ResumeCursor? = nil,
         onChange: @escaping @MainActor (DesktopLink) -> Void,
-        onEvent: @escaping @MainActor (DesktopLink, RemoteEvent) -> Void,
+        onEvent: @escaping @MainActor (DesktopLink, RemoteEvent, Int) -> Void,
         onResync: @escaping @MainActor (DesktopLink) -> Void,
         persist: @escaping @MainActor (PairedDesktop) -> Void
     ) {
@@ -340,7 +340,7 @@ final class DesktopLink {
             guard isCurrent(generation), self.client === client else { return }
             lastSeen = Date()
             switch tracker.observe(push) {
-            case let .apply(event): onEvent(self, event)
+            case let .apply(event): onEvent(self, event, push.seq)
             case .skip: continue
             case .resync: onResync(self)
             }

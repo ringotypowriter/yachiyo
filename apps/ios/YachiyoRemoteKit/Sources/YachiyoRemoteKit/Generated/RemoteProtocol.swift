@@ -1736,17 +1736,19 @@ public struct RemoteThreadDetail: Codable, Equatable, Sendable {
     public let messages: [RemoteMessage]
     public let pendingPlan: Bool
     public let queuedFollowUps: [RemoteMessage]
+    public let streamSnapshotSeq: Int?
     public let thread: RemoteThreadSummary
     public let todoItems: [RemoteTodoItem]
     public let toolCalls: [RemoteToolCall]
 
-    public init(activeRunId: String?, activeRunMode: RemoteRunMode?, hasMoreBefore: Bool, messages: [RemoteMessage], pendingPlan: Bool, queuedFollowUps: [RemoteMessage], thread: RemoteThreadSummary, todoItems: [RemoteTodoItem], toolCalls: [RemoteToolCall]) {
+    public init(activeRunId: String?, activeRunMode: RemoteRunMode?, hasMoreBefore: Bool, messages: [RemoteMessage], pendingPlan: Bool, queuedFollowUps: [RemoteMessage], streamSnapshotSeq: Int?, thread: RemoteThreadSummary, todoItems: [RemoteTodoItem], toolCalls: [RemoteToolCall]) {
         self.activeRunId = activeRunId
         self.activeRunMode = activeRunMode
         self.hasMoreBefore = hasMoreBefore
         self.messages = messages
         self.pendingPlan = pendingPlan
         self.queuedFollowUps = queuedFollowUps
+        self.streamSnapshotSeq = streamSnapshotSeq
         self.thread = thread
         self.todoItems = todoItems
         self.toolCalls = toolCalls

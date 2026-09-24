@@ -2081,6 +2081,11 @@
             "$ref": "#/$defs/RemoteMessage"
           }
         },
+        "streamSnapshotSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
         "activeRunId": {
           "type": "string",
           "minLength": 1,

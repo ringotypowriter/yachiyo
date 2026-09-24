@@ -41,7 +41,7 @@ final class ThreadStore: ChatMessageSource {
     private var reloadAgain = false
     private var loadToken: UUID?
     private var isOpen = false
-    private var eventsDuringLoad: [RemoteEvent] = []
+    private var eventsDuringLoad: [(event: RemoteEvent, seq: Int)] = []
     private var isReplayingLoadEvents = false
     @Published private(set) var lastError: String?
     @Published private(set) var outboundState: ThreadOutboundState = .idle
@@ -83,7 +83,7 @@ final class ThreadStore: ChatMessageSource {
         rebuild(scrolling: false)
         store.threadEvents
             .filter { [desktopId, threadId] in $0.desktopId == desktopId && $0.event.threadId == threadId }
-            .sink { [weak self] in self?.apply($0.event) }
+            .sink { [weak self] in self?.apply($0.event, seq: $0.seq) }
             .store(in: &cancellables)
         store.resyncs
             .filter { [desktopId] in $0 == desktopId }
@@ -214,7 +214,9 @@ final class ThreadStore: ChatMessageSource {
             isLoading = false
             eventsDuringLoad.removeAll()
             isReplayingLoadEvents = true
-            for event in buffered { apply(event) }
+            for entry in buffered where entry.seq > (loaded.streamSnapshotSeq ?? -1) {
+                apply(entry.event, seq: entry.seq)
+            }
             isReplayingLoadEvents = false
             let loadedMessages = detail?.messages ?? []
             let uniqueFilenames = loadedMessages.flatMap(\.images).compactMap(\.filename)
@@ -265,15 +267,15 @@ final class ThreadStore: ChatMessageSource {
         updateReplyState()
     }
 
-    private func apply(_ event: RemoteEvent) {
+    private func apply(_ event: RemoteEvent, seq: Int) {
         guard isOpen else { return }
-        if loadToken != nil { eventsDuringLoad.append(event) }
+        if loadToken != nil { eventsDuringLoad.append((event, seq)) }
         switch event.type {
         case .messageStarted:
             guard let messageId = event.messageId else { return }
             observeRun(event.runId)
             if streamingText[messageId] == nil {
-                streamingText[messageId] = ""
+                streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
                 streamingOrder.append(messageId)
             }
             if let parent = event.parentMessageId { streamingParent[messageId] = parent }
@@ -281,15 +283,21 @@ final class ThreadStore: ChatMessageSource {
         case .messageDelta:
             guard let messageId = event.messageId else { return }
             observeRun(event.runId ?? activeRunId, responding: true)
-            if streamingText[messageId] == nil { streamingOrder.append(messageId) }
+            if streamingText[messageId] == nil {
+                streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
+                streamingOrder.append(messageId)
+            }
             streamingText[messageId, default: ""] += event.delta ?? ""
             rebuild(scrolling: true)
         case .messageReasoningDelta:
             guard let messageId = event.messageId else { return }
             observeRun(event.runId ?? activeRunId, responding: true)
             if streamingText[messageId] == nil {
-                streamingText[messageId] = ""
+                streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
                 streamingOrder.append(messageId)
+            }
+            if streamingReasoning[messageId] == nil {
+                streamingReasoning[messageId] = detail?.messages.first { $0.id == messageId }?.reasoning ?? ""
             }
             streamingReasoning[messageId, default: ""] += event.delta ?? ""
             rebuild(scrolling: true)
@@ -377,8 +385,8 @@ final class ThreadStore: ChatMessageSource {
             built.append(conversationMessage(
                 id: message.id,
                 role: message.role == .user ? .user : .assistant,
-                text: message.content,
-                reasoning: message.reasoning,
+                text: streamingText[message.id] ?? message.content,
+                reasoning: streamingReasoning[message.id] ?? message.reasoning,
                 reasoningCollapsed: true,
                 createdAt: message.createdAt.isoDate ?? Date(),
                 attachments: message.attachments.map(\.filename),
@@ -787,6 +795,7 @@ extension RemoteThreadDetail {
         RemoteThreadDetail(
             activeRunId: activeRunId, activeRunMode: activeRunMode, hasMoreBefore: hasMoreBefore,
             messages: messages, pendingPlan: pendingPlan, queuedFollowUps: queuedFollowUps,
+            streamSnapshotSeq: streamSnapshotSeq,
             thread: thread, todoItems: todoItems, toolCalls: toolCalls
         )
     }

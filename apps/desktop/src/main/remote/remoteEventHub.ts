@@ -32,6 +32,14 @@ interface PendingDelta {
   delta: string
 }
 
+interface ActiveMessage {
+  id: string
+  parentMessageId?: string
+  content: string
+  reasoning: string
+  createdAt: string
+}
+
 export interface RemoteEventHubOptions {
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
   getThreadSummary(threadId: string): Promise<RemoteThreadSummary | null>
@@ -84,6 +92,7 @@ export class RemoteEventHub {
   private readonly summaryGeneration = new Map<string, number>()
   private readonly pendingTasks = new Set<string>()
   private readonly waitingToolCalls = new Map<string, Set<string>>()
+  private readonly activeMessages = new Map<string, Map<string, Map<string, ActiveMessage>>>()
   private lastAppearance: string | null = null
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private unsubscribe: (() => void) | null = null
@@ -111,6 +120,32 @@ export class RemoteEventHub {
     return this.seq
   }
 
+  /** A point-in-time copy, captured before an asynchronous thread load begins. */
+  snapshotMessages(threadId: string, runId: string): RemoteMessage[] {
+    return [...(this.activeMessages.get(threadId)?.get(runId)?.values() ?? [])].map((message) => ({
+      id: message.id,
+      ...(message.parentMessageId ? { parentMessageId: message.parentMessageId } : {}),
+      role: 'assistant',
+      content: message.content,
+      ...(message.reasoning ? { reasoning: message.reasoning } : {}),
+      images: [],
+      attachments: [],
+      status: 'streaming',
+      createdAt: message.createdAt,
+      isPlanDocument: false
+    }))
+  }
+
+  /** Capture all runs for a thread; the facade selects the run returned by the host load. */
+  snapshotThreadMessages(threadId: string): Map<string, RemoteMessage[]> {
+    return new Map(
+      [...(this.activeMessages.get(threadId)?.keys() ?? [])].map((runId) => [
+        runId,
+        this.snapshotMessages(threadId, runId)
+      ])
+    )
+  }
+
   start(): void {
     if (this.unsubscribe) return
     this.unsubscribe = this.options.subscribe((event) => this.handle(event))
@@ -124,6 +159,7 @@ export class RemoteEventHub {
     this.pendingDeltas.clear()
     this.pendingSummaries.clear()
     this.pendingTasks.clear()
+    this.activeMessages.clear()
     this.subscribers.clear()
   }
 
@@ -185,6 +221,9 @@ export class RemoteEventHub {
     switch (event.type) {
       case 'message.delta':
       case 'message.reasoning.delta': {
+        const message = this.ensureActiveMessage(event)
+        if (event.type === 'message.delta') message.content += event.delta
+        else message.reasoning += event.delta
         const key = `${event.type}:${event.messageId}`
         const pending = this.pendingDeltas.get(key)
         if (pending) {
@@ -240,6 +279,7 @@ export class RemoteEventHub {
       case 'thread.archived':
       case 'thread.deleted':
         this.waitingToolCalls.delete(event.threadId)
+        this.activeMessages.delete(event.threadId)
         return [
           {
             type: 'thread.removed',
@@ -259,6 +299,7 @@ export class RemoteEventHub {
       case 'run.failed':
       case 'run.cancelled':
         this.waitingToolCalls.delete(event.threadId)
+        this.activeMessages.get(event.threadId)?.delete(event.runId)
         this.queueSummary(event.threadId)
         return [
           {
@@ -281,6 +322,7 @@ export class RemoteEventHub {
           }
         ]
       case 'message.started':
+        this.ensureActiveMessage(event)
         return [
           {
             type: 'message.started',
@@ -291,6 +333,7 @@ export class RemoteEventHub {
           }
         ]
       case 'message.completed': {
+        this.activeMessages.get(event.threadId)?.get(event.runId)?.delete(event.message.id)
         const message = projectMessage(event.message)
         if (!message) return []
         const queuedFollowUps = event.queuedFollowUpMessages
@@ -324,6 +367,31 @@ export class RemoteEventHub {
       default:
         return []
     }
+  }
+
+  private ensureActiveMessage(event: {
+    threadId: string
+    runId: string
+    messageId: string
+    timestamp: string
+    parentMessageId?: string
+  }): ActiveMessage {
+    let runs = this.activeMessages.get(event.threadId)
+    if (!runs) this.activeMessages.set(event.threadId, (runs = new Map()))
+    let messages = runs.get(event.runId)
+    if (!messages) runs.set(event.runId, (messages = new Map()))
+    let message = messages.get(event.messageId)
+    if (!message) {
+      message = {
+        id: event.messageId,
+        ...(event.parentMessageId ? { parentMessageId: event.parentMessageId } : {}),
+        content: '',
+        reasoning: '',
+        createdAt: event.timestamp
+      }
+      messages.set(event.messageId, message)
+    }
+    return message
   }
 
   private trackAttention(threadId: string, toolCallId: string, status: string): void {

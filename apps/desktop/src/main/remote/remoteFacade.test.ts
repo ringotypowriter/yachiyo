@@ -6,13 +6,14 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import type { RemoteEvent, RemotePush } from '@yachiyo/shared/remote/events'
+import type { YachiyoServerEvent } from '@yachiyo/shared/protocol'
 import type { RemoteChatAccepted } from '@yachiyo/shared/remote/methods'
 import type { RemoteThreadDetail, RemoteThreadSummary } from '@yachiyo/shared/remote/projections'
 import { createFakeDesktopServer } from '@yachiyo/runtime/app/host/remote/testing/createFakeDesktopServer'
 
 import { createAttachmentStaging } from './attachmentStaging.ts'
 import { createInProcessRemotePorts } from './inProcessPorts.ts'
-import { createRemoteFacade, type RemoteCallContext } from './remoteFacade.ts'
+import { createRemoteFacade, type RemoteCallContext, type RemoteHostPort } from './remoteFacade.ts'
 import { RemoteEventHub } from './remoteEventHub.ts'
 
 // 1x1 transparent PNG.
@@ -26,6 +27,9 @@ interface Harness {
   events: RemotePush[]
   audit: string[]
   waitForEvent: (predicate: (event: RemoteEvent) => boolean) => Promise<RemoteEvent>
+  host: RemoteHostPort
+  hub: RemoteEventHub
+  emit: (event: Record<string, unknown>) => void
 }
 
 async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void> {
@@ -42,8 +46,12 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
   })
   const uploads = await mkdtemp(join(tmpdir(), 'yachiyo-remote-uploads-'))
   const ports = createInProcessRemotePorts(fake.server)
+  let hubListener: ((event: YachiyoServerEvent) => void) | undefined
   const hub = new RemoteEventHub({
-    subscribe: (listener) => fake.server.subscribe(listener),
+    subscribe: (listener) => {
+      hubListener = listener
+      return fake.server.subscribe(listener)
+    },
     getThreadSummary: (threadId) => ports.host['host.remote.getThreadSummary']({ threadId }),
     coalesceMs: 5
   })
@@ -59,6 +67,7 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
       appVersion: '0.0.0-test'
     }),
     epoch: () => hub.epoch,
+    hub: () => hub,
     audit: (line) => audit.push(line)
   })
 
@@ -84,6 +93,14 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
       call: (method, input) => facade.dispatch(context, method, input) as Promise<never>,
       events,
       audit,
+      host: ports.host,
+      hub,
+      emit: (event) =>
+        hubListener?.({
+          eventId: 'synthetic',
+          timestamp: '2026-09-22T00:00:00.000Z',
+          ...event
+        } as unknown as YachiyoServerEvent),
       waitForEvent: (predicate) =>
         new Promise((resolve) => {
           const seen = events.find((push) => push.type === 'event' && predicate(push.event))
@@ -117,6 +134,110 @@ test('facade rejects unknown methods, invalid input, and other protocol versions
     )
     assert.equal(hello.remoteDeviceId, '0123456789abcdef0123456789abcdef')
     assert.equal(hello.activeRunEnterBehavior, 'enter-steers')
+  })
+})
+
+test('threads.load snapshots before async host load and leaves later completion for event replay', async () => {
+  await withFacade(async ({ call, host, hub, emit }) => {
+    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
+    emit({ type: 'message.started', threadId: thread.id, runId: 'r1', messageId: 'm1' })
+    emit({
+      type: 'message.delta',
+      threadId: thread.id,
+      runId: 'r1',
+      messageId: 'm1',
+      delta: 'before'
+    })
+
+    const originalLoad = host['host.remote.loadThread']
+    let release!: () => void
+    let entered!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    host['host.remote.loadThread'] = async (input) => {
+      entered()
+      await waiting
+      return { ...(await originalLoad({ threadId: input.threadId })), activeRunId: 'r1' }
+    }
+
+    const pending = call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
+    await started
+    const historical = call<RemoteThreadDetail>('threads.load', {
+      threadId: thread.id,
+      beforeMessageId: 'earlier'
+    })
+    emit({
+      type: 'message.delta',
+      threadId: thread.id,
+      runId: 'r1',
+      messageId: 'm1',
+      delta: ' after'
+    })
+    emit({
+      type: 'message.completed',
+      threadId: thread.id,
+      runId: 'r1',
+      message: {
+        id: 'm1',
+        threadId: thread.id,
+        role: 'assistant',
+        content: 'before after',
+        status: 'completed',
+        createdAt: '2026-09-22T00:00:00.000Z'
+      }
+    })
+    emit({ type: 'run.completed', threadId: thread.id, runId: 'r1' })
+    release()
+    const detail = await pending
+    assert.equal(detail.messages.at(-1)?.content, 'before')
+    assert.equal(detail.messages.at(-1)?.status, 'streaming')
+    assert.ok(detail.streamSnapshotSeq !== undefined && detail.streamSnapshotSeq >= 2)
+    assert.ok(hub.headSeq > detail.streamSnapshotSeq, 'events after capture remain replayable')
+    assert.deepEqual((await historical).messages, [], 'older pages never append an active reply')
+  })
+})
+
+test('threads.load pages history when a live snapshot pushes the response over its byte budget', async () => {
+  await withFacade(async ({ call, host, emit }) => {
+    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
+    emit({
+      type: 'message.delta',
+      threadId: thread.id,
+      runId: 'r1',
+      messageId: 'm1',
+      delta: 'a'.repeat(900_000)
+    })
+    const originalLoad = host['host.remote.loadThread']
+    host['host.remote.loadThread'] = async (input) => {
+      const detail = await originalLoad(input)
+      return {
+        ...detail,
+        activeRunId: 'r1',
+        messages: [
+          {
+            id: 'old',
+            role: 'user' as const,
+            content: 'b'.repeat(7_600_000),
+            images: [],
+            attachments: [],
+            status: 'completed' as const,
+            createdAt: '2026-09-22T00:00:00.000Z',
+            isPlanDocument: false
+          }
+        ]
+      }
+    }
+    const detail = await call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
+    assert.deepEqual(
+      detail.messages.map((message) => message.id),
+      ['m1']
+    )
+    assert.equal(detail.messages[0]?.content.length, 900_000)
+    assert.equal(detail.hasMoreBefore, true)
   })
 })
 

@@ -108,7 +108,8 @@ final class RemoteCacheTests: XCTestCase {
         let directory = temporaryDirectory()
         let snapshot = try detail()
         let initial = RemoteThreadDetail(activeRunId: "run", activeRunMode: nil, hasMoreBefore: false,
-                                         messages: snapshot.messages, pendingPlan: false, queuedFollowUps: [],
+                                          messages: snapshot.messages, pendingPlan: false, queuedFollowUps: [],
+                                          streamSnapshotSeq: nil,
                                          thread: snapshot.thread, todoItems: [], toolCalls: [])
         let cache = RemoteDesktopCache(pairingId: "pair", threads: ["t1": RemoteCachedThread(detail: initial, needsRefresh: true)])
         try RemoteCacheStore(directory: directory).save(cache, desktopId: "desktop")

@@ -14,10 +14,11 @@ import { REMOTE_PROTOCOL_VERSION } from '@yachiyo/shared/remote/protocolVersion'
 import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
 import type { RemoteHostOps } from '@yachiyo/runtime/app/host/remote/remoteHostOps'
 import type { YachiyoServer } from '@yachiyo/runtime/app/host/YachiyoServer'
+import { fitRemoteThreadBudget } from '@yachiyo/runtime/app/host/remote/remoteThreadBudget'
 
 import type { AttachmentStaging } from './attachmentStaging.ts'
 import { RemoteError } from './remoteErrors.ts'
-import type { RemoteEventSubscription } from './remoteEventHub.ts'
+import type { RemoteEventHub, RemoteEventSubscription } from './remoteEventHub.ts'
 
 /** Server methods the facade calls; in production this is the runtime RPC proxy. */
 export type RemoteServerPort = RpcMethods<
@@ -61,6 +62,7 @@ export interface RemoteFacadeOptions {
   attachments: AttachmentStaging
   identity: () => RemoteFacadeIdentity
   epoch: () => string
+  hub: () => RemoteEventHub
   audit: (line: string) => void
 }
 
@@ -139,7 +141,23 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
       }
     },
     'threads.list': (input) => host['host.remote.listThreadSummaries'](input),
-    'threads.load': (input) => host['host.remote.loadThread'](input),
+    'threads.load': async (input) => {
+      // Snapshot before the host RPC awaits: events emitted while it is in flight must be
+      // applied by the client once, rather than included in both the snapshot and replay.
+      const hub = options.hub()
+      hub.flush()
+      const streamSnapshotSeq = hub.headSeq
+      const active = hub.snapshotThreadMessages(input.threadId)
+      const detail = await host['host.remote.loadThread'](input)
+      const snapshots =
+        !input.beforeMessageId && detail.activeRunId ? (active.get(detail.activeRunId) ?? []) : []
+      const existing = new Set(detail.messages.map((message) => message.id))
+      return fitRemoteThreadBudget({
+        ...detail,
+        streamSnapshotSeq,
+        messages: [...detail.messages, ...snapshots.filter((message) => !existing.has(message.id))]
+      })
+    },
     'threads.create': async (input) => {
       const thread = await server.createThread(input)
       return { thread: await summaryOf(thread.id) }

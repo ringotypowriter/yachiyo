@@ -120,6 +120,88 @@ test('text deltas are merged per message and flushed before the next ordered eve
   hub.stop()
 })
 
+test('active snapshots accumulate raw text and reasoning before delta coalescing', () => {
+  const { hub, source } = createHub()
+  source.emit({
+    type: 'message.started',
+    threadId: 't1',
+    runId: 'r1',
+    messageId: 'm1',
+    parentMessageId: 'user-1'
+  })
+  source.emit(delta('m1', 'Hel'))
+  source.emit(delta('m1', 'lo'))
+  source.emit({
+    type: 'message.reasoning.delta',
+    threadId: 't1',
+    runId: 'r1',
+    messageId: 'm1',
+    delta: 'thinking'
+  })
+  assert.deepEqual(hub.snapshotMessages('t1', 'r1'), [
+    {
+      id: 'm1',
+      parentMessageId: 'user-1',
+      role: 'assistant',
+      content: 'Hello',
+      reasoning: 'thinking',
+      images: [],
+      attachments: [],
+      status: 'streaming',
+      createdAt: '2026-09-22T00:00:00.000Z',
+      isPlanDocument: false
+    }
+  ])
+  assert.deepEqual(hub.snapshotMessages('t1', 'other-run'), [])
+  hub.stop()
+})
+
+test('completed messages and terminal runs leave no stale snapshot', () => {
+  const { hub, source } = createHub()
+  source.emit(delta('m1', 'first')) // A missing start still captures live content.
+  source.emit(delta('m2', 'second'))
+  source.emit({
+    type: 'message.completed',
+    threadId: 't1',
+    runId: 'r1',
+    message: {
+      id: 'm1',
+      role: 'assistant',
+      content: 'first',
+      status: 'completed',
+      createdAt: '2026-09-22T00:00:00.000Z'
+    }
+  })
+  assert.deepEqual(
+    hub.snapshotMessages('t1', 'r1').map((message) => message.id),
+    ['m2']
+  )
+  source.emit({ type: 'run.failed', threadId: 't1', runId: 'r1', error: 'error' })
+  assert.deepEqual(hub.snapshotMessages('t1', 'r1'), [])
+  hub.stop()
+})
+
+test('a flushed snapshot watermark excludes earlier deltas and remains unchanged after completion', () => {
+  const { hub, source } = createHub()
+  source.emit(delta('m1', 'before'))
+  hub.flush()
+  const watermark = hub.headSeq
+  const snapshot = hub.snapshotMessages('t1', 'r1')
+  source.emit(delta('m1', ' after'))
+  source.emit({ type: 'run.completed', threadId: 't1', runId: 'r1' })
+
+  assert.equal(watermark, 1)
+  assert.equal(snapshot[0]?.content, 'before')
+  assert.equal(hub.snapshotMessages('t1', 'r1').length, 0)
+  const { pushes, subscription } = collect(hub, ['t1'])
+  assert.equal(subscription.resume({ epoch: hub.epoch, seq: watermark }).resumed, true)
+  assert.deepEqual(
+    pushes.map((push) => push.type === 'event' && push.event.type),
+    ['message.delta', 'run.status']
+  )
+  hub.stop()
+})
+
 test('thread-scope events reach only subscribed connections; inbox events reach all', () => {
   const { hub, source } = createHub()
   const watching = collect(hub, ['t1'])

@@ -434,6 +434,7 @@ extension NewThreadViewController: ChatInputDelegate {
                     messages: output.accepted.userMessage.map { [$0] } ?? [],
                     pendingPlan: false,
                     queuedFollowUps: [],
+                    streamSnapshotSeq: nil,
                     thread: output.thread,
                     todoItems: [],
                     toolCalls: []

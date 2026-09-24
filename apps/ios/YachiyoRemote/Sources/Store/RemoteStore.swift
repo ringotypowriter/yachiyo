@@ -60,7 +60,7 @@ final class RemoteStore {
     @Published private(set) var appearance: RemoteAppearance?
     /// Unread completions (run finished while the thread was not open).
     @Published private(set) var unreadCompletions: Set<String> = []
-    let threadEvents = PassthroughSubject<(desktopId: String, event: RemoteEvent), Never>()
+    let threadEvents = PassthroughSubject<(desktopId: String, event: RemoteEvent, seq: Int), Never>()
     let resyncs = PassthroughSubject<String, Never>()
 
     private var inboxLoadTokens: [String: UUID] = [:]
@@ -364,7 +364,7 @@ final class RemoteStore {
             hello: hello,
             cachedCursor: cache.summaries == nil ? nil : cache.cursor,
             onChange: { [weak self] link in self?.linkDidChange(link) },
-            onEvent: { [weak self] link, event in self?.handle(event, from: link) },
+            onEvent: { [weak self] link, event, seq in self?.handle(event, seq: seq, from: link) },
             onResync: { [weak self] link in
                 guard let self else { return }
                 self.invalidate(link)
@@ -453,7 +453,7 @@ final class RemoteStore {
         }
     }
 
-    private func handle(_ event: RemoteEvent, from link: DesktopLink) {
+    private func handle(_ event: RemoteEvent, seq: Int, from link: DesktopLink) {
         guard links[link.id] === link else { return }
         if inboxLoadTokens[link.id] != nil,
            event.type == .threadSummary || event.type == .threadRemoved || event.type == .runStatus {
@@ -472,7 +472,7 @@ final class RemoteStore {
         }
         applyInboxEvent(event, from: link)
         if let threadId = event.threadId, openThread?.desktopId == link.id, openThread?.threadId == threadId {
-            threadEvents.send((link.id, event))
+            threadEvents.send((link.id, event, seq))
         }
         checkpoint(link.id)
     }

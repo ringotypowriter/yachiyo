@@ -149,6 +149,8 @@ export const remoteThreadDetailSchema = z
     hasMoreBefore: z.boolean(),
     toolCalls: z.array(remoteToolCallSchema),
     queuedFollowUps: z.array(remoteMessageSchema),
+    /** Buffered stream events through this sequence are already reflected in the load snapshot. */
+    streamSnapshotSeq: z.number().int().nonnegative().optional(),
     activeRunId: idSchema.optional(),
     activeRunMode: runModeSchema.optional(),
     pendingPlan: z.boolean(),

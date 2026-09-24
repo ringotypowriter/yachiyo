@@ -109,6 +109,7 @@ export class RemoteService {
         appVersion: this.options.appVersion
       }),
       epoch: () => this.ensureHub().epoch,
+      hub: () => this.ensureHub(),
       audit: (line) => this.options.log(line)
     })
     if ((await this.store.list()).length > 0) this.ensureHub()
