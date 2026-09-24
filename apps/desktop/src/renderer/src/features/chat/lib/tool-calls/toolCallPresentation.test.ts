@@ -37,6 +37,25 @@ test('buildToolCallDetailsPresentation uses recovered raw input and output when 
   assert.deepEqual(presentation.output, { label: 'Output', value: 'full output' })
 })
 
+test('delegateTask detail shows the complete request instead of its agent name summary', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'delegateTask',
+    inputSummary: 'general',
+    rawInput: {
+      agent_name: 'general',
+      prompt: 'Investigate the failed request and report the cause.',
+      workspace: '/workspace'
+    }
+  })
+
+  assert.deepEqual(JSON.parse(presentation.input!.value), {
+    agent_name: 'general',
+    prompt: 'Investigate the failed request and report the cause.',
+    workspace: '/workspace'
+  })
+})
+
 test('canExpandToolCall cheaply recognizes calls with presentable details', () => {
   assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, inputSummary: '' }), false)
   assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, error: 'tool failed' }), true)

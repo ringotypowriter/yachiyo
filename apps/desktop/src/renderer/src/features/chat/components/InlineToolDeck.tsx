@@ -73,6 +73,7 @@ function hydrateSubagentResult(
   return {
     ...toolCall,
     ...finishedToolCall,
+    ...(toolCall.rawInput !== undefined ? { rawInput: toolCall.rawInput } : {}),
     id: toolCall.id,
     threadId: toolCall.threadId,
     ...(toolCall.runId ? { runId: toolCall.runId } : {}),
