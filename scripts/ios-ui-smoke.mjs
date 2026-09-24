@@ -148,8 +148,6 @@ try {
               bundleId,
               '-YachiyoThemeOverride',
               theme,
-              '-YachiyoAppearanceOverride',
-              appearance,
               '-YachiyoRoute',
               route
             ],

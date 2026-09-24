@@ -101,8 +101,7 @@ final class SettingsViewController: UITableViewController {
                 cell.accessoryView = menuButton(themeMenu())
             case 1:
                 content.text = String(localized: "Light or dark")
-                content.secondaryText = appearanceName(ThemeController.shared.appearanceOverride)
-                cell.accessoryView = menuButton(appearanceMenu())
+                content.secondaryText = String(localized: "System")
             default:
                 content.text = String(localized: "Primary device")
                 content.secondaryText = primaryName
@@ -225,15 +224,6 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
-    private func appearanceName(_ preference: YachiyoAppearancePreference?) -> String {
-        switch preference {
-        case nil: String(localized: "Follow \(primaryName)")
-        case .system: String(localized: "System")
-        case .light: String(localized: "Light")
-        case .dark: String(localized: "Dark")
-        }
-    }
-
     private func menuButton(_ menu: UIMenu) -> UIButton {
         let button = UIButton(type: .system)
         button.setImage(UIImage(systemName: "chevron.up.chevron.down"), for: .normal)
@@ -255,16 +245,6 @@ final class SettingsViewController: UITableViewController {
             }
         }
         return UIMenu(children: [follow, UIMenu(options: .displayInline, children: themes)])
-    }
-
-    private func appearanceMenu() -> UIMenu {
-        let options: [YachiyoAppearancePreference?] = [nil, .system, .light, .dark]
-        return UIMenu(children: options.map { option in
-            UIAction(title: appearanceName(option), state: ThemeController.shared.appearanceOverride == option ? .on : .off) { [weak self] _ in
-                ThemeController.shared.appearanceOverride = option
-                self?.tableView.reloadData()
-            }
-        })
     }
 
     private func primaryMenu() -> UIMenu {

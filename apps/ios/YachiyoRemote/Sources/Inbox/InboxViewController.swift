@@ -3,7 +3,7 @@ import UIKit
 import YachiyoMaterial
 import YachiyoRemoteKit
 
-/// The unified inbox: every paired Mac's threads, blocked ones first ("Needs you"), then starred,
+/// The selected Mac's inbox: its threads, blocked ones first ("Needs you"), then starred,
 /// then by day. Filter, search, and New live in the bottom glass toolbar.
 final class InboxViewController: UIViewController {
     enum Section: Hashable {
@@ -13,12 +13,11 @@ final class InboxViewController: UIViewController {
     }
 
     struct Filter: Equatable {
-        var desktopIds: Set<String> = []
         var running = false
         var unread = false
         var colorTags: Set<String> = []
 
-        var isActive: Bool { !desktopIds.isEmpty || running || unread || !colorTags.isEmpty }
+        var isActive: Bool { running || unread || !colorTags.isEmpty }
     }
 
     /// Set by the coordinator for screenshot runs: `inbox` or `thread-first`.
@@ -29,12 +28,15 @@ final class InboxViewController: UIViewController {
     private var dataSource: UICollectionViewDiffableDataSource<Section, InboxItem>!
     private var cancellables: Set<AnyCancellable> = []
     private var filter = Filter() { didSet { applySnapshot(); updateFilterItem() } }
+    private var selectedDesktopId: String?
+    private var selectedConnectionState: DesktopConnectionState?
+    private var selectedDesktop: DesktopSnapshot? { store.desktops.first { $0.id == selectedDesktopId } }
     private var searchQuery = ""
     private var remoteSearchHits: Set<String>?
     private var searchTask: Task<Void, Never>?
     private var isSearching = false
     private var searchFailed = false
-    private var isRefreshing = false
+    private var refreshingDesktopIds: Set<String> = []
     private var pendingMutations: Set<String> = []
     private let filterStatus = UIButton(type: .system)
     private lazy var filterItem = UIBarButtonItem(image: .lucide("list-filter"), menu: makeFilterMenu())
@@ -48,6 +50,7 @@ final class InboxViewController: UIViewController {
         configureNavigationBar()
         configureCollectionView()
         configureToolbar()
+        synchronizeDesktop()
         observeStore()
         NotificationCenter.default.addObserver(self, selector: #selector(styleDidChange), name: YachiyoStyle.didChangeNotification, object: nil)
     }
@@ -100,7 +103,7 @@ final class InboxViewController: UIViewController {
             let desktop = store.desktops.first { $0.id == item.desktopId }
             cell.configure(
                 item: item,
-                deviceName: store.desktops.count > 1 ? desktop?.name : nil,
+                deviceName: nil,
                 isOffline: desktop?.state != .online,
                 isUnread: store.unreadCompletions.contains(item.id)
             )
@@ -152,6 +155,7 @@ final class InboxViewController: UIViewController {
             .combineLatest(store.$desktops, store.$unreadCompletions, store.$inboxLoadErrors)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
+                self?.synchronizeDesktop()
                 self?.applySnapshot()
                 self?.filterItem.menu = self?.makeFilterMenu()
                 self?.runPendingRoute()
@@ -159,11 +163,49 @@ final class InboxViewController: UIViewController {
             .store(in: &cancellables)
     }
 
+    private func synchronizeDesktop(preferredId: String? = nil) {
+        let resolved = RemoteDesktopSelection.resolve(
+            savedId: preferredId ?? selectedDesktopId ?? UserDefaults.standard.string(forKey: "inboxDesktopId"),
+            desktopIds: store.desktops.map(\.id),
+            primaryId: store.primaryDesktopId
+        )
+        let state = store.desktops.first { $0.id == resolved }?.state
+        if resolved != selectedDesktopId || state != selectedConnectionState {
+            selectedDesktopId = resolved
+            selectedConnectionState = state
+            // The controller can load before RemoteStore.bootstrap populates paired desktops.
+            if let resolved { UserDefaults.standard.set(resolved, forKey: "inboxDesktopId") }
+            restartSearch()
+        }
+        if let selectedDesktopId, refreshingDesktopIds.contains(selectedDesktopId) {
+            collectionView.refreshControl?.beginRefreshing()
+        } else {
+            collectionView.refreshControl?.endRefreshing()
+        }
+        title = selectedDesktop?.name ?? "Yachiyo"
+        navigationItem.titleMenuProvider = store.desktops.isEmpty ? nil : { [weak self] _ in
+            guard let self else { return UIMenu() }
+            return UIMenu(children: store.desktops.map { desktop in
+                let action = UIAction(
+                    title: desktop.name,
+                    image: .lucide("monitor"),
+                    state: desktop.id == self.selectedDesktopId ? .on : .off
+                ) { [weak self] _ in
+                    guard let self, selectedDesktopId != desktop.id else { return }
+                    synchronizeDesktop(preferredId: desktop.id)
+                    UISelectionFeedbackGenerator().selectionChanged()
+                }
+                action.subtitle = self.store.connectionText(for: desktop)
+                return action
+            })
+        }
+    }
+
     // MARK: Snapshot
 
     private func visibleItems() -> [InboxItem] {
         store.inbox.filter { item in
-            if !filter.desktopIds.isEmpty, !filter.desktopIds.contains(item.desktopId) { return false }
+            guard item.desktopId == selectedDesktopId else { return false }
             if filter.running, !item.summary.isRunning { return false }
             if filter.unread, !store.unreadCompletions.contains(item.id) { return false }
             if !filter.colorTags.isEmpty, !filter.colorTags.contains(item.summary.colorTag?.rawValue ?? "") { return false }
@@ -203,19 +245,20 @@ final class InboxViewController: UIViewController {
     }
 
     private func updateEmptyState(isEmpty: Bool) {
-        let failures = store.desktops.compactMap { desktop -> String? in
+        let desktops = selectedDesktop.map { [$0] } ?? []
+        let failures = desktops.compactMap { desktop -> String? in
             guard let error = store.inboxLoadErrors[desktop.id] else { return nil }
             return "\(desktop.name): \(error)"
         }
-        let connections = store.desktops.compactMap { store.connectionText(for: $0) }
-        let loading = !store.loadingInboxes.isEmpty
+        let connections = desktops.compactMap { store.connectionText(for: $0) }
+        let loading = selectedDesktopId.map { store.loadingInboxes.contains($0) } ?? false
         navigationItem.prompt = isEmpty ? nil : (connections.first ?? (loading ? String(localized: "Loading threads…") : (failures.isEmpty ? nil : String(localized: "Couldn't refresh threads. Pull to retry."))))
         if isEmpty, loading || !connections.isEmpty {
-            let connecting = store.desktops.contains { $0.state == .connecting }
+            let connecting = desktops.contains { $0.state == .connecting }
             var configuration = loading || connecting ? UIContentUnavailableConfiguration.loading() : UIContentUnavailableConfiguration.empty()
             configuration.text = loading ? String(localized: "Loading threads…") : connections.joined(separator: "\n")
             configuration.secondaryText = loading ? (connections.isEmpty ? String(localized: "Fetching your inbox from your Mac.") : connections.joined(separator: "\n")) : nil
-            if !loading, !connecting, store.desktops.contains(where: { if case .offline = $0.state { return true }; return false }) {
+            if !loading, !connecting, desktops.contains(where: { if case .offline = $0.state { return true }; return false }) {
                 configuration.button = YachiyoMaterialKit.primaryButtonConfiguration(title: String(localized: "Retry"), image: nil)
                 configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.refreshInbox() }
             }
@@ -239,7 +282,7 @@ final class InboxViewController: UIViewController {
             if searchFailed { navigationItem.prompt = String(localized: "Content search unavailable. Showing local matches.") }
             return
         }
-        if filter.isActive || !searchQuery.isEmpty {
+        if selectedDesktop != nil, filter.isActive || !searchQuery.isEmpty {
             var configuration = isSearching ? UIContentUnavailableConfiguration.loading() : UIContentUnavailableConfiguration.empty()
             configuration.text = isSearching ? String(localized: "Searching threads…") : String(localized: "No matching threads")
             configuration.secondaryText = searchFailed
@@ -289,16 +332,6 @@ final class InboxViewController: UIViewController {
 
     private func makeFilterMenu() -> UIMenu {
         var children: [UIMenuElement] = []
-        if store.desktops.count > 1 {
-            let devices = store.desktops.map { desktop in
-                UIAction(
-                    title: desktop.name,
-                    image: UIImage(systemName: "circle.fill")?.withTintColor(desktop.state == .online ? .yachiyo(.success) : .yachiyo(.danger), renderingMode: .alwaysOriginal),
-                    state: filter.desktopIds.contains(desktop.id) ? .on : .off
-                ) { [weak self] _ in self?.toggle(\.desktopIds, desktop.id) }
-            }
-            children.append(UIMenu(title: String(localized: "Devices"), options: .displayInline, children: devices))
-        }
         children.append(UIMenu(options: .displayInline, children: [
             UIAction(title: String(localized: "Running"), state: filter.running ? .on : .off) { [weak self] _ in self?.filter.running.toggle(); UISelectionFeedbackGenerator().selectionChanged() },
             UIAction(title: String(localized: "Completed"), state: filter.unread ? .on : .off) { [weak self] _ in self?.filter.unread.toggle(); UISelectionFeedbackGenerator().selectionChanged() },
@@ -334,12 +367,15 @@ final class InboxViewController: UIViewController {
     // MARK: Swipe
 
     private func refreshInbox() {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        Task {
-            await store.refreshInbox()
-            isRefreshing = false
+        guard let desktopId = selectedDesktopId else {
             collectionView.refreshControl?.endRefreshing()
+            return
+        }
+        guard refreshingDesktopIds.insert(desktopId).inserted else { return }
+        Task {
+            await store.refreshInbox(desktopId: desktopId)
+            refreshingDesktopIds.remove(desktopId)
+            if desktopId == selectedDesktopId { collectionView.refreshControl?.endRefreshing() }
         }
     }
 
@@ -419,7 +455,8 @@ final class InboxViewController: UIViewController {
             return
         }
         guard presentedViewController == nil else { return }
-        let controller = NewThreadViewController()
+        guard let selectedDesktopId else { presentPairing(); return }
+        let controller = NewThreadViewController(desktopId: selectedDesktopId)
         controller.onStarted = { [weak self] desktopId, thread in
             self?.dismiss(animated: true) {
                 self?.navigationController?.pushViewController(ThreadViewController(desktopId: desktopId, threadId: thread.id), animated: true)
@@ -490,25 +527,29 @@ extension InboxViewController: UICollectionViewDelegate {
 extension InboxViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
         searchQuery = searchController.searchBar.text?.trimmingCharacters(in: .whitespaces) ?? ""
+        restartSearch()
+    }
+
+    private func restartSearch() {
         remoteSearchHits = nil
-        isSearching = !searchQuery.isEmpty
+        isSearching = !searchQuery.isEmpty && selectedDesktopId != nil
         searchFailed = false
         applySnapshot()
         searchTask?.cancel()
-        guard !searchQuery.isEmpty else { return }
+        guard !searchQuery.isEmpty, let desktopId = selectedDesktopId else { isSearching = false; return }
         let query = searchQuery
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(280))
             guard let self, !Task.isCancelled else { return }
             var hits = Set<String>()
-            var failed = !store.desktops.contains { $0.state == .online }
-            for desktop in store.desktops where desktop.state == .online {
-                let output: RemoteThreadsSearchOutput? = try? await store.call(desktop.id, "threads.search", SearchInput(query: query))
+            var failed = true
+            if store.desktops.contains(where: { $0.id == desktopId && $0.state == .online }) {
+                let output: RemoteThreadsSearchOutput? = try? await store.call(desktopId, "threads.search", SearchInput(query: query))
                 guard !Task.isCancelled else { return }
-                if output == nil { failed = true }
-                for result in output?.results ?? [] { hits.insert("\(desktop.id)/\(result.threadId)") }
+                failed = output == nil
+                for result in output?.results ?? [] { hits.insert("\(desktopId)/\(result.threadId)") }
             }
-            guard !Task.isCancelled, query == searchQuery else { return }
+            guard !Task.isCancelled, query == searchQuery, desktopId == selectedDesktopId else { return }
             remoteSearchHits = hits
             isSearching = false
             searchFailed = failed

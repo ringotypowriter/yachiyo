@@ -19,6 +19,7 @@ final class NewThreadViewController: UIViewController {
     private let errorLabel = UILabel()
     private let composer = ChatInputView()
 
+    private let targetDesktopId: String?
     private var desktopId: String?
     private var essentials: [RemoteEssential] = []
     private var essentialId: String?
@@ -36,6 +37,17 @@ final class NewThreadViewController: UIViewController {
     private var isStarting = false
     private let retryButton = UIButton(type: .system)
 
+    init(desktopId: String? = nil) {
+        targetDesktopId = desktopId
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func availableDesktops(_ desktops: [DesktopSnapshot]) -> [DesktopSnapshot] {
+        desktops.filter { $0.state == .online && (targetDesktopId == nil || $0.id == targetDesktopId) }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = String(localized: "New thread")
@@ -46,8 +58,8 @@ final class NewThreadViewController: UIViewController {
             self?.dismiss(animated: true)
         })
         layout()
-        let online = store.desktops.filter { $0.state == .online }
-        desktopId = online.first(where: \.isPrimary)?.id ?? online.first?.id
+        let online = availableDesktops(store.desktops)
+        desktopId = targetDesktopId ?? online.first(where: \.isPrimary)?.id ?? online.first?.id
         configureDevices(online)
         store.$desktops
             .receive(on: RunLoop.main)
@@ -141,17 +153,17 @@ final class NewThreadViewController: UIViewController {
 
     private func synchronizeDevices(_ desktops: [DesktopSnapshot]) {
         guard !isStarting else { return }
-        let online = desktops.filter { $0.state == .online }
+        let online = availableDesktops(desktops)
         guard online.map(\.id) != deviceIds else { return }
         let previous = desktopId
         if !online.contains(where: { $0.id == desktopId }) {
-            desktopId = online.first(where: \.isPrimary)?.id ?? online.first?.id
+            desktopId = targetDesktopId ?? online.first(where: \.isPrimary)?.id ?? online.first?.id
         }
         configureDevices(online)
-        if previous != desktopId {
+        if previous != desktopId || targetDesktopId != nil {
             optionsToken = UUID()
             isLoadingOptions = false
-            if desktopId != nil { Task { await self.loadOptions() } }
+            if online.contains(where: { $0.id == desktopId }) { Task { await self.loadOptions() } }
             updateInteraction()
         }
     }
@@ -163,7 +175,7 @@ final class NewThreadViewController: UIViewController {
             deviceControl.insertSegment(withTitle: desktop.name, at: index, animated: false)
         }
         deviceControl.selectedSegmentIndex = online.firstIndex { $0.id == desktopId } ?? 0
-        deviceControl.isHidden = online.count < 2
+        deviceControl.isHidden = targetDesktopId != nil || online.count < 2
         if online.isEmpty {
             optionsDesktopId = nil
             optionsToken = UUID()
@@ -176,14 +188,16 @@ final class NewThreadViewController: UIViewController {
             models = []
             retryButton.isHidden = true
             errorLabel.textColor = .yachiyo(.dangerStrong)
-            errorLabel.text = String(localized: "No Mac is online right now.")
+            errorLabel.text = targetDesktopId == nil
+                ? String(localized: "No Mac is online right now.")
+                : String(localized: "Your Mac is offline. Reconnect before sending. Your draft is kept.")
             rebuildEssentials()
         }
         updateButtons()
     }
 
     private func loadOptions() async {
-        guard let desktopId, !isStarting else { return }
+        guard let desktopId, !isStarting, store.desktops.contains(where: { $0.id == desktopId && $0.state == .online }) else { return }
         let token = UUID()
         optionsToken = token
         isLoadingOptions = true
@@ -229,7 +243,7 @@ final class NewThreadViewController: UIViewController {
     }
 
     private func updateInteraction() {
-        let enabled = desktopId != nil && !isStarting && !isLoadingOptions
+        let enabled = store.desktops.contains { $0.id == desktopId && $0.state == .online } && !isStarting && !isLoadingOptions
         deviceControl.isEnabled = !isStarting
         workspaceButton.isEnabled = enabled
         modelButton.isEnabled = enabled && !models.isEmpty
@@ -381,7 +395,7 @@ extension NewThreadViewController: ChatInputDelegate {
                     ? String(localized: "Creation unconfirmed. Check your inbox before trying again to avoid a duplicate thread. Your draft is kept.") + " " + detail
                     : detail
                 // Device resynchronization may replace the inline message with option progress.
-                if store.desktops.filter({ $0.state == .online }).map(\.id) != deviceIds {
+                if availableDesktops(store.desktops).map(\.id) != deviceIds {
                     let alert = UIAlertController(title: String(localized: "Couldn't start thread"), message: errorLabel.text, preferredStyle: .alert)
                     alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
                     present(alert, animated: true)

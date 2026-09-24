@@ -293,11 +293,12 @@ final class RemoteStore {
         }
     }
 
-    func refreshInbox() async {
-        for link in links.values where link.state != .online && link.state != .protocolMismatch {
+    func refreshInbox(desktopId: String? = nil) async {
+        let targets = links.values.filter { desktopId == nil || $0.id == desktopId }
+        for link in targets where link.state != .online && link.state != .protocolMismatch {
             retryConnection(desktopId: link.id)
         }
-        for link in links.values where link.state == .online {
+        for link in targets where link.state == .online {
             caches[link.id]?.needsInboxRefresh = true
             if inboxLoadTokens[link.id] != nil { inboxInvalidations.insert(link.id) }
             await reloadSummaries(for: link)
