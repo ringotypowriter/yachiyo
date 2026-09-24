@@ -46,9 +46,9 @@ final class RemoteStore {
     private var cacheSaveTask: Task<Void, Never>?
     private var isWritingCache = false
     private var hasPendingCacheWrite = false
-    private var cacheWriteToken = UUID()
     private var inboxInvalidations: Set<String> = []
     private var inboxEvents: [String: [RemoteEvent]] = [:]
+    private var inboxEventsOverflowed: Set<String> = []
     private var recentThreads: [String: [String]] = [:]
     private let credentials: RemoteCredentialStore
     private var links: [String: DesktopLink] = [:]
@@ -106,68 +106,57 @@ final class RemoteStore {
     private func checkpoint(_ desktopId: String) {
         caches[desktopId]?.cursor = links[desktopId]?.cursor
         if let values = summaries[desktopId] { caches[desktopId]?.summaries = Array(values.values) }
-        if isWritingCache {
-            hasPendingCacheWrite = true
-            return
-        }
         guard cacheSaveTask == nil else { return }
         cacheSaveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             guard let self else { return }
             cacheSaveTask = nil
-            flushCaches(synchronously: false)
+            flushCaches()
         }
     }
 
-    private func flushCaches(synchronously: Bool) {
+    private func flushCaches(final: Bool = false, completion: (@MainActor () -> Void)? = nil) {
         cacheSaveTask?.cancel()
         cacheSaveTask = nil
-        if !synchronously, isWritingCache {
+        if !final && isWritingCache {
             hasPendingCacheWrite = true
             return
+        }
+        if !final {
+            isWritingCache = true
+            hasPendingCacheWrite = false
         }
         let snapshots = caches
         let disk = cacheStore
         let logger = Self.logger
-        let save: @Sendable () -> Void = {
+        // Capture the cursor and the applied summaries/threads in a single snapshot. Every
+        // write (including a suspend write) is queued immediately, before any later removal.
+        cacheQueue.async {
             for (id, cache) in snapshots {
                 do { try disk.save(cache, desktopId: id) }
                 catch { logger.error("Remote snapshot save failed") }
             }
-        }
-        if synchronously {
-            // Drain any older write before the newest snapshot. Its queued completion must
-            // not clear the state of a subsequent foreground write.
-            cacheQueue.sync(execute: save)
-            cacheWriteToken = UUID()
-            isWritingCache = false
-            hasPendingCacheWrite = false
-        } else {
-            isWritingCache = true
-            hasPendingCacheWrite = false
-            let token = UUID()
-            cacheWriteToken = token
-            // Enqueue immediately so suspend/remove remain ordered on this serial queue.
-            // While busy, checkpoints retain only a flag, not additional full snapshots.
-            cacheQueue.async { [weak self] in
-                save()
-                Task { @MainActor [weak self] in
-                    guard let self, cacheWriteToken == token else { return }
+            DispatchQueue.main.async { [weak self] in
+                if !final, let self {
                     isWritingCache = false
-                    if hasPendingCacheWrite { flushCaches(synchronously: false) }
+                    if hasPendingCacheWrite { flushCaches() }
                 }
+                completion?()
             }
         }
     }
 
-    private func discardCache(_ desktopId: String) {
+    private func discardCache(_ desktopId: String, completion: (@MainActor () -> Void)? = nil) {
         caches[desktopId] = nil
         summaries[desktopId] = nil
         recentThreads[desktopId] = nil
         let disk = cacheStore
-        cacheQueue.sync { try? disk.remove(desktopId: desktopId) }
         let images = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
-        try? images.remove(desktopId: desktopId)
+        cacheQueue.async {
+            try? disk.remove(desktopId: desktopId)
+            try? images.remove(desktopId: desktopId)
+            if let completion { DispatchQueue.main.async { completion() } }
+        }
     }
 
     private func invalidate(_ link: DesktopLink) {
@@ -200,26 +189,40 @@ final class RemoteStore {
 
     // MARK: Lifecycle
 
-    func bootstrap() {
-        let stored = (try? credentials.loadDesktops()) ?? []
-        for desktop in stored where links[desktop.remoteDeviceId] == nil {
-            links[desktop.remoteDeviceId] = makeLink(desktop)
+    func bootstrap(completion: @escaping @MainActor () -> Void) {
+        let credentials = credentials
+        let disk = cacheStore
+        // Keychain and cache reads stay off the UI thread. This serial queue puts reads
+        // behind any pending suspend saves/removals before a link can use its cursor.
+        cacheQueue.async { [weak self] in
+            let stored = (try? credentials.loadDesktops()) ?? []
+            let loaded = stored.map { desktop in
+                disk.load(desktopId: desktop.remoteDeviceId, pairingId: desktop.pairingId)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for (desktop, cache) in zip(stored, loaded) where links[desktop.remoteDeviceId] == nil {
+                    links[desktop.remoteDeviceId] = makeLink(desktop, cache: cache)
+                }
+                publishDesktops()
+                publishInbox()
+                if UIApplication.shared.applicationState != .background { resume() }
+                completion()
+            }
         }
-        publishDesktops()
-        publishInbox()
-        resume()
     }
 
     func resume() {
         for link in links.values { link.start() }
     }
 
-    func suspend() {
+    func suspend(completion: @escaping @MainActor () -> Void) {
         inboxLoadTokens.removeAll()
         inboxEvents.removeAll()
+        inboxEventsOverflowed.removeAll()
         loadingInboxes.removeAll()
         for link in links.values { link.stop() }
-        flushCaches(synchronously: true)
+        flushCaches(final: true, completion: completion)
     }
 
     // MARK: Pairing
@@ -237,8 +240,13 @@ final class RemoteStore {
         }
         links[desktop.remoteDeviceId]?.stop()
         inboxLoadTokens[desktop.remoteDeviceId] = nil
-        discardCache(desktop.remoteDeviceId)
-        let link = makeLink(desktop, client: client, hello: hello)
+        // Finish deleting old sent images before exposing a freshly paired link; otherwise
+        // its first send could save a preview into a directory still queued for removal.
+        await withCheckedContinuation { continuation in
+            discardCache(desktop.remoteDeviceId) { continuation.resume() }
+        }
+        do { try Task.checkCancellation() } catch { client.close(); throw error }
+        let link = makeLink(desktop, cache: nil, client: client, hello: hello)
         links[desktop.remoteDeviceId] = link
         link.start()
         publishDesktops()
@@ -351,10 +359,9 @@ final class RemoteStore {
         )
     }
 
-    private func makeLink(_ desktop: PairedDesktop, client: RemoteClient? = nil, hello: RemoteHelloOutput? = nil) -> DesktopLink {
+    private func makeLink(_ desktop: PairedDesktop, cache loadedCache: RemoteDesktopCache?, client: RemoteClient? = nil, hello: RemoteHelloOutput? = nil) -> DesktopLink {
         let id = desktop.remoteDeviceId
-        let disk = cacheStore
-        let cache = cacheQueue.sync { disk.load(desktopId: id, pairingId: desktop.pairingId) } ?? RemoteDesktopCache(pairingId: desktop.pairingId)
+        let cache = loadedCache ?? RemoteDesktopCache(pairingId: desktop.pairingId)
         caches[id] = cache
         // The initial global subscription cannot replay events from inactive thread scopes.
         for threadId in cache.threads.keys { caches[id]?.threads[threadId]?.needsRefresh = true }
@@ -384,6 +391,7 @@ final class RemoteStore {
         else {
             inboxLoadTokens[link.id] = nil
             inboxEvents[link.id] = nil
+            inboxEventsOverflowed.remove(link.id)
             loadingInboxes.remove(link.id)
         }
         if link.state == .online {
@@ -401,6 +409,7 @@ final class RemoteStore {
               inboxLoadTokens[link.id] == nil else { return }
         inboxInvalidations.remove(link.id)
         inboxEvents[link.id] = []
+        inboxEventsOverflowed.remove(link.id)
         let token = UUID()
         inboxLoadTokens[link.id] = token
         loadingInboxes.insert(link.id)
@@ -410,6 +419,7 @@ final class RemoteStore {
                 inboxLoadTokens[link.id] = nil
                 loadingInboxes.remove(link.id)
                 inboxEvents[link.id] = nil
+                inboxEventsOverflowed.remove(link.id)
                 if inboxInvalidations.remove(link.id) != nil {
                     Task { await self.reloadSummaries(for: link) }
                 }
@@ -425,6 +435,9 @@ final class RemoteStore {
                 collected += page.threads
                 cursor = page.nextCursor
             } while cursor != nil
+            // A bounded event buffer cannot replay every change over this snapshot. Keep
+            // the live inbox and fetch a fresh snapshot instead of publishing partial state.
+            guard !inboxEventsOverflowed.contains(link.id) else { return }
             summaries[link.id] = Dictionary(collected.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
             // Pushes can interleave every page. Reapply them after replacing the snapshot.
             for event in inboxEvents[link.id] ?? [] { applyInboxEvent(event, from: link) }
@@ -459,7 +472,15 @@ final class RemoteStore {
         guard links[link.id] === link else { return }
         if inboxLoadTokens[link.id] != nil,
            event.type == .threadSummary || event.type == .threadRemoved || event.type == .runStatus {
-            inboxEvents[link.id, default: []].append(event)
+            if !inboxEventsOverflowed.contains(link.id) {
+                if inboxEvents[link.id, default: []].count < 256 { inboxEvents[link.id, default: []].append(event) }
+                else {
+                    inboxEvents[link.id] = []
+                    inboxEventsOverflowed.insert(link.id)
+                    inboxInvalidations.insert(link.id)
+                    caches[link.id]?.needsInboxRefresh = true
+                }
+            }
         }
         // Persist invalidation BEFORE checkpointing the cursor. Inactive scopes miss messages.
         if let id = event.threadId {
@@ -467,7 +488,8 @@ final class RemoteStore {
             if event.type == .threadRemoved {
                 caches[link.id]?.threads[id] = nil
                 let images = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
-                try? images.remove(desktopId: link.id, threadId: id)
+                let desktopId = link.id
+                cacheQueue.async { try? images.remove(desktopId: desktopId, threadId: id) }
             }
         } else if event.type == .threadInvalidated {
             invalidate(link)

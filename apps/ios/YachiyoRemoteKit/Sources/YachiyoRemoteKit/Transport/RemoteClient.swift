@@ -5,6 +5,11 @@ public enum RemoteRequestError: Error, Equatable, Sendable {
     case messageTooLarge
 }
 
+/// The socket must be replayed from the last applied cursor after a push cannot be buffered.
+public enum RemotePushBufferError: Error, Equatable, Sendable {
+    case overflow
+}
+
 public struct RemoteCallError: Error, Equatable, Sendable {
     /// One of the desktop's `REMOTE_ERROR_NAMES`, e.g. `RemoteValidationError`.
     public let name: String
@@ -70,12 +75,15 @@ public final class RemoteClient: @unchecked Sendable {
     /// Yields once when the connection ends, with the error that ended it (nil when closed locally).
     public let closures: AsyncStream<Error?>
 
-    init(channel: any WebSocketChannel, transport: NoiseTransport, codec: RemoteMessageCodec = .legacy, callTimeout: Duration = .seconds(15)) {
+    init(channel: any WebSocketChannel, transport: NoiseTransport, codec: RemoteMessageCodec = .legacy, callTimeout: Duration = .seconds(15), pushBufferCapacity: Int = 256) {
+        precondition(pushBufferCapacity > 0)
         self.channel = channel
         self.transport = transport
         self.codec = codec
         self.callTimeout = callTimeout
-        (pushes, pushContinuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
+        // Retain the earliest unapplied pushes; overflow closes the socket rather than losing
+        // a structural/delta event while allowing later events to advance the replay cursor.
+        (pushes, pushContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingOldest(pushBufferCapacity))
         (closures, closeContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
         Task { await self.receiveLoop() }
     }
@@ -278,7 +286,11 @@ public final class RemoteClient: @unchecked Sendable {
                 return
             }
             let data = try JSONSerialization.data(withJSONObject: payload)
-            pushContinuation.yield(try JSONDecoder().decode(RemotePush.self, from: data))
+            switch pushContinuation.yield(try JSONDecoder().decode(RemotePush.self, from: data)) {
+            case .enqueued: break
+            case .dropped, .terminated: throw RemotePushBufferError.overflow
+            @unknown default: throw RemotePushBufferError.overflow
+            }
         default:
             return
         }

@@ -307,6 +307,68 @@ final class RemoteClientTests: XCTestCase {
             }
         }
     }
+
+    func testPushOverflowClosesSocketAndReplaysFromLastAppliedCursor() async throws {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport, pushBufferCapacity: 2)
+        defer { client.close() }
+        try channel.receivePush(seq: 1, type: "message.started")
+        try channel.receivePush(seq: 2, type: "message.delta")
+        try channel.receivePush(seq: 3, type: "message.completed")
+
+        // No consumer is running yet: the third push must not evict either earlier event.
+        await fulfillment(of: [channel.didClose], timeout: 2)
+        var tracker = EventCursorTracker()
+        var delivered: [Int] = []
+        for await push in client.pushes {
+            delivered.append(push.seq)
+            _ = tracker.observe(push)
+        }
+        XCTAssertEqual(delivered, [1, 2])
+        XCTAssertEqual(tracker.cursor?.seq, 2)
+        XCTAssertEqual(tracker.subscribeInput(threadIds: []).resumeFrom?.seq, 2)
+        var closureIterator = client.closures.makeAsyncIterator()
+        let closeReason = await closureIterator.next()
+        XCTAssertEqual(closeReason as? RemotePushBufferError, .overflow)
+        do {
+            _ = try await client.callRaw("later", input: [:])
+            XCTFail("Overflowed socket must reject later calls")
+        } catch {
+            XCTAssertEqual(error as? WebSocketChannelError, .closed(code: 1000))
+        }
+
+        // A new socket can replay the omitted event from the last applied cursor.
+        let replayChannel = SuspendedSendChannel()
+        let replay = RemoteClient(channel: replayChannel, transport: replayChannel.clientTransport, pushBufferCapacity: 2)
+        defer { replay.close() }
+        try replayChannel.receivePush(seq: 3, type: "message.completed")
+        var iterator = replay.pushes.makeAsyncIterator()
+        let recovered = await iterator.next()
+        XCTAssertEqual(recovered?.seq, 3)
+        if let recovered { _ = tracker.observe(recovered) }
+        XCTAssertEqual(tracker.cursor?.seq, 3)
+    }
+
+    func testPushOverflowFailsPendingCallWithoutSendingAnotherNoiseFrame() async throws {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport, pushBufferCapacity: 1)
+        defer { client.close() }
+        let pending = Task { try await client.callRaw("pending", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        try channel.receivePush(seq: 1, type: "message.delta")
+        try channel.receivePush(seq: 2, type: "message.completed")
+        await fulfillment(of: [channel.didClose], timeout: 2)
+        do {
+            _ = try await pending.value
+            XCTFail("Overflow must fail in-flight calls")
+        } catch {
+            XCTAssertEqual(error as? RemotePushBufferError, .overflow)
+        }
+        XCTAssertEqual(channel.sendCount, 1)
+        var delivered: [Int] = []
+        for await push in client.pushes { delivered.append(push.seq) }
+        XCTAssertEqual(delivered, [1])
+    }
 }
 
 private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable {
@@ -403,6 +465,15 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
 
     func receiveInvalidCompressedFrame() throws {
         replyContinuation.yield(try peer.encrypt(Data([1, 0, 0])))
+    }
+
+    func receivePush(seq: Int, type: String) throws {
+        let push: [String: Any] = [
+            "kind": "rpc:event",
+            "payload": ["epoch": "epoch", "seq": seq, "type": "event",
+                        "event": ["type": type, "threadId": "thread", "messageId": "message", "delta": "chunk"]],
+        ]
+        replyContinuation.yield(try peer.encrypt(codec.encode(JSONSerialization.data(withJSONObject: push))))
     }
 
     func close() {

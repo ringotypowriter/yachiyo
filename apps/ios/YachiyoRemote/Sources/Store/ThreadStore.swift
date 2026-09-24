@@ -42,7 +42,9 @@ final class ThreadStore: ChatMessageSource {
     private var loadToken: UUID?
     private var isOpen = false
     private var eventsDuringLoad: [(event: RemoteEvent, seq: Int)] = []
+    private var loadEventsOverflowed = false
     private var isReplayingLoadEvents = false
+    private var deltaRebuildTask: Task<Void, Never>?
     @Published private(set) var lastError: String?
     @Published private(set) var outboundState: ThreadOutboundState = .idle
     @Published private(set) var replyState: ThreadReplyState = .idle
@@ -139,11 +141,14 @@ final class ThreadStore: ChatMessageSource {
     }
 
     func close() {
+        deltaRebuildTask?.cancel()
+        deltaRebuildTask = nil
         isOpen = false
         needsReload = true
         loadToken = nil
         isLoading = false
         eventsDuringLoad.removeAll()
+        loadEventsOverflowed = false
         store.clearOpenThread(desktopId: desktopId, threadId: threadId)
     }
 
@@ -170,6 +175,7 @@ final class ThreadStore: ChatMessageSource {
         let token = UUID()
         loadToken = token
         eventsDuringLoad.removeAll()
+        loadEventsOverflowed = false
         let initialLoad = detail == nil
         isLoading = true
         loadError = nil
@@ -187,6 +193,7 @@ final class ThreadStore: ChatMessageSource {
         }
         do {
             let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: 50, beforeMessageId: nil))
+            guard loadToken == token, isOpen, !loadEventsOverflowed, !Task.isCancelled else { return }
             // Current plans live in a workspace file, not necessarily in a marker message.
             // A failed preview read must not hide the pending review actions.
             var planContent: String?
@@ -195,7 +202,7 @@ final class ThreadStore: ChatMessageSource {
                 planContent = plan?.content
             }
             try Task.checkCancellation()
-            guard loadToken == token, isOpen else { return }
+            guard loadToken == token, isOpen, !loadEventsOverflowed else { return }
             pendingPlanContent = planContent
             detail = loaded
             summary = loaded.thread
@@ -270,7 +277,14 @@ final class ThreadStore: ChatMessageSource {
 
     private func apply(_ event: RemoteEvent, seq: Int) {
         guard isOpen else { return }
-        if loadToken != nil { eventsDuringLoad.append((event, seq)) }
+        if loadToken != nil, !loadEventsOverflowed {
+            if eventsDuringLoad.count < 256 { eventsDuringLoad.append((event, seq)) }
+            else {
+                eventsDuringLoad.removeAll()
+                loadEventsOverflowed = true
+                reloadAgain = true
+            }
+        }
         switch event.type {
         case .messageStarted:
             guard let messageId = event.messageId else { return }
@@ -289,7 +303,7 @@ final class ThreadStore: ChatMessageSource {
                 streamingOrder.append(messageId)
             }
             streamingText[messageId, default: ""] += event.delta ?? ""
-            rebuild(scrolling: true)
+            scheduleDeltaRebuild()
         case .messageReasoningDelta:
             guard let messageId = event.messageId else { return }
             observeRun(event.runId ?? activeRunId, responding: true)
@@ -301,7 +315,7 @@ final class ThreadStore: ChatMessageSource {
                 streamingReasoning[messageId] = detail?.messages.first { $0.id == messageId }?.reasoning ?? ""
             }
             streamingReasoning[messageId, default: ""] += event.delta ?? ""
-            rebuild(scrolling: true)
+            scheduleDeltaRebuild()
         case .messageCompleted:
             guard let message = event.message else { return }
             if message.role == .user { materializeSteerImages(in: message, runId: event.runId) }
@@ -376,7 +390,19 @@ final class ThreadStore: ChatMessageSource {
 
     // MARK: Timeline
 
+    private func scheduleDeltaRebuild() {
+        guard deltaRebuildTask == nil, !isReplayingLoadEvents else { return }
+        deltaRebuildTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+            guard let self, isOpen else { return }
+            deltaRebuildTask = nil
+            rebuild(scrolling: true)
+        }
+    }
+
     private func rebuild(scrolling: Bool) {
+        deltaRebuildTask?.cancel()
+        deltaRebuildTask = nil
         guard !isReplayingLoadEvents else { return }
         let toolCalls = allToolCalls
         let loaded = detail?.messages ?? []
