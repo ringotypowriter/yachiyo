@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { ToolCallRecord } from '@yachiyo/shared/protocol'
 
 import {
   buildToolCallDetailsPresentation,
@@ -148,6 +149,10 @@ test('webRead keeps saved-file and truncation metadata beside recovered output',
     rawOutput: { type: 'content', value: [{ type: 'text', text: 'Page excerpt' }] },
     details: {
       requestedUrl: 'https://example.com',
+      extractor: 'none',
+      content: 'Page excerpt',
+      contentFormat: 'markdown',
+      contentChars: 12,
       truncated: true,
       originalContentChars: 30000,
       savedFilePath: '/workspace/page.md'
@@ -402,7 +407,7 @@ test('buildToolCallDetailsPresentation omits hydrated pyRepl image payloads', ()
 })
 
 test('pyRepl raw-only text remains visible without exposing image data', () => {
-  const call = {
+  const call: ToolCallRecord = {
     ...BASE_TOOL_CALL,
     toolName: 'pyRepl',
     status: 'failed',
