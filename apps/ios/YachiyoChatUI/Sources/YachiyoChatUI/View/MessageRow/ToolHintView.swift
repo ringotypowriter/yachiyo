@@ -271,6 +271,13 @@ final class ToolHintView: MessageListRowView {
         if layout.hasOverflow {
             var configuration = UIButton.Configuration.plain()
             configuration.title = showsAll ? nil : "+\(hiddenCount)"
+            configuration.titleLineBreakMode = .byClipping
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var attributes = attributes
+                attributes.font = .systemFont(ofSize: 12, weight: .medium)
+                return attributes
+            }
+            configuration.contentInsets = .zero
             configuration.image = showsAll ? UIImage(systemName: "chevron.up") : nil
             configuration.preferredSymbolConfigurationForImage = .init(pointSize: 13, weight: .medium)
             configuration.background.backgroundColor = .tertiarySystemFill

@@ -213,6 +213,9 @@ final class ToolHintViewTests: XCTestCase {
         let more = try XCTUnwrap(view("toolDeck.overflow", in: deck) as? UIButton)
         XCTAssertFalse(more.isHidden)
         XCTAssertEqual(more.configuration?.title, "+109")
+        XCTAssertEqual(more.configuration?.titleLineBreakMode, .byClipping)
+        XCTAssertEqual(more.configuration?.contentInsets, .zero)
+        XCTAssertEqual(more.titleLabel?.numberOfLines, 1)
         XCTAssertTrue(view("toolDeck.call.call0", in: deck)?.isHidden == true)
         XCTAssertFalse(try XCTUnwrap(view("toolDeck.call.call119", in: deck)).isHidden)
 
@@ -228,6 +231,22 @@ final class ToolHintViewTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(view("toolDeck.call.call0", in: deck)).isHidden)
         XCTAssertEqual(more.accessibilityLabel, "Show fewer tool calls")
         XCTAssertEqual(more.frame.maxY, expandedHeight - 44)
+    }
+
+    func testOverflowCountStaysOnOneLineAtPhoneWidth() throws {
+        let calls = (0..<17).map { ToolCallContentPart(id: "call\($0)", toolName: "read", state: .succeeded) }
+        let deck = ToolHintView()
+        deck.frame = CGRect(x: 0, y: 0, width: 400,
+                            height: ToolHintView.height(width: 400 - MessageListView.listRowInsets.horizontal,
+                                                        callCount: calls.count, isExpanded: false))
+        deck.configure(calls: calls, selectedID: nil)
+        deck.layoutIfNeeded()
+        let more = try XCTUnwrap(view("toolDeck.overflow", in: deck) as? UIButton)
+        let label = try XCTUnwrap(more.titleLabel)
+        XCTAssertEqual(more.configuration?.title, "+2")
+        XCTAssertEqual(more.configuration?.titleLineBreakMode, .byClipping)
+        XCTAssertLessThanOrEqual(label.frame.height, ceil(label.font.lineHeight))
+        XCTAssertLessThanOrEqual(label.intrinsicContentSize.width, more.bounds.width)
     }
 
     private func view(_ identifier: String, in root: UIView) -> UIView? {
