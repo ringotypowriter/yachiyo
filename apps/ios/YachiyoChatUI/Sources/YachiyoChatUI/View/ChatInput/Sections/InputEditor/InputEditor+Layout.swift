@@ -50,13 +50,13 @@ extension InputEditor {
         )
         sendButton.alpha = 1
         moreButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
+            x: inset.left,
             y: bounds.height - iconSize.height - inset.bottom,
             width: iconSize.width,
             height: iconSize.height
         )
-        defer { moreButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-        moreButton.alpha = 0
+        moreButton.transform = .identity
+        moreButton.alpha = 1
         voiceButton.frame = CGRect(
             x: sendButton.frame.minX - iconSize.width - iconSpacing,
             y: sendButton.frame.minY,
@@ -67,9 +67,9 @@ extension InputEditor {
 
         let textLayoutHeight = textLayoutHeight(textHeight.value)
         textView.frame = CGRect(
-            x: inset.left,
+            x: moreButton.frame.maxX + iconSpacing,
             y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceButton.frame.minX - inset.left - iconSpacing,
+            width: voiceButton.frame.minX - moreButton.frame.maxX - iconSpacing * 2,
             height: textLayoutHeight
         )
         placeholderLabel.frame = textView.frame

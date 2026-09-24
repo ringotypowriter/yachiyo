@@ -34,7 +34,7 @@ class InputEditor: EditorSectionView {
             setNeedsLayout()
         }
     }
-    /// Shown instead of the more/mic button while a run is active (Yachiyo fork).
+    /// Shown instead of the mic button while a run is active (Yachiyo fork).
     let stopButton = IconButton(icon: "stop.circle.fill")
 
     var isRunning: Bool = false {
@@ -206,21 +206,14 @@ class InputEditor: EditorSectionView {
         if isSubmitting { sendButton.alpha = 0 }
     }
 
-    /// The stop control takes the more/mic slot while a run is active, so send and stop can
-    /// coexist once there is text to send.
+    /// The stop control takes the mic slot so attachment entry remains available during a run.
     private func layoutStopButton() {
         guard isRunning else {
             stopButton.alpha = 0
             return
         }
-        switch isSubmitting ? .editingText : layoutStatus {
-        case .standard, .preFocusText:
-            stopButton.frame = moreButton.frame
-            moreButton.alpha = 0
-        case .editingText:
-            stopButton.frame = voiceButton.frame
-            voiceButton.alpha = 0
-        }
+        stopButton.frame = voiceButton.frame
+        voiceButton.alpha = 0
         stopButton.alpha = 1
         stopButton.transform = .identity
     }
