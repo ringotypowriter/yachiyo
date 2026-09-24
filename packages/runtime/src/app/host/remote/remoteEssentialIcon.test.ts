@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -15,12 +16,43 @@ const svg =
   '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="256"><rect width="1024" height="256" fill="red"/></svg>'
 const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
 
+test('Essential data images do not use Electron network fetch', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('net::ERR_INVALID_ARGUMENT')
+  })
+  const base64 = await readEssentialIcon(dataUrl)
+  const percentEncoded = await readEssentialIcon(`data:image/svg+xml,${encodeURIComponent(svg)}`)
+  assert.deepEqual(percentEncoded, base64)
+  assert.equal(base64.mediaType, 'image/png')
+  assert.equal((await sharp(Buffer.from(base64.data, 'base64')).metadata()).width, 512)
+})
+
 test('Essential data images are normalized to bounded UIKit-compatible PNG', async () => {
   const image = await readEssentialIcon(dataUrl)
   assert.equal(image.mediaType, 'image/png')
   const metadata = await sharp(Buffer.from(image.data, 'base64')).metadata()
   assert.equal(metadata.width, 512)
   assert.equal(metadata.height, 128)
+})
+
+test('Essential PNG data supports large base64 and percent-encoded binary without fetch', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('net::ERR_INVALID_ARGUMENT')
+  })
+  const png = await sharp(randomBytes(384 * 384 * 3), {
+    raw: { width: 384, height: 384, channels: 3 }
+  })
+    .png()
+    .toBuffer()
+  assert.ok(png.length > 300_000)
+  const base64 = await readEssentialIcon(`data:image/png;base64,${png.toString('base64')}`)
+  const percentEncoded = await readEssentialIcon(
+    `data:image/png,${Array.from(png, (byte) => `%${byte.toString(16).padStart(2, '0')}`).join('')}`
+  )
+  assert.deepEqual(percentEncoded, base64)
+  const metadata = await sharp(Buffer.from(base64.data, 'base64')).metadata()
+  assert.equal(metadata.width, 384)
+  assert.equal(metadata.height, 384)
 })
 
 test('Essential images support trusted local paths and file URLs, including reserved characters', async () => {
@@ -63,8 +95,14 @@ test('Essential remote URLs use the host and reject failed or oversized response
 test('Essential icons reject unsupported, invalid, and oversized data sources', async () => {
   await assert.rejects(readEssentialIcon('ftp://example.com/icon.png'), /Unsupported/)
   await assert.rejects(readEssentialIcon('data:text/plain,not-an-image'))
+  await assert.rejects(readEssentialIcon('data:image/png;base64'))
+  await assert.rejects(readEssentialIcon('data:image/png,%89%XX'))
   await assert.rejects(
     readEssentialIcon(`data:image/png;base64,${'A'.repeat(MAX_REMOTE_FILE_BYTES * 2)}`),
+    /too large/
+  )
+  await assert.rejects(
+    readEssentialIcon(`data:image/png,${'%41'.repeat(MAX_REMOTE_FILE_BYTES + 1)}`),
     /too large/
   )
 })
