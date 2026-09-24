@@ -91,10 +91,26 @@ test('installing a tunnel enables remote with that mode; uninstall falls back to
 test('pairings list hides keys and revoke reports whether a pairing was removed', async () => {
   const { deps } = createDeps()
   assert.deepEqual(await handleRemoteCommand({ action: 'pairings-list' }, deps), [
-    { pairingId: 'pairing-1', deviceName: 'iPhone', createdAt: '2026-09-22T00:00:00.000Z' }
+    {
+      pairingId: 'pairing-1',
+      deviceName: 'iPhone',
+      createdAt: '2026-09-22T00:00:00.000Z'
+    }
   ])
   assert.deepEqual(
     await handleRemoteCommand({ action: 'pairings-revoke', pairingId: 'nope' }, deps),
     { revoked: false }
   )
+})
+
+test('pairing QR command returns only an image and its expiry', async () => {
+  const { deps } = createDeps()
+  deps.createPairingQr = async () => ({
+    imagePath: '/private/pairing qr/abc.png',
+    expiresAt: '2026-09-22T00:05:00.000Z'
+  })
+  assert.deepEqual(await handleRemoteCommand({ action: 'pairing-qr' }, deps), {
+    imagePath: '/private/pairing qr/abc.png',
+    expiresAt: '2026-09-22T00:05:00.000Z'
+  })
 })

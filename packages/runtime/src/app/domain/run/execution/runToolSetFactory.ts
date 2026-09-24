@@ -1,4 +1,5 @@
 import type { ToolSet } from 'ai'
+import { createRemotePairingQrTool } from '../../../../tools/agentTools/remotePairingQrTool.ts'
 
 import type {
   NotificationRequestEvent,
@@ -53,6 +54,23 @@ export interface CreateRunToolSetInput {
   subagentStartedAtByDelegationId: Map<string, string>
   toolLifecycle: RunToolLifecycleState
   updateToolCall: (toolCall: ToolCallRecord) => void
+}
+
+/** Never insert a bearer grant into an external thread, even if started from the local UI. */
+export function canOfferRemotePairingQr(input: {
+  isLocalRunTrigger: boolean
+  isExternalChannel: boolean
+  source?: string | null
+  channelUserId?: string | null
+  channelGroupId?: string | null
+}): boolean {
+  return (
+    input.isLocalRunTrigger &&
+    !input.isExternalChannel &&
+    (input.source == null || input.source === 'local') &&
+    !input.channelGroupId &&
+    !input.channelUserId
+  )
 }
 
 export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefined {
@@ -123,6 +141,17 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
 
   const extraTools: ToolSet | undefined = (() => {
     const next = { ...((executionInput.extraTools as ToolSet | undefined) ?? {}) } as ToolSet
+    // A QR is a bearer grant. Owner DMs and group/channel runs must not receive it.
+    if (
+      canOfferRemotePairingQr({
+        isLocalRunTrigger,
+        isExternalChannel,
+        source: executionInput.thread.source,
+        channelUserId: executionInput.thread.channelUserId,
+        channelGroupId: executionInput.thread.channelGroupId
+      })
+    )
+      next.createRemotePairingQr = createRemotePairingQrTool()
     return Object.keys(next).length > 0 ? next : undefined
   })()
 

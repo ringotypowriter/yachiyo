@@ -53,6 +53,24 @@ describe('createMarkdownRehypePlugins', () => {
     assert.equal(schema.protocols?.href?.includes('magnet'), true)
   })
 
+  it('renders a private QR asset path with spaces as an image, not a link or blocked text', () => {
+    const path = '/Users/alice/Yachiyo Data/pairing qr/abc.png'
+    const assetUrl = `yachiyo-asset://local/?p=${encodeURIComponent(path)}`
+    const markdown = `![Pair iPhone with this Mac](${assetUrl})`
+    const html = renderToStaticMarkup(
+      React.createElement(
+        Streamdown,
+        { mode: 'static', rehypePlugins: createMarkdownRehypePlugins({}) },
+        markdown
+      )
+    )
+    assert.match(
+      html,
+      /<img\b[^>]*src="yachiyo-asset:\/\/local\/\?p=%2FUsers%2Falice%2FYachiyo%20Data%2Fpairing%20qr%2Fabc\.png"/
+    )
+    assert.doesNotMatch(html, /\[blocked\]|<a\b/)
+  })
+
   it('protects resolved workspace links before harden and preserves their marker', () => {
     const plugins = createMarkdownRehypePlugins({ basePath: '/Users/alice/project' }, [
       'artifact.md'

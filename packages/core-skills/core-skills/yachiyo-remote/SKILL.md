@@ -132,9 +132,15 @@ Do not call the phone connected until its own connection/hello succeeds.
 
 ### 7. Pair the phone
 
-Tell the user to open **Settings > Remote** in Yachiyo, click **Show code**, and scan it with
-Yachiyo on their iPhone within five minutes. Never print or paste the pairing link in chat — it
-grants access to this Mac.
+For a **private, local Yachiyo conversation**, use the `createRemotePairingQr` agent tool after
+remote access is enabled. It returns Markdown containing a short local `yachiyo-asset://` image
+reference (not the pairing URL or base64 image data); include that Markdown
+**unchanged** in the assistant reply so the user can scan it in Yachiyo on their iPhone within
+five minutes. Do not put the pairing link in plain text, copy the image to another conversation,
+send it to a group or external channel, upload it, or make another copy on disk. The QR itself is a bearer
+grant; treat its image and the chat history containing it as sensitive. If the tool is unavailable
+or the image has expired, tell the user to open **Settings > Remote**, click **Show code**, and
+scan the new code there. Never invent or reconstruct a pairing URL.
 
 ## Other tasks
 

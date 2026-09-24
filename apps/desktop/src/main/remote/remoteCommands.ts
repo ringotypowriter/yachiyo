@@ -31,6 +31,7 @@ export interface RemoteCommandDeps {
   } | null
   listPairings(): Promise<PairingRecord[]>
   revokePairing(pairingId: string): Promise<boolean>
+  createPairingQr?(): Promise<{ imagePath: string; expiresAt: string }>
   icloudDrive(): Promise<ICloudDriveState>
 }
 
@@ -69,7 +70,12 @@ async function status(deps: RemoteCommandDeps): Promise<RemoteStatusResult> {
 export async function handleRemoteCommand(
   request: RemoteCommandRequest,
   deps: RemoteCommandDeps
-): Promise<RemoteStatusResult | RemotePairingInfo[] | { revoked: boolean }> {
+): Promise<
+  | RemoteStatusResult
+  | RemotePairingInfo[]
+  | { revoked: boolean }
+  | { imagePath: string; expiresAt: string }
+> {
   switch (request.action) {
     case 'status':
       return status(deps)
@@ -105,6 +111,9 @@ export async function handleRemoteCommand(
         createdAt: pairing.createdAt,
         ...(pairing.lastSeenAt ? { lastSeenAt: pairing.lastSeenAt } : {})
       }))
+    case 'pairing-qr':
+      if (!deps.createPairingQr) throw new Error('Pairing QR is unavailable.')
+      return deps.createPairingQr()
     case 'pairings-revoke':
       return { revoked: await deps.revokePairing(request.pairingId) }
   }

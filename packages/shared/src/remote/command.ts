@@ -27,6 +27,7 @@ export const remoteCommandRequestSchema = z.union([
   }),
   z.object({ action: z.literal('tunnel-uninstall') }),
   z.object({ action: z.literal('pairings-list') }),
+  z.object({ action: z.literal('pairing-qr') }),
   z.object({ action: z.literal('pairings-revoke'), pairingId: z.string().trim().min(1) })
 ])
 

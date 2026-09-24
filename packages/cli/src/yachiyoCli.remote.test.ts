@@ -65,4 +65,6 @@ test('invalid remote commands fail before reaching the app', async () => {
   )
   await assert.rejects(run(['pairings', 'revoke']), /pairingId/)
   await assert.rejects(run(['tunnel', 'restart']), /Unknown remote command/)
+  // Pairing images must never be printed by the CLI into a shell transcript.
+  await assert.rejects(run(['pairing-qr']), /Unknown remote command/)
 })

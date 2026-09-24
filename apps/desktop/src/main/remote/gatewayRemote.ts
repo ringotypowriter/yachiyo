@@ -18,6 +18,7 @@ import { IPC_CHANNELS } from '../yachiyoGateway/ipcChannels.ts'
 import { createRemoteKeepAwake } from './keepAwake.ts'
 import { defaultICloudDriveRoot, detectICloudDrive, MailboxWriter } from './mailboxWriter.ts'
 import { PairingStore, type PairingRecord, type SecretBox } from './pairingStore.ts'
+import { prunePairingQrImagesOnStartup, storePairingQrImage } from './pairingQrImage.ts'
 import { handleRemoteCommand } from './remoteCommands.ts'
 import { RemoteController } from './remoteController.ts'
 import type { RemoteHostPort, RemoteServerPort } from './remoteFacade.ts'
@@ -92,6 +93,13 @@ export function createGatewayRemoteBinding(deps: {
       deps.hostCall(op.replace(/^host\./, ''), input === undefined ? [] : [input])
   })
   const yachiyoHome = resolveYachiyoDataDir()
+  const pairingQrCleanup = prunePairingQrImagesOnStartup().then(
+    () => null,
+    (error: unknown) => {
+      console.warn('Failed to prune prior remote pairing QR images:', error)
+      return error
+    }
+  )
   const directories = defaultRemoteDirectories(yachiyoHome)
   const icloudRoot = defaultICloudDriveRoot()
   let tunnel: TunnelSupervisor | null = null
@@ -193,6 +201,19 @@ export function createGatewayRemoteBinding(deps: {
         },
         listPairings: () => pairingStore().list(),
         revokePairing,
+        createPairingQr: async () => {
+          const cleanupError = await pairingQrCleanup
+          if (cleanupError) throw cleanupError
+          const service = controller?.service
+          if (!service) throw new Error('Enable remote access first.')
+          const pairing = await service.createPairingUrl()
+          const png = await QRCode.toBuffer(pairing.url, {
+            errorCorrectionLevel: 'M',
+            margin: 2
+          })
+          const imagePath = await storePairingQrImage({ png, expiresAt: pairing.expiresAt })
+          return { imagePath, expiresAt: pairing.expiresAt }
+        },
         icloudDrive: () => detectICloudDrive(icloudRoot)
       }),
     createPairingUrl: () => {
