@@ -36,6 +36,12 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 15))
         let firstThread = list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'inbox.thread.'")).firstMatch
         XCTAssertTrue(firstThread.waitForExistence(timeout: 30), "inbox shows the desktop's threads")
+        let desktop = app.buttons["inbox.desktop"]
+        XCTAssertTrue(desktop.isHittable, "device picker is tappable before scrolling")
+        desktop.tap()
+        let selectedDevice = app.buttons.matching(NSPredicate(format: "identifier != %@ AND label CONTAINS %@", "inbox.desktop", desktop.label)).firstMatch
+        XCTAssertTrue(selectedDevice.waitForExistence(timeout: 5), "device menu opens without scrolling")
+        selectedDevice.tap()
         firstThread.tap()
 
         // Send a message whose scripted reply streams, then asks a question.
