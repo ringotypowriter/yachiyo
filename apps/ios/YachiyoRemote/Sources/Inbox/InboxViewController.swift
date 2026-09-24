@@ -57,6 +57,8 @@ final class InboxViewController: UIViewController {
     private var filter = Filter() { didSet { applySnapshot(); updateFilterItem() } }
     private var selectedDesktopId: String?
     private var selectedConnectionState: DesktopConnectionState?
+    private var renderedConnectionState: DesktopConnectionState?
+    private var renderedUnreadCompletions: Set<String> = []
     private var selectedDesktop: DesktopSnapshot? { store.desktops.first { $0.id == selectedDesktopId } }
     private var searchQuery = ""
     private var remoteSearchHits: Set<String>?
@@ -75,7 +77,6 @@ final class InboxViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Yachiyo"
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = .yachiyo(.app)
         configureNavigationBar()
@@ -103,9 +104,12 @@ final class InboxViewController: UIViewController {
         appearance.titleTextAttributes = [.font: YachiyoFonts.navigationTitle(), .kern: -0.2]
         navigationItem.standardAppearance = appearance
         navigationItem.scrollEdgeAppearance = appearance
-        desktopButton.titleLabel?.font = YachiyoFonts.navigationTitle()
-        desktopButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        desktopButton.titleLabel?.font = YachiyoFonts.largeTitle()
+        desktopButton.titleLabel?.numberOfLines = 0
+        desktopButton.titleLabel?.lineBreakMode = .byWordWrapping
+        desktopButton.contentHorizontalAlignment = .leading
         desktopButton.tintColor = .label
+        desktopButton.setTitleColor(.label, for: .normal)
         desktopButton.setImage(.lucide("chevron-down"), for: .normal)
         desktopButton.semanticContentAttribute = .forceRightToLeft
         desktopButton.accessibilityIdentifier = "inbox.desktop"
@@ -113,7 +117,6 @@ final class InboxViewController: UIViewController {
         desktopButton.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
             completion(self?.makeDesktopMenu().children ?? [])
         }])
-        navigationItem.titleView = desktopButton
         let settings = UIBarButtonItem(image: .lucide("settings"), primaryAction: UIAction { [weak self] _ in self?.presentSettings() })
         settings.accessibilityIdentifier = "inbox.settings"
         settings.accessibilityLabel = String(localized: "Settings")
@@ -132,15 +135,26 @@ final class InboxViewController: UIViewController {
             section.boundarySupplementaryItems.forEach { $0.pinToVisibleBounds = false }
             return section
         }
-        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
-        collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .yachiyo(.app)
         collectionView.delegate = self
         collectionView.accessibilityIdentifier = "inbox.list"
         collectionView.refreshControl = UIRefreshControl(frame: .zero, primaryAction: UIAction { [weak self] _ in
             self?.refreshInbox()
         })
+        desktopButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(desktopButton)
         view.addSubview(collectionView)
+        NSLayoutConstraint.activate([
+            desktopButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            desktopButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            desktopButton.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            collectionView.topAnchor.constraint(equalTo: desktopButton.bottomAnchor, constant: 8),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
         YachiyoMaterialKit.applyTopEdgeEffect(to: collectionView)
 
         let cellRegistration = UICollectionView.CellRegistration<ThreadCell, InboxItem> { [weak self] cell, _, item in
@@ -220,9 +234,7 @@ final class InboxViewController: UIViewController {
         } else {
             collectionView.refreshControl?.endRefreshing()
         }
-        title = selectedDesktop?.name ?? "Yachiyo"
-        desktopButton.setTitle(title, for: .normal)
-        desktopButton.accessibilityLabel = title
+        desktopButton.setTitle(selectedDesktop?.name ?? "Yachiyo", for: .normal)
         desktopButton.isEnabled = !store.desktops.isEmpty
     }
 
@@ -261,6 +273,9 @@ final class InboxViewController: UIViewController {
     }
 
     private func applySnapshot() {
+        let previous = Dictionary(uniqueKeysWithValues: dataSource.snapshot().itemIdentifiers.map { ($0.id, $0) })
+        let changedUnread = renderedUnreadCompletions.symmetricDifference(store.unreadCompletions)
+        let connectionChanged = renderedConnectionState != selectedConnectionState
         var snapshot = NSDiffableDataSourceSnapshot<Section, InboxItem>()
         let items = visibleItems()
         let needsYou = items.filter(\.summary.needsAttention)
@@ -280,8 +295,12 @@ final class InboxViewController: UIViewController {
             snapshot.appendSections([.day(day)])
             snapshot.appendItems(byDay[day] ?? [], toSection: .day(day))
         }
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
+        snapshot.reconfigureItems(snapshot.itemIdentifiers.filter {
+            previous[$0.id] != nil && (connectionChanged || changedUnread.contains($0.id) || previous[$0.id]?.summary != $0.summary)
+        })
         dataSource.apply(snapshot, animatingDifferences: view.window != nil)
+        renderedConnectionState = selectedConnectionState
+        renderedUnreadCompletions = store.unreadCompletions
         updateEmptyState(isEmpty: items.isEmpty)
     }
 

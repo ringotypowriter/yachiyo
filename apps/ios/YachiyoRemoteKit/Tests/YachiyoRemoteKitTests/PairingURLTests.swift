@@ -23,6 +23,13 @@ final class PairingURLTests: XCTestCase {
         XCTAssertNoThrow(try PairingURL.decode(url(expiresAt: "2020-01-01T00:00:00.000Z")))
     }
 
+    func testParsesThreadDatesWithAndWithoutFractionalSeconds() {
+        let fractional = ISO8601.parse("2026-09-24T13:06:20.265Z")
+        let standard = ISO8601.parse("2026-09-24T13:06:20Z")
+        guard let fractional, let standard else { return XCTFail("Both timestamp formats must parse") }
+        XCTAssertEqual(fractional.timeIntervalSince(standard), 0.265, accuracy: 0.001)
+    }
+
     func testRejectsMalformedAndForeignURLs() {
         XCTAssertThrowsError(try PairingURL.decode(url(key: "short"))) {
             XCTAssertEqual($0 as? PairingURLError, .malformedPayload)

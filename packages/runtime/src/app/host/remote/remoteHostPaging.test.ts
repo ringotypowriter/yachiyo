@@ -121,6 +121,62 @@ test('3000-message normal history reads only 50 page bodies and scoped tools, ne
   assert.equal(bodyCount, 100)
 })
 
+test('thread summaries paginate local threads without consuming cursor slots for sync mirrors', () => {
+  const { storage, thread } = fixture(1)
+  storage.createThread({
+    thread: {
+      id: 'mirror-new',
+      title: 'Mirror',
+      updatedAt: '2026-01-05',
+      syncOriginDeviceId: 'other-device'
+    },
+    createdAt: '2026-01-05'
+  })
+  storage.createThread({
+    thread: { id: 'local-new', title: 'Local', updatedAt: '2026-01-04' },
+    createdAt: '2026-01-04'
+  })
+  storage.createThread({
+    thread: {
+      id: 'mirror-middle',
+      title: 'Mirror',
+      updatedAt: '2026-01-03',
+      syncOriginDeviceId: 'other-device'
+    },
+    createdAt: '2026-01-03'
+  })
+  const unused = (): never => {
+    throw new Error('Unexpected server call')
+  }
+  const ops = createRemoteHostOps({
+    getStorage: () => storage,
+    getQueuedFollowUpMessages: unused,
+    getConfig: unused,
+    getSyncStatus: unused,
+    listSubagents: unused,
+    listBackgroundTasks: unused,
+    searchThreadsAndMessages: unused
+  })
+
+  const first = ops['host.remote.listThreadSummaries']({ limit: 1 })
+  assert.deepEqual(
+    first.threads.map((item) => item.id),
+    ['local-new']
+  )
+  assert.equal(first.nextCursor, '1')
+  const second = ops['host.remote.listThreadSummaries']({ cursor: first.nextCursor, limit: 1 })
+  assert.deepEqual(
+    second.threads.map((item) => item.id),
+    [thread.id]
+  )
+  assert.equal(second.nextCursor, undefined)
+  assert.equal(ops['host.remote.getThreadSummary']({ threadId: 'mirror-new' }), null)
+  assert.ok(ops['host.remote.getThreadSummary']({ threadId: thread.id }))
+  assert.throws(() => ops['host.remote.loadThread']({ threadId: 'mirror-new' }), {
+    name: 'RemoteNotFound'
+  })
+})
+
 test('ancestry order, hidden ancestors, sibling metadata and cursor rejection survive body paging', () => {
   const { storage, thread, messages, load } = fixture(5)
   storage.updateMessage({ ...messages[2]!, hidden: true })

@@ -132,26 +132,28 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
 
   function requireActiveThread(threadId: string): ThreadRecord {
     const thread = storage().getThread(threadId)
-    if (!thread || thread.archivedAt) throw new RemoteNotFoundError('Thread not found.')
+    if (!thread || thread.archivedAt || thread.syncOriginDeviceId)
+      throw new RemoteNotFoundError('Thread not found.')
     return thread
   }
 
   function listThreadSummaries(input: { cursor?: string; limit?: number }): ThreadListPage {
     const { threads, latestRunsByThread } = storage().bootstrap()
+    const localThreads = threads.filter((thread) => !thread.syncOriginDeviceId)
     const offset = input.cursor ? Number.parseInt(input.cursor, 10) : 0
     if (!Number.isInteger(offset) || offset < 0) throw new Error('Invalid thread list cursor.')
     const limit = input.limit ?? THREAD_LIST_DEFAULT
-    const page = threads.slice(offset, offset + limit)
+    const page = localThreads.slice(offset, offset + limit)
     const next = offset + page.length
     return {
       threads: page.map((thread) => summarize(thread, latestRunsByThread[thread.id])),
-      ...(next < threads.length ? { nextCursor: String(next) } : {})
+      ...(next < localThreads.length ? { nextCursor: String(next) } : {})
     }
   }
 
   function getThreadSummary(input: { threadId: string }): RemoteThreadSummary | null {
     const thread = storage().getThread(input.threadId)
-    if (!thread || thread.archivedAt) return null
+    if (!thread || thread.archivedAt || thread.syncOriginDeviceId) return null
     return summarize(thread, latestRunOf(thread.id))
   }
 

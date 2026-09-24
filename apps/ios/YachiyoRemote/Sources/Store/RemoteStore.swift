@@ -105,7 +105,9 @@ final class RemoteStore {
     /// Cursor and applied state are copied together on the main actor, then written serially.
     private func checkpoint(_ desktopId: String) {
         caches[desktopId]?.cursor = links[desktopId]?.cursor
-        if let values = summaries[desktopId] { caches[desktopId]?.summaries = Array(values.values) }
+        if caches[desktopId]?.summaries == nil, let values = summaries[desktopId] {
+            caches[desktopId]?.summaries = Array(values.values)
+        }
         guard cacheSaveTask == nil else { return }
         cacheSaveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
@@ -125,6 +127,10 @@ final class RemoteStore {
         if !final {
             isWritingCache = true
             hasPendingCacheWrite = false
+        }
+        // Copy the latest summaries with the cursor at the save boundary, not on every push.
+        for (id, values) in summaries where caches[id] != nil {
+            caches[id]?.summaries = Array(values.values)
         }
         let snapshots = caches
         let disk = cacheStore

@@ -56,10 +56,10 @@ public enum Base64URL {
 }
 
 public enum ISO8601 {
+    private static let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let standard = Date.ISO8601FormatStyle()
+
     public static func parse(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        return ISO8601DateFormatter().date(from: value)
+        (try? fractional.parse(value)) ?? (try? standard.parse(value))
     }
 }

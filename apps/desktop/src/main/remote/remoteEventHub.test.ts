@@ -324,6 +324,28 @@ test('thread changes become summaries fetched after the coalescing window', asyn
   hub.stop()
 })
 
+test('a read-only mirror with no remote summary does not emit an inbox event', async () => {
+  const source = createSource()
+  const hub = new RemoteEventHub({
+    subscribe: source.subscribe,
+    getThreadSummary: async () => null,
+    coalesceMs: 60_000
+  })
+  hub.start()
+  const { pushes, subscription } = collect(hub)
+  subscription.resume()
+
+  source.emit({ type: 'thread.updated', threadId: 'mirror' })
+  hub.flush()
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.deepEqual(
+    pushes.map((push) => push.type === 'event' && push.event),
+    []
+  )
+  hub.stop()
+})
+
 test('stopping the hub releases the server subscription', () => {
   const { hub, source } = createHub()
   assert.equal(source.listenerCount(), 1)
