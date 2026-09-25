@@ -149,6 +149,18 @@ test('quick endpoint cache requires same known PID and truncated marker-free tai
   )
 })
 
+test('quick endpoint recovers after a temporary launchctl PID lookup failure', () => {
+  const text = 'Requesting new quick Tunnel\nhttps://old.trycloudflare.com\nStarting tunnel\n'
+  const known = resolveQuickEndpoint({ text, pid: 123, inode: 10 })
+  const missing = resolveQuickEndpoint({ text, pid: null, inode: 10 }, known)
+  assert.equal(missing.endpoint, null)
+  assert.equal(
+    resolveQuickEndpoint({ text, pid: 123, inode: 10 }, missing).endpoint,
+    known.endpoint
+  )
+  assert.equal(resolveQuickEndpoint({ text, pid: 124, inode: 10 }, missing).endpoint, null)
+})
+
 test('metrics absent and malformed remain unknown, never zero', () => {
   assert.equal(parseMetrics('# HELP metric\n'), null)
   assert.equal(parseMetrics('cloudflared_tunnel_ha_connections 0\n'), 0)

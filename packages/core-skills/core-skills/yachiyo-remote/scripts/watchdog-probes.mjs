@@ -141,7 +141,7 @@ export function resolveQuickEndpoint(
     ? `${inode}:${offset + Buffer.byteLength(text.slice(0, marker.index))}`
     : (previous?.requestId ?? null)
   let blockedRequest = previous?.blockedRequest ?? null
-  if (previous && previous.pid !== pid && requestId === previous.requestId)
+  if (previous?.pid && pid && previous.pid !== pid && requestId === previous.requestId)
     blockedRequest = requestId
   const samePid = Number.isSafeInteger(pid) && pid > 0 && pid === previous?.pid
   const endpoint = !pid
@@ -153,7 +153,7 @@ export function resolveQuickEndpoint(
       : truncated && samePid
         ? previous.endpoint
         : null
-  return { pid, endpoint, requestId, blockedRequest }
+  return { pid: pid ?? previous?.pid ?? null, endpoint, requestId, blockedRequest }
 }
 
 export function localProbe(endpoint, { websocket = false, signal, timeout = 3000 } = {}) {
