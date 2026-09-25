@@ -148,6 +148,52 @@ test('tunnels /responses POSTs over one pooled websocket and replays events as S
   }
 })
 
+test('Codex websocket usage limits surface the provider message instead of schema errors', async () => {
+  const server = await startServer((socket) => {
+    socket.send(
+      event('error', {
+        error: {
+          type: 'usage_limit_reached',
+          message: 'The usage limit has been reached',
+          resets_in_seconds: 430690
+        },
+        status_code: 429,
+        headers: { 'X-Codex-Primary-Used-Percent': '100' }
+      })
+    )
+  })
+  const pool = new CodexWebSocketPool()
+  const fetch = createCodexWebSocketFetch(unusedFetch(), {
+    sessionId: 'usage-limit',
+    pool,
+    webSocketUrl: server.url
+  })
+
+  try {
+    const provider = createOpenAI({
+      apiKey: 'fixture',
+      baseURL: 'https://chatgpt.com/backend-api/codex',
+      fetch
+    })
+    const result = streamText({
+      model: provider.responses('model'),
+      prompt: 'local fixture',
+      maxRetries: 0
+    })
+    let streamError: unknown
+    for await (const part of result.fullStream) {
+      if (part.type === 'error') streamError = part.error
+    }
+    assert.ok(streamError instanceof Error)
+    assert.equal(streamError.message, 'The usage limit has been reached')
+    assert.equal((streamError as Error & { statusCode?: number }).statusCode, 429)
+    assert.equal(server.frames.length, 1)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
 test('replays the newest x-codex-turn-state on later requests', async () => {
   const server = await startServer(
     (socket) => {

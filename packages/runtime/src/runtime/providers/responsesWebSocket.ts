@@ -109,6 +109,29 @@ function readEventTurnState(event: { type?: unknown; headers?: unknown }): strin
   return event.type === 'response.metadata' ? readHeaderTurnState(event.headers) : undefined
 }
 
+function toSdkEvent(event: Record<string, unknown>, original: string): string {
+  if (event.type !== 'error' || !event.error || typeof event.error !== 'object') return original
+  const error = event.error as Record<string, unknown>
+  if (typeof error.type !== 'string' || typeof error.message !== 'string') return original
+  if (typeof event.sequence_number === 'number' && typeof error.code === 'string') return original
+  return JSON.stringify({
+    type: 'error',
+    sequence_number: typeof event.sequence_number === 'number' ? event.sequence_number : 0,
+    error: {
+      type: error.type,
+      code:
+        typeof error.code === 'string'
+          ? error.code
+          : typeof event.status_code === 'number' &&
+              event.status_code >= 400 &&
+              event.status_code <= 599
+            ? String(event.status_code)
+            : error.type,
+      message: error.message
+    }
+  })
+}
+
 function abortError(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('This operation was aborted', 'AbortError')
 }
@@ -312,14 +335,15 @@ class ResponsesWebSocketConnection {
           return
         }
         const text = data.toString()
-        let event: { type?: unknown; headers?: unknown } = {}
+        let event: Record<string, unknown> = {}
         try {
-          event = JSON.parse(text) as { type?: unknown; headers?: unknown }
+          event = JSON.parse(text) as Record<string, unknown>
         } catch {
           // Forward unparseable frames untouched; the SDK parser reports them.
         }
         const turnState = readEventTurnState(event)
         if (turnState) request.onTurnState(turnState)
+        const sse = encoder.encode(`data: ${toSdkEvent(event, text)}\n\n`)
 
         if (!streamStarted) {
           streamStarted = true
@@ -327,7 +351,7 @@ class ResponsesWebSocketConnection {
             new ReadableStream<Uint8Array>({
               start(c) {
                 controller = c
-                controller.enqueue(encoder.encode(`data: ${text}\n\n`))
+                controller.enqueue(sse)
               },
               cancel: () => {
                 // Consumer went away (abort): the backend keeps streaming on
@@ -341,7 +365,7 @@ class ResponsesWebSocketConnection {
             })
           )
         } else {
-          controller?.enqueue(encoder.encode(`data: ${text}\n\n`))
+          controller?.enqueue(sse)
         }
 
         if (typeof event.type === 'string' && TERMINAL_EVENT_TYPES.has(event.type)) {
