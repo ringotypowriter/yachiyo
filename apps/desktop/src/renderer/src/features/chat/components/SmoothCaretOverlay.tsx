@@ -1,7 +1,6 @@
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { prepareWithSegments, layoutWithLines, clearCache } from '@chenglou/pretext'
-import { resolveComposerCaretOverlayScrollTop } from '@renderer/features/chat/lib/composer/composerEndScroll'
 import {
   syncPretextContext,
   buildFontString,
@@ -478,7 +477,6 @@ export function SmoothCaretOverlay({
       ensureCaretVisibleInTextarea(textarea, caretPos.y, height)
     }
     flushTextareaLayout(textarea)
-    const previousOverlayScrollTop = highlight.scrollTop
     if (userScrolling) {
       const overlayScrollTop = Number(textarea.dataset.composerOverlayScrollTop ?? NaN)
       highlight.scrollTop = Number.isFinite(overlayScrollTop)
@@ -493,16 +491,11 @@ export function SmoothCaretOverlay({
     // the textarea's. If the caret is still below the overlay viewport, scroll it further.
     const hlCh = highlight.clientHeight
     if (hlCh > 0 && !userScrolling) {
-      // Preserve the trailing-line offset established before paint, but keep a manually
-      // adjusted viewport when the caret is already visible.
-      highlight.scrollTop = resolveComposerCaretOverlayScrollTop({
-        previous: previousOverlayScrollTop,
-        textareaTop: textarea.scrollTop,
-        caretBottom: caretPos.y + height,
-        viewportHeight: hlCh,
-        contentHeight: highlight.scrollHeight,
-        atEnd: textarea.selectionStart === textarea.value.length
-      })
+      const caretBottom = caretPos.y + height
+      if (caretBottom > highlight.scrollTop + hlCh) {
+        const hlMax = Math.max(0, highlight.scrollHeight - hlCh)
+        highlight.scrollTop = Math.min(caretBottom - hlCh, hlMax)
+      }
     }
     const scrollTop = highlight.scrollTop
 
