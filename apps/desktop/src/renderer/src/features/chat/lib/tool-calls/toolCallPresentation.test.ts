@@ -72,6 +72,20 @@ test('delegateTask detail shows the complete request instead of its agent name s
   })
 })
 
+test('steerTask detail shows the message sent to the task, not just its ID', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'steerTask',
+    inputSummary: 'call-worker-1',
+    rawInput: { taskId: 'call-worker-1', message: 'Inspect the failing test and report why.' }
+  })
+
+  assert.deepEqual(JSON.parse(presentation.input!.value), {
+    taskId: 'call-worker-1',
+    message: 'Inspect the failing test and report why.'
+  })
+})
+
 test('canExpandToolCall cheaply recognizes calls with presentable details', () => {
   assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, inputSummary: '' }), false)
   assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, error: 'tool failed' }), true)

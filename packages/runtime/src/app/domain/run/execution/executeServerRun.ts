@@ -693,7 +693,9 @@ export async function executeServerRun(
           toolName: event.toolCall.toolName,
           status: 'running',
           inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
-          ...(event.toolCall.toolName === 'delegateTask' ? { rawInput: event.toolCall.input } : {}),
+          ...(event.toolCall.toolName === 'delegateTask' || event.toolCall.toolName === 'steerTask'
+            ? { rawInput: event.toolCall.input }
+            : {}),
           startedAt: existing?.startedAt ?? deps.timestamp(),
           stepIndex,
           stepBudget: maxToolSteps
