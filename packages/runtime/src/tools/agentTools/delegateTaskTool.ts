@@ -399,7 +399,7 @@ function createWorkerTool(
           `Worker ${agentName} (${receipt.codeName}) launched as Task ${receipt.agentId} in ${receipt.workspacePath}. ` +
           'Every turn result will be delivered automatically. After finishing a turn, the Task remains idle and retains its history until closed or expired. ' +
           `Use steerTask with taskId "${receipt.agentId}" to add related work or wake this same Task, and getTask to inspect its current state and progress. ` +
-          'Do not duplicate the delegated work. If nothing independent remains, end this turn now; the Task result will resume the conversation automatically.'
+          'Do not duplicate the delegated work. If nothing independent remains, end this turn now without claiming the overall task is complete. Do not set a sentinel or poll; the Worker result will resume the conversation automatically.'
         const details: SubagentToolCallDetails = {
           kind: 'subagent',
           agentId: receipt.agentId,
