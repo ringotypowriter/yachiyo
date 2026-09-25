@@ -17,6 +17,10 @@ import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/compose
 import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
 import { computePretextLines } from '@renderer/features/chat/lib/composer/pretextSync'
 import {
+  shouldSyncComposerEndScroll,
+  syncComposerEndScroll
+} from '@renderer/features/chat/lib/composer/composerEndScroll'
+import {
   forwardComposerWheelToTimeline,
   resolveComposerWheelDestination,
   resolveWheelScrollOffset
@@ -228,7 +232,11 @@ export function Composer({
   const dragCounterRef = useRef(0)
   // Pretext-driven overlay lines — overlay renders these instead of letting CSS wrap.
   // Guarantees the visible text breaks at the same positions pretext uses for the caret.
-  const [overlayLineTexts, setOverlayLineTexts] = useState<string[] | null>(null)
+  const [overlayLayout, setOverlayLayout] = useState<{
+    value: string
+    lines: string[] | null
+  } | null>(null)
+  const lastScrolledValueRef = useRef<string | null>(null)
   // Custom selection range for the pretext-driven overlay (native ::selection is hidden).
   const [overlaySelRange, setOverlaySelRange] = useState<[number, number] | null>(null)
   const composerValue = composerDraft.text
@@ -905,37 +913,6 @@ export function Composer({
     const force = scrollComposerToEndAfterBreakRef.current
     scrollComposerToEndAfterBreakRef.current = false
     resizeTextarea({ forceScrollToBottom: force })
-
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    const catchUpScrollIfCaretAtEnd = (): void => {
-      if (document.activeElement !== textarea) return
-      const o = overlayRef.current
-      const tOverflows = textarea.scrollHeight > textarea.clientHeight + 3
-      const oOverflows = o ? o.scrollHeight > o.clientHeight + 3 : false
-      if (!tOverflows && !oOverflows) return
-      const len = textarea.value.length
-      if (textarea.selectionStart !== len || textarea.selectionEnd !== len) return
-      textarea.scrollTop = textarea.scrollHeight - textarea.clientHeight
-      if (o) o.scrollTop = Math.max(textarea.scrollTop, o.scrollHeight - o.clientHeight)
-    }
-
-    void textarea.offsetHeight
-    catchUpScrollIfCaretAtEnd()
-    let cancelled = false
-    const id = requestAnimationFrame(() => {
-      if (cancelled) return
-      catchUpScrollIfCaretAtEnd()
-      requestAnimationFrame(() => {
-        if (cancelled) return
-        catchUpScrollIfCaretAtEnd()
-      })
-    })
-    return () => {
-      cancelled = true
-      cancelAnimationFrame(id)
-    }
   }, [composerValue, resizeTextarea])
 
   // Compute pretext layout lines for overlay rendering. Runs after resizeTextarea
@@ -945,12 +922,34 @@ export function Composer({
   useLayoutEffect(() => {
     const textarea = textareaRef.current
     if (!textarea || !composerValue) {
-      setOverlayLineTexts(null)
+      setOverlayLayout({ value: composerValue, lines: null })
       return
     }
     const lines = computePretextLines(composerValue, textarea)
-    setOverlayLineTexts(lines ? lines.map((l) => l.text) : null)
+    setOverlayLayout({ value: composerValue, lines: lines ? lines.map((l) => l.text) : null })
   }, [composerValue])
+
+  // The overlay gets its new lines in a second layout-effect render. Align both scrollports
+  // after that render, before paint; delayed RAF corrections visibly jump on long drafts.
+  useLayoutEffect(() => {
+    if (
+      !shouldSyncComposerEndScroll(
+        composerValue,
+        overlayLayout?.value,
+        lastScrolledValueRef.current
+      )
+    )
+      return
+    lastScrolledValueRef.current = composerValue
+    const textarea = textareaRef.current
+    if (!textarea || document.activeElement !== textarea) return
+    if (
+      textarea.selectionStart !== textarea.value.length ||
+      textarea.selectionEnd !== textarea.value.length
+    )
+      return
+    syncComposerEndScroll(textarea, overlayRef.current)
+  }, [composerValue, overlayLayout])
 
   // Recompute pretext lines when the textarea width changes (window resize, sidebar toggle).
   useEffect(() => {
@@ -963,7 +962,7 @@ export function Composer({
         lastWidth = w
         if (composerValue) {
           const lines = computePretextLines(composerValue, textarea)
-          setOverlayLineTexts(lines ? lines.map((l) => l.text) : null)
+          setOverlayLayout({ value: composerValue, lines: lines ? lines.map((l) => l.text) : null })
         }
       }
     })
@@ -1396,7 +1395,7 @@ export function Composer({
       composerValue={composerValue}
       composerInputRef={composerInputRef}
       overlayRef={overlayRef}
-      overlayLineTexts={overlayLineTexts}
+      overlayLineTexts={overlayLayout?.lines ?? null}
       overlaySelRange={overlaySelRange}
       textareaRef={textareaRef}
       isTextareaFocused={isTextareaFocused}

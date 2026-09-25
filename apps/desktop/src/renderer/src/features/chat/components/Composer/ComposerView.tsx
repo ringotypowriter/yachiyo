@@ -1,4 +1,4 @@
-import type React from 'react'
+import React, { memo, type JSX } from 'react'
 import { ContentReaderReference } from '../ContentReaderReference'
 import {
   AlertCircle,
@@ -62,6 +62,38 @@ const MODE_ICON_MAP: Record<string, React.ElementType> = {
   plan: Map,
   chat: MessageSquare
 }
+
+const ComposerOverlayLine = memo(function ComposerOverlayLine({
+  text,
+  offset,
+  selection,
+  primaryColor,
+  accentColor,
+  validatedFileTags,
+  validThingSlugs
+}: {
+  text: string
+  offset: number
+  selection: [number, number] | null
+  primaryColor: string
+  accentColor: string
+  validatedFileTags: string[]
+  validThingSlugs: ReadonlySet<string>
+}): JSX.Element {
+  return (
+    <div>
+      {renderPretextLine(
+        text,
+        offset,
+        selection,
+        primaryColor,
+        accentColor,
+        validatedFileTags,
+        validThingSlugs
+      )}
+    </div>
+  )
+})
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function ComposerView(props: any): React.JSX.Element {
@@ -727,17 +759,16 @@ export function ComposerView(props: any): React.JSX.Element {
                     for (let i = 0; i < overlayLineTexts.length; i++) {
                       const lineText = overlayLineTexts[i]
                       elements.push(
-                        <div key={i}>
-                          {renderPretextLine(
-                            lineText,
-                            charOffset,
-                            overlaySelRange,
-                            theme.text.primary,
-                            theme.text.accent,
-                            validatedFileTags,
-                            validThingSlugs
-                          )}
-                        </div>
+                        <ComposerOverlayLine
+                          key={i}
+                          text={lineText}
+                          offset={charOffset}
+                          selection={overlaySelRange}
+                          primaryColor={theme.text.primary}
+                          accentColor={theme.text.accent}
+                          validatedFileTags={validatedFileTags}
+                          validThingSlugs={validThingSlugs}
+                        />
                       )
                       charOffset += lineText.length
                       // Skip consumed hard-break chars (\r\n or \n) between lines
