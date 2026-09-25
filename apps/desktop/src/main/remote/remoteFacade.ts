@@ -8,7 +8,7 @@ import {
   type RemoteMethodName,
   type RemoteMethodOutput
 } from '@yachiyo/shared/remote/methods'
-import { projectMessage } from '@yachiyo/shared/remote/project'
+import { projectMessage, projectThreadSummary } from '@yachiyo/shared/remote/project'
 import type { RemoteThreadSummary } from '@yachiyo/shared/remote/projections'
 import { REMOTE_PROTOCOL_VERSION } from '@yachiyo/shared/remote/protocolVersion'
 import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
@@ -160,7 +160,7 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
     },
     'threads.create': async (input) => {
       const thread = await server.createThread(input)
-      return { thread: await summaryOf(thread.id) }
+      return { thread: projectThreadSummary(thread, { needsAttention: false }) }
     },
     'threads.search': (input) => host['host.remote.search'](input),
     'threads.star': async (input) => {

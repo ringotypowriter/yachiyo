@@ -137,6 +137,28 @@ test('facade rejects unknown methods, invalid input, and other protocol versions
   })
 })
 
+test('threads.create returns its empty thread without adding it to the inbox', async () => {
+  await withFacade(async ({ call }) => {
+    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
+    assert.ok(thread.id)
+    assert.equal(thread.title, 'New Chat')
+    const before = await call<{ threads: RemoteThreadSummary[] }>('threads.list', {})
+    assert.equal(
+      before.threads.some((item) => item.id === thread.id),
+      false
+    )
+    const detail = await call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
+    assert.deepEqual(detail.messages, [])
+
+    await call('chat.send', { threadId: thread.id, content: 'hello' })
+    const after = await call<{ threads: RemoteThreadSummary[] }>('threads.list', {})
+    assert.equal(
+      after.threads.some((item) => item.id === thread.id),
+      true
+    )
+  })
+})
+
 test('threads.load snapshots before async host load and leaves later completion for event replay', async () => {
   await withFacade(async ({ call, host, hub, emit }) => {
     const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
