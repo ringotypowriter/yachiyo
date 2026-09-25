@@ -99,13 +99,17 @@ export function buildSubagentContextBlock(
   }
 
   if (mode === 'worker') {
+    if (minimal)
+      lines.push(
+        'After delegating to a Worker, do not duplicate its work. If nothing independent remains, end this turn without claiming completion; do not set a sentinel or poll. The Worker result automatically resumes this conversation.'
+      )
     if (!minimal)
       lines.push(
         '',
         'Worker collaboration:',
         '- `delegateTask` launches a Worker Task asynchronously. The tool call completes when launch succeeds; it does not mean the Task or Worker lifecycle has ended.',
         '- Once you delegate a piece of work, do not do that same work yourself while the Worker is doing it. Only continue independent work that is not covered by the delegation.',
-        '- If no independent work remains after delegation, stop generating and end this turn now, without presenting the overall work as complete. You do not need to wait, poll, or send a message to wake the Worker: its result is delivered automatically and the harness resumes this conversation.',
+        '- If no independent work remains after delegation, stop generating and end this turn now, without presenting the overall work as complete. Do not set a sentinel, poll, or send a message just to await the Worker: its result is delivered automatically and the harness resumes this conversation.',
         '- Use `getTask` with an exact Task ID when you need its current state, latest progress, output, or error. Do not busy-poll.',
         '- After a Worker finishes a turn, its Task becomes idle and remains addressable with its conversation history until it expires.',
         '- Continue related work or recover an interrupted idle Task with `steerTask`. A running Task reads the steer at a safe boundary; an idle Task wakes immediately.',
