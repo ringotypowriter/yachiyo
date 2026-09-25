@@ -89,6 +89,20 @@ test('carries a deferred update receipt on the next Telegram outbound', async (t
   ])
 })
 
+test('stopping a Telegram service that never connected resolves', async () => {
+  const service = createTelegramService({
+    botToken: 'token',
+    server: { listChannelGroups: () => [] } as unknown as YachiyoServer,
+    updateReceiptLease: {
+      claim: async () => undefined,
+      ack: async () => {},
+      release: async () => {}
+    }
+  })
+
+  await service.stop()
+})
+
 test('does not start an expired Telegram API send', async (t) => {
   const events: string[] = []
   t.mock.method(Telegram.prototype, 'sendMessage', async () => {

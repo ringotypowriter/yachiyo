@@ -498,7 +498,13 @@ export function createTelegramService({
       connectionAbortController = null
       groupDiscussion?.stop()
       directMessages.stop()
-      bot.stop()
+      // Telegraf throws when launch() never reached polling (e.g. every retry failed while
+      // offline). There is nothing to stop then, and the health-check restart must proceed.
+      try {
+        bot.stop()
+      } catch (error) {
+        if (!(error instanceof Error && error.message === 'Bot is not running!')) throw error
+      }
     },
     async healthCheck() {
       try {

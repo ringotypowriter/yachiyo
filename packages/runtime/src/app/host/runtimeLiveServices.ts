@@ -300,7 +300,11 @@ export function createRuntimeLiveServices(
     }
 
     channelHealthTimer = setInterval(() => {
-      void channelSupervisor?.poke('periodic health check')
+      // A rejection here would reach the runtime host's unhandledRejection exit and take
+      // every service down with the one channel that failed.
+      channelSupervisor?.poke('periodic health check').catch((error) => {
+        console.error('[channel-lifecycle] periodic health check failed:', error)
+      })
     }, CHANNEL_HEALTH_INTERVAL_MS)
   }
 
