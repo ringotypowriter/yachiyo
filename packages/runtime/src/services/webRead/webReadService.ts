@@ -71,6 +71,7 @@ export interface WebReadServiceDependencies {
   extractReadableContent?: WebReadableExtractor
   fetchImpl?: FetchImplementation
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
+  timeoutMs?: number
 }
 
 function normalizeOptionalText(value: string | null | undefined): string | undefined {
@@ -652,7 +653,7 @@ async function tryBrowserFallback(input: {
   extractReadableContent: WebReadableExtractor
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
 }): Promise<WebReadServiceResult | undefined> {
-  if (!input.loadBrowserSnapshot) {
+  if (!input.loadBrowserSnapshot || input.signal?.aborted) {
     return undefined
   }
 
@@ -682,7 +683,7 @@ async function tryBrowserFallback(input: {
   }
 }
 
-export async function readWebPage(
+async function readWebPageInternal(
   request: WebReadRequest,
   dependencies: WebReadServiceDependencies = {}
 ): Promise<WebReadServiceResult> {
@@ -705,7 +706,7 @@ export async function readWebPage(
     response = await fetchImpl(requestedUrl, {
       headers: buildDocumentRequestHeaders(),
       redirect: 'follow',
-      signal: buildRequestSignal(DEFAULT_WEB_READ_TIMEOUT_MS, request.signal)
+      signal: request.signal
     })
   } catch (error) {
     const failureCode = isTimeoutError(error)
@@ -957,4 +958,38 @@ export async function readWebPage(
   }
 
   return extracted
+}
+
+export async function readWebPage(
+  request: WebReadRequest,
+  dependencies: WebReadServiceDependencies = {}
+): Promise<WebReadServiceResult> {
+  const signal = buildRequestSignal(
+    dependencies.timeoutMs ?? DEFAULT_WEB_READ_TIMEOUT_MS,
+    request.signal
+  )
+  const format = request.format ?? DEFAULT_WEB_READ_CONTENT_FORMAT
+  const requestedUrl = request.url.trim()
+
+  let onAbort: () => void = () => undefined
+  const aborted = new Promise<WebReadServiceResult>((resolve) => {
+    onAbort = () =>
+      resolve(
+        createFailureResult({
+          requestedUrl,
+          format,
+          failureCode: request.signal?.aborted ? 'fetch-failed' : 'timeout',
+          error: request.signal?.aborted
+            ? `Failed to fetch ${requestedUrl}: request cancelled.`
+            : `Timed out while reading ${requestedUrl}.`
+        })
+      )
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+  })
+  try {
+    return await Promise.race([readWebPageInternal({ ...request, signal }, dependencies), aborted])
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }

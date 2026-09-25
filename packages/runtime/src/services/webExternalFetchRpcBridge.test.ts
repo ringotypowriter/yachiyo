@@ -152,6 +152,129 @@ test('an aborted init.signal aborts the main-side fetch', async () => {
   assert.equal(mainSawAbort, true)
 })
 
+test('abort settles a fetch even when the main-side request never responds', async () => {
+  let mainSignal: AbortSignal | undefined
+  const bridgedFetch = createBridge(async (_input, init) => {
+    mainSignal = init?.signal ?? undefined
+    return new Promise<Response>(() => {})
+  })
+  const controller = new AbortController()
+  const pending = bridgedFetch('https://example.test/stuck', { signal: controller.signal })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  controller.abort()
+
+  await assert.rejects(
+    Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('fetch hung')), 100)
+      )
+    ]),
+    { name: 'AbortError' }
+  )
+  assert.equal(mainSignal?.aborted, true)
+})
+
+test('main-side RPC releases a request whose fetch ignores abort', async () => {
+  const target = createWebExternalFetchRpcTarget(async () => new Promise<Response>(() => {}))
+  const pending = target['mainHost.webExternalFetch']!(
+    {
+      fetchId: 1,
+      url: 'https://example.test/stuck'
+    } as never,
+    () => undefined
+  )
+  target['mainHost.webExternalFetchAbort']!({ fetchId: 1 } as never)
+
+  await assert.rejects(
+    Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('RPC hung')), 100))
+    ]),
+    { name: 'AbortError' }
+  )
+})
+
+test('main-side RPC cancels a stalled body when aborted', async () => {
+  let cancelled = false
+  const target = createWebExternalFetchRpcTarget(
+    async () =>
+      new Response(
+        new ReadableStream({
+          pull: () => new Promise<void>(() => {}),
+          cancel: () => {
+            cancelled = true
+          }
+        })
+      )
+  )
+  const pending = target['mainHost.webExternalFetch']!(
+    { fetchId: 1, url: 'https://example.test/stalled-body' } as never,
+    () => undefined
+  )
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  target['mainHost.webExternalFetchAbort']!({ fetchId: 1 } as never)
+
+  await assert.rejects(pending as Promise<void>, { name: 'AbortError' })
+  assert.equal(cancelled, true)
+})
+
+test('main-side RPC cancels a response that arrives after abort', async () => {
+  let finishFetch!: (response: Response) => void
+  let cancelled = false
+  const target = createWebExternalFetchRpcTarget(
+    async () =>
+      new Promise<Response>((resolve) => {
+        finishFetch = resolve
+      })
+  )
+  const pending = target['mainHost.webExternalFetch']!(
+    { fetchId: 1, url: 'https://example.test/late' } as never,
+    () => undefined
+  )
+  target['mainHost.webExternalFetchAbort']!({ fetchId: 1 } as never)
+  await assert.rejects(pending as Promise<void>, { name: 'AbortError' })
+  finishFetch(
+    new Response(
+      new ReadableStream({
+        cancel: () => {
+          cancelled = true
+        }
+      })
+    )
+  )
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(cancelled, true)
+})
+
+test('abort interrupts a stalled response body and does not wait for the main-side stream', async () => {
+  const bridgedFetch = createBridge(
+    async () =>
+      new Response(
+        new ReadableStream({
+          pull: () => new Promise<void>(() => {})
+        })
+      )
+  )
+  const controller = new AbortController()
+  const response = await bridgedFetch('https://example.test/stalled-body', {
+    signal: controller.signal
+  })
+  const pending = response.text()
+  controller.abort()
+
+  await assert.rejects(
+    Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('body hung')), 100)
+      )
+    ]),
+    { name: 'AbortError' }
+  )
+})
+
 test('cancelling the response body aborts the main-side stream', async () => {
   let pulls = 0
   let mainSawCancel = false

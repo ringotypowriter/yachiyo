@@ -53,8 +53,18 @@ export function createWebExternalFetchRpcTarget(
       }
       const controller = new AbortController()
       abortControllers.set(input.fetchId, controller)
+      let rejectAbort!: (error: Error) => void
+      const aborted = new Promise<never>((_resolve, reject) => {
+        rejectAbort = reject
+      })
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+      const onAbort = (): void => {
+        void reader?.cancel().catch(() => undefined)
+        rejectAbort(new DOMException('The operation was aborted.', 'AbortError'))
+      }
+      controller.signal.addEventListener('abort', onAbort, { once: true })
       try {
-        const response = await fetchImpl(input.url, {
+        const fetchPromise = fetchImpl(input.url, {
           ...(input.method ? { method: input.method } : {}),
           ...(input.headers ? { headers: input.headers } : {}),
           ...(input.redirect ? { redirect: input.redirect } : {}),
@@ -67,6 +77,17 @@ export function createWebExternalFetchRpcTarget(
               : {}),
           signal: controller.signal
         })
+        void fetchPromise
+          .then((response) => {
+            if (controller.signal.aborted && !response.body?.locked) {
+              void response.body?.cancel().catch(() => undefined)
+            }
+          })
+          .catch(() => undefined)
+        const response = await Promise.race([fetchPromise, aborted])
+        if (controller.signal.aborted) {
+          throw new DOMException('The operation was aborted.', 'AbortError')
+        }
         emitProgress({
           kind: 'head',
           url: response.url || input.url,
@@ -75,22 +96,26 @@ export function createWebExternalFetchRpcTarget(
           headers: [...response.headers.entries()]
         } satisfies BridgedFetchHead)
 
-        const reader = response.body?.getReader()
+        reader = response.body?.getReader()
         if (!reader) {
           return
         }
         for (;;) {
           if (controller.signal.aborted) {
-            await reader.cancel()
+            void reader.cancel().catch(() => undefined)
             return
           }
-          const { done, value } = await reader.read()
+          const { done, value } = await Promise.race([reader.read(), aborted])
+          if (controller.signal.aborted) {
+            throw new DOMException('The operation was aborted.', 'AbortError')
+          }
           if (done) {
             return
           }
           emitProgress({ kind: 'chunk', bytes: value } satisfies BridgedFetchChunk)
         }
       } finally {
+        controller.signal.removeEventListener('abort', onAbort)
         abortControllers.delete(input.fetchId)
       }
     },
@@ -127,6 +152,11 @@ export function createRpcWebExternalFetch(
   let nextFetchId = 1
 
   return async (input, init) => {
+    if (init?.signal?.aborted) {
+      throw init.signal.reason instanceof Error
+        ? init.signal.reason
+        : new DOMException('The operation was aborted.', 'AbortError')
+    }
     if (input instanceof Request && input.body) {
       throw new Error('A streaming request body cannot cross the RPC boundary')
     }
@@ -151,6 +181,7 @@ export function createRpcWebExternalFetch(
 
     let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
     let consumerCancelled = false
+    let streamSettled = false
     const requestAbort = (): void => {
       void client.call(ABORT_METHOD, [{ fetchId }]).catch(() => {
         // The fetch may already be settled on the main side; nothing to abort.
@@ -162,15 +193,30 @@ export function createRpcWebExternalFetch(
       },
       cancel() {
         consumerCancelled = true
+        init?.signal?.removeEventListener('abort', onAbort)
         requestAbort()
       }
     })
+
+    const onAbort = (): void => {
+      const error =
+        init?.signal?.reason instanceof Error
+          ? init.signal.reason
+          : new DOMException('The operation was aborted.', 'AbortError')
+      consumerCancelled = true
+      rejectHead(error)
+      if (!streamSettled) {
+        streamSettled = true
+        streamController?.error(error)
+      }
+      requestAbort()
+    }
 
     const callPromise = client.call(FETCH_METHOD, [request], {
       onProgress: (value) => {
         const event = value as BridgedFetchProgress
         if (event.kind === 'head') {
-          resolveHead(event)
+          if (!consumerCancelled) resolveHead(event)
           return
         }
         if (!consumerCancelled) {
@@ -180,25 +226,26 @@ export function createRpcWebExternalFetch(
     })
     callPromise.then(
       () => {
-        if (!consumerCancelled) {
+        init?.signal?.removeEventListener('abort', onAbort)
+        if (!consumerCancelled && !streamSettled) {
+          streamSettled = true
           streamController?.close()
         }
       },
       (error: unknown) => {
+        init?.signal?.removeEventListener('abort', onAbort)
         const failure = error instanceof Error ? error : new Error(String(error))
         rejectHead(failure)
-        if (!consumerCancelled) {
+        if (!consumerCancelled && !streamSettled) {
+          streamSettled = true
           streamController?.error(failure)
         }
       }
     )
 
     if (init?.signal) {
-      if (init.signal.aborted) {
-        requestAbort()
-      } else {
-        init.signal.addEventListener('abort', requestAbort, { once: true })
-      }
+      init.signal.addEventListener('abort', onAbort, { once: true })
+      if (init.signal.aborted) onAbort()
     }
 
     const head = await headPromise

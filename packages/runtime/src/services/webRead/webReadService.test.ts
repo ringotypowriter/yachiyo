@@ -149,6 +149,44 @@ test('readWebPage maps network failures into structured errors', async () => {
   assert.equal(result.extractor, 'none')
 })
 
+test('readWebPage stops a non-cooperative fetch when cancelled', async () => {
+  const controller = new AbortController()
+  const pending = readWebPage(
+    { url: 'https://example.com/stuck', signal: controller.signal },
+    {
+      fetchImpl: async () => new Promise<Response>(() => {})
+    }
+  )
+  controller.abort()
+
+  const result = await Promise.race([
+    pending,
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(() => reject(new Error('webRead hung')), 100)
+    )
+  ])
+  assert.equal(result.failureCode, 'fetch-failed')
+})
+
+test('readWebPage times out a non-cooperative browser fallback', async () => {
+  const result = await Promise.race([
+    readWebPage(
+      { url: 'https://example.com/stuck' },
+      {
+        fetchImpl: async () => {
+          throw new Error('blocked')
+        },
+        loadBrowserSnapshot: async () => new Promise(() => {}),
+        timeoutMs: 20
+      }
+    ),
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(() => reject(new Error('fallback hung')), 150)
+    )
+  ])
+  assert.equal(result.failureCode, 'timeout')
+})
+
 test('readWebPage falls back to browser snapshot on Cloudflare-blocked HTTP errors', async () => {
   let browserSnapshotCalls = 0
 
