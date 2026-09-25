@@ -328,6 +328,7 @@ function appendMissingCompletedToolCalls(
 }
 
 function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
+  if (toolCall.rawInput !== undefined) return toolCall.rawInput
   const details = toolCall.details
 
   if (toolCall.toolName === 'read' && details && 'path' in details && 'startLine' in details) {

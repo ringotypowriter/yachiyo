@@ -87,3 +87,40 @@ test('buildRecoveryResponseMessages reconstructs pyRepl input and reset state', 
     ]
   })
 })
+
+test('recovery uses the original call input instead of reconstructing a lossy summary', () => {
+  const longEdit = 'new text\n'.repeat(2_000)
+  const calls = [
+    {
+      toolName: 'sendThreadMessage',
+      input: { targetThreadId: 'thread-2', message: 'Full message' }
+    },
+    { toolName: 'remember', input: { note: 'Full source-linked note', sources: ['message-1'] } },
+    { toolName: 'useSentinel', input: { action: 'set', goal: 'Check build', intervalMinutes: 5 } },
+    { toolName: 'edit', input: { path: 'a.ts', mode: 'inline', oldText: 'a', newText: longEdit } }
+  ]
+
+  for (const { toolName, input } of calls) {
+    const responseMessages = buildRecoveryResponseMessages({
+      checkpoint: { content: '' },
+      toolCalls: [
+        {
+          id: `tc-${toolName}`,
+          threadId: 'thread-1',
+          toolName,
+          status: 'completed',
+          inputSummary: toolName,
+          rawInput: input,
+          startedAt: '2026-09-25T00:00:00.000Z',
+          finishedAt: '2026-09-25T00:00:01.000Z'
+        }
+      ]
+    }) as RecoveryResponseMessage[] | undefined
+    assert.deepEqual(responseMessages?.[0]?.content[0], {
+      type: 'tool-call',
+      toolCallId: `tc-${toolName}`,
+      toolName,
+      input
+    })
+  }
+})

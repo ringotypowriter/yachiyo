@@ -86,6 +86,46 @@ test('steerTask detail shows the message sent to the task, not just its ID', () 
   })
 })
 
+test('message, memory, schedule, and source tools show their full arguments, not just summaries', () => {
+  const calls = [
+    {
+      toolName: 'sendThreadMessage',
+      inputSummary: 'thread-2',
+      input: { targetThreadId: 'thread-2', message: 'Full handoff message' }
+    },
+    {
+      toolName: 'remember',
+      inputSummary: 'remember',
+      input: { note: 'Full source-linked note', sources: ['message-1'] }
+    },
+    {
+      toolName: 'useSentinel',
+      inputSummary: 'useSentinel',
+      input: {
+        action: 'set',
+        goal: 'Check build',
+        stopCondition: 'Build passes',
+        intervalMinutes: 5
+      }
+    },
+    {
+      toolName: 'querySource',
+      inputSummary: 'querySource',
+      input: { text: 'Full search query', limit: 10 }
+    }
+  ]
+
+  for (const { toolName, inputSummary, input } of calls) {
+    const presentation = buildToolCallDetailsPresentation({
+      ...BASE_TOOL_CALL,
+      toolName,
+      inputSummary,
+      rawInput: input
+    })
+    assert.deepEqual(JSON.parse(presentation.input!.value), input, toolName)
+  }
+})
+
 test('canExpandToolCall cheaply recognizes calls with presentable details', () => {
   assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, inputSummary: '' }), false)
   assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, error: 'tool failed' }), true)
@@ -289,7 +329,12 @@ test('bash details keep the command and stdout/stderr readable when response tra
     ...BASE_TOOL_CALL,
     toolName: 'bash',
     inputSummary: 'Run checks',
-    rawInput: { command: 'pnpm lint && pnpm typecheck', description: 'Run checks', timeout: 90 },
+    rawInput: {
+      command: 'pnpm lint && pnpm typecheck',
+      description: 'Run checks',
+      timeout: 90,
+      background: false
+    },
     rawOutput: { type: 'content', value: [{ type: 'text', text: 'combined model output' }] },
     details: {
       command: 'pnpm lint && pnpm typecheck',
@@ -304,6 +349,7 @@ test('bash details keep the command and stdout/stderr readable when response tra
   assert.deepEqual(JSON.parse(presentation.metadata!.value), {
     cwd: '/workspace',
     timeout: 90,
+    background: false,
     exitCode: 0
   })
   assert.equal(presentation.output?.value, 'stdout:\nlint passed\n\nstderr:\nwarning')
@@ -631,6 +677,37 @@ test('buildToolCallDetailsPresentation renders edit output as diff from details'
     label: 'diff: src/a.ts',
     value: '--- src/a.ts\n' + '+++ src/a.ts\n' + '@@ -1,1 +1,1 @@\n' + '-old\n' + '+new',
     filePath: 'src/a.ts'
+  })
+})
+
+test('edit with original request shows its changes once, not a second copy as diff', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'edit',
+    inputSummary: 'src/a.ts',
+    rawInput: { path: 'src/a.ts', mode: 'inline', oldText: 'old', newText: 'new' },
+    rawOutput: {
+      type: 'content',
+      value: [{ type: 'text', text: 'Updated src/a.ts\n\n-old\n+new' }]
+    },
+    details: {
+      path: 'src/a.ts',
+      mode: 'inline',
+      replacements: 1,
+      firstChangedLine: 1,
+      diff: '-old\n+new'
+    }
+  })
+
+  assert.deepEqual(JSON.parse(presentation.input!.value), {
+    path: 'src/a.ts',
+    mode: 'inline',
+    oldText: 'old',
+    newText: 'new'
+  })
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: '{\n  "replacements": 1,\n  "firstChangedLine": 1\n}'
   })
 })
 

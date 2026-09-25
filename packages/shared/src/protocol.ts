@@ -632,7 +632,7 @@ export interface ToolCallRecord {
   cwd?: string
   error?: string
   details?: ToolCallDetailsSnapshot
-  /** Display-only raw tool input recovered from response messages when available. Not persisted as a storage column. */
+  /** Display-only raw tool input from the live call or response messages. Not persisted as a storage column. */
   rawInput?: unknown
   /** Display-only raw tool output recovered from response messages when available. Not persisted as a storage column. */
   rawOutput?: unknown

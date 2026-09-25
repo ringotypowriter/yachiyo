@@ -190,7 +190,7 @@ function buildFallbackMetadata(toolCall: ToolCall): ToolCallDetailCodeBlock | un
     return metadataBlock({
       cwd: details.cwd,
       timeout: rawInput?.timeout,
-      background: rawInput?.background || details.background,
+      background: rawInput?.background ?? details.background,
       exitCode: details.exitCode,
       timedOut: details.timedOut,
       blocked: details.blocked,
@@ -300,10 +300,15 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
     }
   }
 
-  if (toolCall.toolName === 'edit' && details && !(details as EditToolCallDetails).diff?.trim()) {
+  if (toolCall.toolName === 'edit' && details) {
+    const edit = details as EditToolCallDetails
     return {
       label: t('chat.tools.output'),
-      value: compactJson({ replacements: (details as EditToolCallDetails).replacements, error }),
+      value: compactJson({
+        replacements: edit.replacements,
+        firstChangedLine: edit.firstChangedLine,
+        error
+      }),
       ...(error ? { tone: 'danger' as const } : {})
     }
   }
@@ -494,7 +499,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
   const diffOutput =
     toolCall.toolName === 'applyPatch' && rawInput === undefined
       ? buildApplyPatchDiffOutput(toolCall.details as ApplyPatchToolCallDetails | undefined)
-      : toolCall.toolName === 'edit'
+      : toolCall.toolName === 'edit' && rawInput === undefined
         ? buildEditDiffOutput(toolCall.details as EditToolCallDetails | undefined)
         : undefined
   const useStructuredOutput =

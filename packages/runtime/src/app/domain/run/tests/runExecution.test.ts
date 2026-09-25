@@ -1528,6 +1528,7 @@ test('executeServerRun completes the launch tool call when background bash start
     assert.equal(result.kind, 'completed')
     const finalToolCall = toolCalls.get('tc-bg-launch')
     assert.equal(finalToolCall?.status, 'completed')
+    assert.deepEqual(finalToolCall?.rawInput, { command: 'sleep 10', timeout: 1, background: true })
     assert.equal(finalToolCall?.outputSummary, 'background: tc-bg-launch')
     assert.equal((finalToolCall?.details as { background?: boolean } | undefined)?.background, true)
     assert.equal((finalToolCall?.details as { exitCode?: number } | undefined)?.exitCode, undefined)
@@ -1539,6 +1540,11 @@ test('executeServerRun completes the launch tool call when background bash start
         (event as { type?: unknown }).type === 'tool.updated'
     )
     assert.equal(toolEvents.at(-1)?.toolCall.status, 'completed')
+    assert.deepEqual(toolEvents.at(-1)?.toolCall.rawInput, {
+      command: 'sleep 10',
+      timeout: 1,
+      background: true
+    })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -1649,6 +1655,7 @@ test('executeServerRun persists exitPlanMode as a complete tool-call pair', asyn
     })
 
     assert.equal(result.kind, 'completed')
+    assert.deepEqual(toolCalls.get('tc-exit-plan')?.rawInput, { ready: true })
     const responseMessages = completedAssistantMessage?.responseMessages as
       | Array<{
           role: string

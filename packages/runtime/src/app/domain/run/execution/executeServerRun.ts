@@ -693,9 +693,7 @@ export async function executeServerRun(
           toolName: event.toolCall.toolName,
           status: 'running',
           inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
-          ...(event.toolCall.toolName === 'delegateTask' || event.toolCall.toolName === 'steerTask'
-            ? { rawInput: event.toolCall.input }
-            : {}),
+          rawInput: event.toolCall.input,
           startedAt: existing?.startedAt ?? deps.timestamp(),
           stepIndex,
           stepBudget: maxToolSteps
@@ -811,6 +809,7 @@ export async function executeServerRun(
               toolName: event.toolCall.toolName,
               status: 'failed',
               inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
+              rawInput: event.toolCall.input,
               error: errorMessage,
               startedAt: finishedAt,
               stepIndex,
@@ -937,6 +936,7 @@ export async function executeServerRun(
                 toolName: event.toolCall.toolName,
                 status: terminalBackgroundStatus ?? normalized?.status ?? 'failed',
                 inputSummary: summarizeToolInput(event.toolCall.toolName, event.toolCall.input),
+                rawInput: event.toolCall.input,
                 outputSummary:
                   terminalBackgroundOutputSummary ?? normalized?.outputSummary ?? errorMessage,
                 ...((terminalBackgroundToolCall?.cwd ?? normalized?.cwd)
