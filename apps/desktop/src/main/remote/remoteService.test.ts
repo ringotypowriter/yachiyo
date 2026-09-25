@@ -92,11 +92,16 @@ for (const compression of [false, true]) {
       let client = paired.client
       try {
         assert.equal(client.compression, compression ? 'gzip' : undefined)
-        const { thread } = await client.call<{ thread: { id: string } }>('threads.create', {})
+        await client.call('remote.hello', {
+          protocolVersion: 1,
+          client: { app: 'test', version: '1' }
+        })
         assert.ok(client.grant)
         const content = 'Remote compression preserves UTF-8: 八千代 🌸\n'.repeat(1000).trim()
-        const accepted = await client.call<{ userMessage: { content: string } }>('chat.send', {
-          threadId: thread.id,
+        const { thread, accepted } = await client.call<{
+          thread: { id: string }
+          accepted: { userMessage: { content: string } }
+        }>('chat.startThread', {
           content
         })
         assert.equal(accepted.userMessage.content, content)

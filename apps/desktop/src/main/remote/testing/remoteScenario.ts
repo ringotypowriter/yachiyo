@@ -38,11 +38,18 @@ export async function runRemoteScenario(input: {
   const listed = await client.call<{ threads: RemoteThreadSummary[] }>('threads.list', {})
   log(`listed ${listed.threads.length} thread(s)`)
 
-  const { thread } = await client.call<{ thread: RemoteThreadSummary }>('threads.create', {})
-  await client.call('events.subscribe', { threadIds: [thread.id] })
-  const accepted = await client.call<RemoteChatAccepted>('chat.send', {
-    threadId: thread.id,
+  const cursor = await client.call<{ epoch: string; headSeq: number }>('events.subscribe', {
+    threadIds: []
+  })
+  const { thread, accepted } = await client.call<{
+    thread: RemoteThreadSummary
+    accepted: RemoteChatAccepted
+  }>('chat.startThread', {
     content: 'ask: continue with the migration?'
+  })
+  await client.call('events.subscribe', {
+    threadIds: [thread.id],
+    resumeFrom: { epoch: cursor.epoch, seq: cursor.headSeq }
   })
   await client.waitForPush(isEvent((event) => event.type === 'message.delta'))
   const waiting = await client.waitForPush(

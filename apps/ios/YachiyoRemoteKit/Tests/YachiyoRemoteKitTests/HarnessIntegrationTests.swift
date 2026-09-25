@@ -19,14 +19,15 @@ final class HarnessIntegrationTests: XCTestCase {
         XCTAssertEqual(hello.protocolVersion, 1)
         XCTAssertFalse(desktop.pairingId.isEmpty)
 
-        let created: RemoteThreadsCreateOutput = try await client.call("threads.create", EmptyInput())
         var tracker = EventCursorTracker()
-        _ = tracker.accept(try await client.call("events.subscribe", tracker.subscribeInput(threadIds: [created.thread.id])))
+        _ = tracker.accept(try await client.call("events.subscribe", tracker.subscribeInput(threadIds: [])))
 
-        let accepted: RemoteChatAccepted = try await client.call(
-            "chat.send",
-            ["threadId": created.thread.id, "content": "ask: ship from swift?"]
+        let started: RemoteChatStartThreadOutput = try await client.call(
+            "chat.startThread", ["content": "ask: ship from swift?"]
         )
+        let thread = started.thread
+        let accepted = started.accepted
+        _ = tracker.accept(try await client.call("events.subscribe", tracker.subscribeInput(threadIds: [thread.id])))
         var question: RemoteToolCall?
         for await push in client.pushes {
             guard case let .apply(event) = tracker.observe(push) else { continue }
@@ -39,7 +40,7 @@ final class HarnessIntegrationTests: XCTestCase {
         XCTAssertEqual(toolCall.question?.question, "ship from swift?")
         let _: RemoteOk = try await client.call(
             "run.answerToolQuestion",
-            ["threadId": created.thread.id, "runId": accepted.runId, "toolCallId": toolCall.id, "answer": "Yes"]
+            ["threadId": thread.id, "runId": accepted.runId, "toolCallId": toolCall.id, "answer": "Yes"]
         )
         client.close()
 
@@ -49,7 +50,7 @@ final class HarnessIntegrationTests: XCTestCase {
         let (reconnected, _) = try await connector.connect(stored)
         XCTAssertTrue(reconnected.codec.gzip)
         var resumedTracker = EventCursorTracker(cursor: stored.cursor)
-        let resumed = resumedTracker.accept(try await reconnected.call("events.subscribe", resumedTracker.subscribeInput(threadIds: [created.thread.id])))
+        let resumed = resumedTracker.accept(try await reconnected.call("events.subscribe", resumedTracker.subscribeInput(threadIds: [thread.id])))
         XCTAssertFalse(resumed, "resume within the buffer should not need a resync")
         var completed = false
         for await push in reconnected.pushes {
@@ -60,18 +61,16 @@ final class HarnessIntegrationTests: XCTestCase {
             }
         }
         XCTAssertTrue(completed)
-        let detail: RemoteThreadDetail = try await reconnected.call("threads.load", ["threadId": created.thread.id])
+        let detail: RemoteThreadDetail = try await reconnected.call("threads.load", ["threadId": thread.id])
         XCTAssertTrue(detail.messages.last?.content.contains("You answered: Yes") ?? false)
         // Exercise compression in both directions with non-ASCII content over a real socket.
         let largeContent = String(repeating: "Swift gzip 相互運用 🌸", count: 1000)
         let largeAccepted: RemoteChatAccepted = try await reconnected.call(
-            "chat.send", ["threadId": created.thread.id, "content": largeContent]
+            "chat.send", ["threadId": thread.id, "content": largeContent]
         )
         XCTAssertFalse(largeAccepted.runId.isEmpty)
-        let largeDetail: RemoteThreadDetail = try await reconnected.call("threads.load", ["threadId": created.thread.id])
+        let largeDetail: RemoteThreadDetail = try await reconnected.call("threads.load", ["threadId": thread.id])
         XCTAssertTrue(largeDetail.messages.contains { $0.content == largeContent })
         reconnected.close()
     }
 }
-
-struct EmptyInput: Encodable {}

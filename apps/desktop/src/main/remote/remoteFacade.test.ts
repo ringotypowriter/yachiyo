@@ -24,6 +24,7 @@ const PNG = Buffer.from(
 
 interface Harness {
   call: <T = unknown>(method: string, input?: unknown) => Promise<T>
+  createFixtureThread: () => Promise<{ id: string }>
   events: RemotePush[]
   audit: string[]
   waitForEvent: (predicate: (event: RemoteEvent) => boolean) => Promise<RemoteEvent>
@@ -91,6 +92,7 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
   try {
     await fn({
       call: (method, input) => facade.dispatch(context, method, input) as Promise<never>,
+      createFixtureThread: () => fake.server.createThread(),
       events,
       audit,
       host: ports.host,
@@ -137,31 +139,9 @@ test('facade rejects unknown methods, invalid input, and other protocol versions
   })
 })
 
-test('threads.create returns its empty thread without adding it to the inbox', async () => {
-  await withFacade(async ({ call }) => {
-    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
-    assert.ok(thread.id)
-    assert.equal(thread.title, 'New Chat')
-    const before = await call<{ threads: RemoteThreadSummary[] }>('threads.list', {})
-    assert.equal(
-      before.threads.some((item) => item.id === thread.id),
-      false
-    )
-    const detail = await call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
-    assert.deepEqual(detail.messages, [])
-
-    await call('chat.send', { threadId: thread.id, content: 'hello' })
-    const after = await call<{ threads: RemoteThreadSummary[] }>('threads.list', {})
-    assert.equal(
-      after.threads.some((item) => item.id === thread.id),
-      true
-    )
-  })
-})
-
 test('threads.load snapshots before async host load and leaves later completion for event replay', async () => {
-  await withFacade(async ({ call, host, hub, emit }) => {
-    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
+  await withFacade(async ({ call, createFixtureThread, host, hub, emit }) => {
+    const thread = await createFixtureThread()
     emit({ type: 'message.started', threadId: thread.id, runId: 'r1', messageId: 'm1' })
     emit({
       type: 'message.delta',
@@ -224,8 +204,8 @@ test('threads.load snapshots before async host load and leaves later completion 
 })
 
 test('threads.load pages history when a live snapshot pushes the response over its byte budget', async () => {
-  await withFacade(async ({ call, host, emit }) => {
-    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
+  await withFacade(async ({ call, createFixtureThread, host, emit }) => {
+    const thread = await createFixtureThread()
     emit({
       type: 'message.delta',
       threadId: thread.id,
@@ -265,12 +245,18 @@ test('threads.load pages history when a live snapshot pushes the response over i
 
 test('a phone can answer askUser and follow the run through the event stream', async () => {
   await withFacade(async ({ call, waitForEvent, audit }) => {
-    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
-    await call('events.subscribe', { threadIds: [thread.id] })
-
-    const accepted = await call<RemoteChatAccepted>('chat.send', {
-      threadId: thread.id,
+    const cursor = await call<{ epoch: string; headSeq: number }>('events.subscribe', {
+      threadIds: []
+    })
+    const { thread, accepted } = await call<{
+      thread: RemoteThreadSummary
+      accepted: RemoteChatAccepted
+    }>('chat.startThread', {
       content: 'ask: deploy now?'
+    })
+    await call('events.subscribe', {
+      threadIds: [thread.id],
+      resumeFrom: { epoch: cursor.epoch, seq: cursor.headSeq }
     })
     assert.equal(accepted.kind, 'run-started')
     assert.equal(accepted.userMessage?.content, 'ask: deploy now?')
@@ -294,7 +280,7 @@ test('a phone can answer askUser and follow the run through the event stream', a
 
     const detail = await call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
     assert.match(detail.messages.at(-1)?.content ?? '', /You answered: No/)
-    assert.ok(audit.some((line) => line.includes('method=chat.send') && line.includes(thread.id)))
+    assert.ok(audit.some((line) => line.includes('method=chat.startThread')))
     assert.ok(audit.some((line) => line.includes('method=run.answerToolQuestion')))
     assert.equal(
       audit.some((line) => line.includes('threads.load')),
@@ -305,8 +291,9 @@ test('a phone can answer askUser and follow the run through the event stream', a
 
 test('uploaded images are attached to the sent message and consumed once', async () => {
   await withFacade(async ({ call, waitForEvent }) => {
-    await call('events.subscribe', { threadIds: [] })
-    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {})
+    const cursor = await call<{ epoch: string; headSeq: number }>('events.subscribe', {
+      threadIds: []
+    })
     const { uploadId } = await call<{ uploadId: string }>('attachments.begin', {
       filename: 'dot.png',
       mediaType: 'image/png',
@@ -319,10 +306,16 @@ test('uploaded images are attached to the sent message and consumed once', async
     })
     assert.equal(committed.kind, 'image')
 
-    const accepted = await call<RemoteChatAccepted>('chat.send', {
-      threadId: thread.id,
+    const { thread, accepted } = await call<{
+      thread: RemoteThreadSummary
+      accepted: RemoteChatAccepted
+    }>('chat.startThread', {
       content: 'look',
       attachmentIds: [committed.attachmentId]
+    })
+    await call('events.subscribe', {
+      threadIds: [thread.id],
+      resumeFrom: { epoch: cursor.epoch, seq: cursor.headSeq }
     })
     assert.deepEqual(
       accepted.userMessage?.images.map((image) => image.mediaType),

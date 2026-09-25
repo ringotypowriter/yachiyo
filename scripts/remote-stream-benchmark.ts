@@ -152,8 +152,9 @@ try {
     client: { app: 'yachiyo-node-test', version: '1.0.0' }
   })
   await client.call('threads.list', {})
-  const { thread } = await client.call<{ thread: RemoteThreadSummary }>('threads.create', {})
-  await client.call('events.subscribe', { threadIds: [thread.id] })
+  const cursor = await client.call<{ epoch: string; headSeq: number }>('events.subscribe', {
+    threadIds: []
+  })
   await checkpoint('setup')
   const completed = (runId: string) => (push: RemotePush) =>
     push.type === 'event' &&
@@ -161,9 +162,15 @@ try {
     push.event.runId === runId &&
     push.event.status === 'completed'
   stage = 'question'
-  const asked = await client.call<RemoteChatAccepted>('chat.send', {
-    threadId: thread.id,
+  const { thread, accepted: asked } = await client.call<{
+    thread: RemoteThreadSummary
+    accepted: RemoteChatAccepted
+  }>('chat.startThread', {
     content: 'ask: continue with the migration?'
+  })
+  await client.call('events.subscribe', {
+    threadIds: [thread.id],
+    resumeFrom: { epoch: cursor.epoch, seq: cursor.headSeq }
   })
   const waiting = await client.waitForPush(
     (push) =>
