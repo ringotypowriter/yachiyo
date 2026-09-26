@@ -30,11 +30,7 @@ final class ThreadViewController: UIViewController {
     private var cancellables: Set<AnyCancellable> = []
     private var isFollowingBottom = true
     private var localError: String?
-    private struct CachedDraft {
-        let content: ChatInputContent
-        let revision: UUID
-    }
-    private static var drafts: [String: CachedDraft] = [:]
+    private static var drafts = DraftCache()
     private var draftRevision: UUID?
     private var draftKey: String { "\(thread.desktopId)/\(thread.threadId)" }
     private var stopRequested = false
@@ -45,6 +41,7 @@ final class ThreadViewController: UIViewController {
     private var openTask: Task<Void, Never>?
     private var readingDelayTask: Task<Void, Never>?
     private var showsReadingStatus = false
+    private var renderedChrome: ChromeState?
 
     init(desktopId: String, threadId: String) {
         thread = ThreadStore(desktopId: desktopId, threadId: threadId)
@@ -91,12 +88,15 @@ final class ThreadViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let bottomChrome = view.bounds.height - min(composer.isHidden ? banner.frame.minY : composer.frame.minY, capsuleGroup.frame.minY)
-        messageList.contentInsets = UIEdgeInsets(top: 8, left: 0, bottom: bottomChrome + 12, right: 0)
+        let insets = UIEdgeInsets(top: 8, left: 0, bottom: bottomChrome + 12, right: 0)
+        // Reassigning equal insets would still lay the whole list out again.
+        if messageList.contentInsets != insets { messageList.contentInsets = insets }
     }
 
     @objc private func styleDidChange() {
         view.backgroundColor = .yachiyo(.canvas)
         messageList.applyYachiyoTheme()
+        renderedChrome = nil
         updateChrome()
     }
 
@@ -126,7 +126,13 @@ final class ThreadViewController: UIViewController {
     private func configureMessageList() {
         messageList.applyYachiyoTheme()
         messageList.interactionDelegate = self
-        messageList.session = thread
+        // The list scrolls to the bottom only on its first content, so it attaches once the
+        // cached history (read off the main thread) is in.
+        Task { [weak self] in
+            await self?.thread.waitForCachedHistory()
+            guard let self else { return }
+            messageList.session = thread
+        }
         messageList.clipsToBounds = true
         messageList.scrollView.accessibilityIdentifier = "thread.timeline"
         messageList.scrollView.keyboardDismissMode = .interactive
@@ -290,11 +296,14 @@ final class ThreadViewController: UIViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateChrome() }
             .store(in: &cancellables)
+        // Per delta this only derives the chrome state; `updateChrome` applies it when it changed.
         thread.messagesDidChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateChrome() }
             .store(in: &cancellables)
         store.$desktops
+            .map { [desktopId = thread.desktopId] in $0.first { $0.id == desktopId } }
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateChrome() }
             .store(in: &cancellables)
@@ -302,13 +311,29 @@ final class ThreadViewController: UIViewController {
 
     // MARK: State
 
+    /// Everything the chrome shows. Recomputed on every trigger, applied only when it changes.
+    private struct ChromeState: Equatable {
+        var title: String
+        var subtitle: String
+        var status: String?
+        var busy: Bool
+        var emptyHistoryHidden: Bool
+        var emptyHistoryText: String
+        var retryHidden: Bool
+        var isReadOnly: Bool
+        var isRunning: Bool
+        var isStopping: Bool
+        var needsAnswerHidden: Bool
+        var followUps: [RemoteMessage]
+        var bottomHidden: Bool
+        var error: String?
+        var deliveryStatus: String?
+        var isSending: Bool
+    }
+
     private func updateChrome() {
         let summary = thread.summary
-        titleLabel.text = [summary?.icon, summary?.title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
-        titleLabel.textColor = .label
         let desktop = store.desktops.first { $0.id == thread.desktopId }
-        subtitleLabel.text = [desktop?.name, summary?.workspaceName].compactMap { $0 }.joined(separator: " · ")
-
         let missingHistory = thread.detail == nil && thread.messages.isEmpty
         let waitingForHistory = missingHistory && (desktop?.state == .connecting || thread.isLoading)
         if waitingForHistory, readingDelayTask == nil, !showsReadingStatus {
@@ -328,39 +353,64 @@ final class ThreadViewController: UIViewController {
         if case .offline = desktop?.state { offline = true } else { offline = false }
         let mismatch = desktop?.state == .protocolMismatch
         let failure = missingHistory ? (mismatch ? desktop.flatMap { store.connectionText(for: $0) } : thread.loadError.map { String(localized: "Couldn't load conversation. \($0)") }) : nil
-        let status = failure ?? (thread.isStopping ? String(localized: "Stopping response…") : (waitingForHistory && showsReadingStatus ? String(localized: "Loading conversation…") : nil))
-        emptyHistoryLabel.isHidden = !missingHistory || waitingForHistory
-        emptyHistoryLabel.text = desktop?.state == .online
-            ? (thread.loadError == nil ? String(localized: "Loading conversation history…") : String(localized: "History couldn't be loaded. Tap Retry above."))
-            : String(localized: "No saved history on this iPhone yet. History will load when your Mac connects.")
-        loadingLabel.text = status ?? subtitleLabel.text
-        loadingLabel.accessibilityLabel = status ?? subtitleLabel.text
-        let busy = (waitingForHistory && showsReadingStatus) || thread.isStopping
-        loadingSpinner.isHidden = !busy
-        if busy { loadingSpinner.startAnimating() } else { loadingSpinner.stopAnimating() }
-        retryButton.isHidden = !missingHistory || waitingForHistory || !(offline || (desktop?.state == .online && thread.loadError != nil))
-        bannerLabel.text = thread.isReadOnly ? String(localized: "Read-only — synced from another device") : nil
-        banner.isHidden = !thread.isReadOnly
-        // Keep the draft and keyboard in place during transient connection/refresh states.
-        if thread.isReadOnly { composer.endEditing(true) }
-        composer.isHidden = thread.isReadOnly
-        composer.isRunning = thread.isRunning
-        composer.isStopping = stopRequested || thread.isStopping
-
-        needsAnswerButton.isHidden = thread.pendingQuestion == nil
-        followUpButton.isHidden = thread.queuedFollowUps.isEmpty
-        followUpButton.menu = UIMenu(children: thread.queuedFollowUps.map { message in
-            UIAction(title: String(localized: "Remove “\(message.content.prefix(40))”"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-                self?.confirmRemoveFollowUp(message)
-            }
-        })
-        bottomButton.isHidden = isFollowingBottom
-        capsuleGroup.isHidden = needsAnswerButton.isHidden && followUpButton.isHidden && bottomButton.isHidden
         let error = localError ?? thread.lastError
-        errorLabel.text = error ?? deliveryStatus
-        errorLabel.textColor = error == nil ? .secondaryLabel : .yachiyo(.dangerStrong)
-        errorLabel.accessibilityIdentifier = error == nil ? "thread.deliveryStatus" : "thread.error"
-        if thread.isSending { deliverySpinner.startAnimating() } else { deliverySpinner.stopAnimating() }
+        let state = ChromeState(
+            title: [summary?.icon, summary?.title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " "),
+            subtitle: [desktop?.name, summary?.workspaceName].compactMap { $0 }.joined(separator: " · "),
+            status: failure ?? (thread.isStopping ? String(localized: "Stopping response…") : (waitingForHistory && showsReadingStatus ? String(localized: "Loading conversation…") : nil)),
+            busy: (waitingForHistory && showsReadingStatus) || thread.isStopping,
+            emptyHistoryHidden: !missingHistory || waitingForHistory,
+            emptyHistoryText: desktop?.state == .online
+                ? (thread.loadError == nil ? String(localized: "Loading conversation history…") : String(localized: "History couldn't be loaded. Tap Retry above."))
+                : String(localized: "No saved history on this iPhone yet. History will load when your Mac connects."),
+            retryHidden: !missingHistory || waitingForHistory || !(offline || (desktop?.state == .online && thread.loadError != nil)),
+            isReadOnly: thread.isReadOnly,
+            isRunning: thread.isRunning,
+            isStopping: stopRequested || thread.isStopping,
+            needsAnswerHidden: thread.pendingQuestion == nil,
+            followUps: thread.queuedFollowUps,
+            bottomHidden: isFollowingBottom,
+            error: error,
+            deliveryStatus: error == nil ? deliveryStatus : nil,
+            isSending: thread.isSending
+        )
+        guard state != renderedChrome else { return }
+        let previous = renderedChrome
+        renderedChrome = state
+
+        titleLabel.text = state.title
+        titleLabel.textColor = .label
+        subtitleLabel.text = state.subtitle
+        emptyHistoryLabel.isHidden = state.emptyHistoryHidden
+        emptyHistoryLabel.text = state.emptyHistoryText
+        loadingLabel.text = state.status ?? state.subtitle
+        loadingLabel.accessibilityLabel = state.status ?? state.subtitle
+        loadingSpinner.isHidden = !state.busy
+        if state.busy { loadingSpinner.startAnimating() } else { loadingSpinner.stopAnimating() }
+        retryButton.isHidden = state.retryHidden
+        bannerLabel.text = state.isReadOnly ? String(localized: "Read-only — synced from another device") : nil
+        banner.isHidden = !state.isReadOnly
+        // Keep the draft and keyboard in place during transient connection/refresh states.
+        if state.isReadOnly { composer.endEditing(true) }
+        composer.isHidden = state.isReadOnly
+        composer.isRunning = state.isRunning
+        composer.isStopping = state.isStopping
+
+        needsAnswerButton.isHidden = state.needsAnswerHidden
+        followUpButton.isHidden = state.followUps.isEmpty
+        if previous?.followUps != state.followUps {
+            followUpButton.menu = UIMenu(children: state.followUps.map { message in
+                UIAction(title: String(localized: "Remove “\(message.content.prefix(40))”"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                    self?.confirmRemoveFollowUp(message)
+                }
+            })
+        }
+        bottomButton.isHidden = state.bottomHidden
+        capsuleGroup.isHidden = needsAnswerButton.isHidden && followUpButton.isHidden && bottomButton.isHidden
+        errorLabel.text = state.error ?? state.deliveryStatus
+        errorLabel.textColor = state.error == nil ? .secondaryLabel : .yachiyo(.dangerStrong)
+        errorLabel.accessibilityIdentifier = state.error == nil ? "thread.deliveryStatus" : "thread.error"
+        if state.isSending { deliverySpinner.startAnimating() } else { deliverySpinner.stopAnimating() }
         view.setNeedsLayout()
     }
 
@@ -438,7 +488,7 @@ extension ThreadViewController: ChatInputDelegate {
         let previous = Self.drafts[draftKey]
         let unchanged = previous?.content.text == object.text && previous?.content.attachments == object.attachments
         let revision = unchanged ? (previous?.revision ?? UUID()) : UUID()
-        Self.drafts[draftKey] = CachedDraft(content: object, revision: revision)
+        Self.drafts[draftKey] = DraftCache.Draft(content: object, revision: revision)
         draftRevision = revision
     }
 
@@ -585,9 +635,17 @@ extension ThreadViewController: MessageListInteractionDelegate {
 
     func messageList(_: MessageListView, didSelectToolCall toolCallId: String) {
         guard presentedViewController == nil else { return }
-        let detail = UINavigationController(rootViewController: toolPreviewReader(toolCallId))
+        // Newer desktops leave previews out of `threads.load`; fetch this one on demand.
+        let fetches = thread.needsToolPreview(toolCallId) && store.link(for: thread.desktopId)?.state == .online
+        let detail = UINavigationController(rootViewController: toolPreviewReader(toolCallId, isLoading: fetches))
         YachiyoMaterialKit.configureSheet(detail, detents: [.medium(), .large()])
         present(detail, animated: true)
+        guard fetches else { return }
+        Task {
+            let failure = await thread.loadToolPreview(toolCallId)
+            guard detail.presentingViewController != nil else { return }
+            detail.setViewControllers([toolPreviewReader(toolCallId, notice: failure.map { String(localized: "Couldn't load the preview. \($0)") })], animated: false)
+        }
     }
 
     func messageList(_: MessageListView, openLink destination: String, messageId _: String) {
@@ -622,15 +680,18 @@ extension ThreadViewController: MessageListInteractionDelegate {
         }
     }
 
-    private func toolPreviewReader(_ toolCallId: String, notice: String? = nil) -> TextSheetViewController {
+    private func toolPreviewReader(_ toolCallId: String, notice: String? = nil, isLoading: Bool = false) -> TextSheetViewController {
         let call = thread.toolCall(toolCallId)
+        let preview = thread.toolPreview(toolCallId)
         let availability = store.link(for: thread.desktopId)?.state == .online
             ? String(localized: "Saved preview, not the complete tool result. Refresh to check for an updated preview.")
             : String(localized: "Saved preview, not the complete tool result. Connect to your Mac, then tap Refresh to update it.")
+        let output = isLoading
+            ? String(localized: "Loading preview…")
+            : preview.output.map { String(localized: "Output preview\n\($0)") } ?? String(localized: "No output preview is available yet.")
         let text = [notice, availability, call?.title,
-                    call?.inputPreview.map { String(localized: "Input preview\n\($0)") },
-                    call?.outputPreview.map { String(localized: "Output preview\n\($0)") }
-                        ?? String(localized: "No output preview is available yet."),
+                    preview.input.map { String(localized: "Input preview\n\($0)") },
+                    output,
                     call?.error.map { String(localized: "Error\n\($0)") }]
             .compactMap { $0 }.joined(separator: "\n\n")
         let reader = TextSheetViewController(title: call?.toolName ?? String(localized: "Tool details"), text: text)
@@ -644,8 +705,13 @@ extension ThreadViewController: MessageListInteractionDelegate {
             reader?.navigationItem.leftBarButtonItem?.isEnabled = false
             Task {
                 await self.thread.reload()
+                var notice = self.thread.loadError
+                if notice == nil, self.thread.toolCall(toolCallId)?.hasPreview == true {
+                    notice = await self.thread.loadToolPreview(toolCallId, refresh: true)
+                        .map { String(localized: "Couldn't load the preview. \($0)") }
+                }
                 guard navigation.presentingViewController != nil else { return }
-                navigation.setViewControllers([self.toolPreviewReader(toolCallId, notice: self.thread.loadError)], animated: false)
+                navigation.setViewControllers([self.toolPreviewReader(toolCallId, notice: notice)], animated: false)
             }
         })
         return reader
@@ -685,6 +751,7 @@ extension ThreadViewController: MessageListInteractionDelegate {
     }
 
     func messageList(_: MessageListView, didChangeFollowingBottom isFollowing: Bool) {
+        guard isFollowingBottom != isFollowing else { return }
         isFollowingBottom = isFollowing
         updateChrome()
     }
@@ -702,5 +769,47 @@ extension ThreadViewController: MessageListInteractionDelegate {
             Task { await self?.thread.edit(message.id, text: text) }
         })
         present(alert, animated: true)
+    }
+}
+
+/// Composer drafts by thread, kept across screens for this launch. The most recent drafts keep
+/// their attachments; older ones keep only their text, and the oldest text drafts are dropped,
+/// so abandoned photos do not accumulate in memory.
+struct DraftCache {
+    struct Draft {
+        let content: ChatInputContent
+        let revision: UUID
+    }
+
+    private static let attachmentLimit = 20
+    private static let draftLimit = 100
+    private var drafts: [String: Draft] = [:]
+    /// Least recently written first.
+    private var order: [String] = []
+
+    subscript(key: String) -> Draft? {
+        get { drafts[key] }
+        set {
+            order.removeAll { $0 == key }
+            guard let newValue else { drafts[key] = nil; return }
+            drafts[key] = newValue
+            order.append(key)
+            evict()
+        }
+    }
+
+    private mutating func evict() {
+        for key in order.dropLast(Self.attachmentLimit) {
+            guard let draft = drafts[key], !draft.content.attachments.isEmpty else { continue }
+            var content = draft.content
+            content.attachments = []
+            if content.hasEmptyContent {
+                drafts[key] = nil
+                order.removeAll { $0 == key }
+            } else {
+                drafts[key] = Draft(content: content, revision: draft.revision)
+            }
+        }
+        while order.count > Self.draftLimit { drafts[order.removeFirst()] = nil }
     }
 }

@@ -6,6 +6,13 @@ public protocol WebSocketChannel: AnyObject, Sendable {
     func send(_ data: Data) async throws
     func receive() async throws -> Data
     func close()
+    /// Bytes received so far, including a message still arriving, when the channel can tell.
+    /// Idle timeouts treat growth as progress, so one large message is not cut off midway.
+    var receivedByteCount: Int64? { get }
+}
+
+extension WebSocketChannel {
+    public var receivedByteCount: Int64? { nil }
 }
 
 public enum WebSocketChannelError: Error, Equatable {
@@ -46,6 +53,8 @@ public final class URLSessionWebSocketChannel: WebSocketChannel, @unchecked Send
     public func close() {
         task.cancel(with: .normalClosure, reason: nil)
     }
+
+    public var receivedByteCount: Int64? { task.countOfBytesReceived }
 }
 
 public typealias WebSocketChannelFactory = @Sendable (URL) -> any WebSocketChannel

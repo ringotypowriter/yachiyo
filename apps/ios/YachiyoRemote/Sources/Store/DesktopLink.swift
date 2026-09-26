@@ -12,8 +12,19 @@ enum DesktopConnectionState: Equatable {
 
 /// Keeps one paired desktop connected while the app is in the foreground: dials (with mailbox
 /// recovery), says hello, resumes the event stream, and reconnects with backoff.
+///
+/// Pushes are consumed from the moment a client exists, before the greeting completes: the
+/// desktop may replay a backlog ahead of the `events.subscribe` reply, and the client's push
+/// buffer applies backpressure instead of dropping, so an idle consumer would stall that reply.
 @MainActor
 final class DesktopLink {
+    /// Deadline for the greeting and heartbeat calls. Like every call timeout it is an idle
+    /// timeout: any frame received from the desktop restarts it.
+    private static let greetingTimeout: Duration = .seconds(10)
+    private static let heartbeatInterval: Duration = .seconds(20)
+    /// A connection this old (or one that applied events) resets the reconnect backoff.
+    private static let healthyAfter: Duration = .seconds(30)
+
     private(set) var desktop: PairedDesktop
     private(set) var state: DesktopConnectionState = .connecting
     private(set) var hello: RemoteHelloOutput?
@@ -31,6 +42,11 @@ final class DesktopLink {
     private let onEvent: @MainActor (DesktopLink, RemoteEvent, Int) -> Void
     private let onResync: @MainActor (DesktopLink) -> Void
     private let persist: @MainActor (PairedDesktop) -> Void
+    /// The record last handed to `persist`, to skip writes that would change nothing.
+    private var lastPersisted: PairedDesktop
+    /// A hello already obtained for the initial client (pairing), so it is not asked again.
+    private var initialHello: (client: RemoteClient, hello: RemoteHelloOutput)?
+    private var appliedEvents = 0
     private var lastSeen: Date?
     private var connectionPhase = "Connection"
     private var callTimedOut = false
@@ -53,10 +69,17 @@ final class DesktopLink {
         onResync: @escaping @MainActor (DesktopLink) -> Void,
         persist: @escaping @MainActor (PairedDesktop) -> Void
     ) {
-        self.desktop = desktop
+        // The Keychain record no longer carries the cursor (the snapshot cache does). A legacy
+        // record's cursor is ignored: it was saved more often than the cache and can be ahead
+        // of the cached data, which would skip events. The first persist drops it.
+        var record = desktop
+        record.cursor = nil
+        self.desktop = record
+        lastPersisted = desktop
         self.connector = connector
         self.client = client
         self.hello = hello
+        if let client, let hello { initialHello = (client, hello) }
         if client != nil { attemptingURL = desktop.lastSuccessfulURL }
         tracker = EventCursorTracker(cursor: cachedCursor)
         self.onChange = onChange
@@ -93,11 +116,20 @@ final class DesktopLink {
     func replaceDesktop(_ updated: PairedDesktop) {
         // Install the already-persisted record before stop checkpoints it.
         desktop = updated
+        desktop.cursor = nil
+        lastPersisted = updated
         stop()
-        desktop.cursor = tracker.cursor
-        persist(desktop)
+        persistIfChanged()
         onChange(self)
         start()
+    }
+
+    /// Persists identity and endpoint changes (including a new `lastSuccessfulURL`, which the
+    /// next launch dials first). The cursor is checkpointed by the snapshot cache instead.
+    private func persistIfChanged() {
+        guard desktop != lastPersisted else { return }
+        lastPersisted = desktop
+        persist(desktop)
     }
 
     func checkAddressRecovery() async {
@@ -116,8 +148,8 @@ final class DesktopLink {
             let lastSuccessfulURL = desktop.lastSuccessfulURL
             desktop = updated
             desktop.lastSuccessfulURL = lastSuccessfulURL
-            desktop.cursor = tracker.cursor
-            persist(desktop)
+            desktop.cursor = nil
+            persistIfChanged()
             onChange(self)
             if changed { stop(); start() }
         }
@@ -143,6 +175,13 @@ final class DesktopLink {
         return output
     }
 
+    /// Queues a call immediately and returns its handle. Calls started one after another reach
+    /// the desktop in that order, which lets a caller keep several in flight (chunk uploads).
+    func startCall<Output: Decodable>(_ method: String, _ input: some Encodable, as _: Output.Type = Output.self) throws -> RemotePendingCall<Output> {
+        guard let client, state == .online else { throw RemoteCallError(name: "RemoteOffline", message: "\(displayName) is offline.") }
+        return try client.start(method, input, as: Output.self)
+    }
+
     /// Scope-only replies must not advance the replay cursor past queued pushes.
     func watch(threadIds: [String]) {
         guard self.threadIds != threadIds || (watchedThreadIds != threadIds && watchTask == nil) else { return }
@@ -157,8 +196,8 @@ final class DesktopLink {
             await previous?.value
             do {
                 try checkCurrent(generation, client: client)
-                let output: RemoteEventsSubscribeOutput = try await boundedCall(client, "events.subscribe",
-                    RemoteEventsSubscribeInput(resumeFrom: nil, threadIds: threadIds))
+                let output: RemoteEventsSubscribeOutput = try await client.call("events.subscribe",
+                    RemoteEventsSubscribeInput(resumeFrom: nil, threadIds: threadIds), timeout: Self.greetingTimeout)
                 try checkCurrent(generation, client: client)
                 watchedThreadIds = threadIds
                 if output.epoch != tracker.cursor?.epoch { onResync(self) }
@@ -192,21 +231,34 @@ final class DesktopLink {
         client = nil
         activeURL = nil
         attemptingURL = nil
-        desktop.cursor = tracker.cursor
-        persist(desktop)
+        persistIfChanged()
     }
 
     private func run(generation: UUID) async {
         defer { if self.generation == generation { runTask = nil } }
         var attempt = 0
         while isCurrent(generation) {
+            var healthy = false
             do {
                 connectionPhase = "Connection"
                 callTimedOut = false
                 setState(.connecting)
-                let connected = try await connectOnce(generation: generation)
-                attempt = 0
-                await consumePushes(connected, generation: generation)
+                let connected = try await dial(generation: generation)
+                appliedEvents = 0
+                let consumer = Task { await self.consumePushes(connected, generation: generation) }
+                do {
+                    try await greet(connected, generation: generation)
+                } catch {
+                    connected.close()
+                    await consumer.value
+                    healthy = appliedEvents > 0
+                    throw error
+                }
+                let onlineSince = ContinuousClock.now
+                let heartbeat = Task { await self.heartbeat(connected, generation: generation) }
+                await consumer.value
+                heartbeat.cancel()
+                healthy = appliedEvents > 0 || onlineSince.duration(to: .now) >= Self.healthyAfter
             } catch {
                 guard isCurrent(generation) else { return }
                 let underlying = (error as? DesktopUnreachable)?.lastError ?? error
@@ -232,61 +284,100 @@ final class DesktopLink {
                 }
                 if let error = error as? DesktopUnreachable {
                     desktop = error.updated
-                    desktop.cursor = tracker.cursor
-                    persist(desktop)
+                    desktop.cursor = nil
+                    persistIfChanged()
                 }
             }
             guard isCurrent(generation) else { return }
             if lastConnectionError == nil { lastConnectionError = "The connection closed. Reconnecting to the paired desktop." }
             disconnect()
             setState(.offline(lastSeen: lastSeen))
-            attempt += 1
+            // A connection that failed soon after it was established (timeouts, a closing
+            // desktop) keeps backing off instead of re-handshaking every second.
+            attempt = healthy ? 1 : attempt + 1
             let delays: [Double] = [1, 2, 5, 10, 30]
-            do { try await Task.sleep(for: .seconds(delays[min(attempt - 1, delays.count - 1)])) }
+            let delay = delays[min(attempt - 1, delays.count - 1)] * Double.random(in: 0.8 ... 1.2)
+            do { try await Task.sleep(for: .seconds(delay)) }
             catch { return }
         }
     }
 
-    private func connectOnce(generation: UUID) async throws -> RemoteClient {
-        if client == nil {
-            let (connected, updated) = try await connector.connect(desktop, recoverUsing: { [weak self] original in
-                guard let self else { return (original, AddressRecoveryStatus(outcome: .failed)) }
-                return await self.readRecovery(original, generation: generation)
-            }, observe: { [weak self] progress in
-                await self?.accept(progress, generation: generation)
-            })
-            guard isCurrent(generation) else {
-                connected.close()
-                throw CancellationError()
-            }
-            client = connected
-            if updated.mailboxCounter >= desktop.mailboxCounter, updated != desktop {
-                desktop = updated
-                persist(desktop)
-            }
+    private func dial(generation: UUID) async throws -> RemoteClient {
+        if let client { return client }
+        let (connected, updated) = try await connector.connect(desktop, recoverUsing: { [weak self] original in
+            guard let self else { return (original, AddressRecoveryStatus(outcome: .failed)) }
+            return await self.readRecovery(original, generation: generation)
+        }, observe: { [weak self] progress in
+            await self?.accept(progress, generation: generation)
+        })
+        guard isCurrent(generation) else {
+            connected.close()
+            throw CancellationError()
         }
-        guard let client else { throw CancellationError() }
+        client = connected
+        if updated.mailboxCounter >= desktop.mailboxCounter, updated != desktop {
+            desktop = updated
+            desktop.cursor = nil
+            persistIfChanged()
+        }
+        return connected
+    }
+
+    /// Hello and subscribe; the push consumer is already running.
+    private func greet(_ client: RemoteClient, generation: UUID) async throws {
         connectionPhase = "Desktop greeting"
-        let greeting: RemoteHelloOutput = try await boundedCall(client, "remote.hello", HelloInput.current)
-        try checkCurrent(generation, client: client)
-        hello = greeting
-        connectionPhase = "Event subscription"
         let subscribedThreads = threadIds
-        let output: RemoteEventsSubscribeOutput = try await boundedCall(client,
-            "events.subscribe", tracker.subscribeInput(threadIds: subscribedThreads))
+        let known = initialHello.flatMap { $0.client === client ? $0.hello : nil }
+        initialHello = nil
+        let greeting: (hello: RemoteHelloOutput, subscription: RemoteEventsSubscribeOutput)
+        do {
+            greeting = try await client.greet(subscribe: tracker.subscribeInput(threadIds: subscribedThreads),
+                                              knownHello: known, timeout: Self.greetingTimeout)
+        } catch let error as URLError where error.code == .timedOut {
+            callTimedOut = true
+            throw error
+        }
         try checkCurrent(generation, client: client)
+        hello = greeting.hello
+        let output = greeting.subscription
+        // Replayed pushes applied before this reply advanced the cursor already; a resumed
+        // stream keeps it.
         let needsResync = tracker.accept(output)
         lastSeen = Date()
         watchedThreadIds = subscribedThreads
-        if needsResync || greeting.epoch != output.epoch { onResync(self) }
+        if needsResync || greeting.hello.epoch != output.epoch { onResync(self) }
         activeURL = attemptingURL
         attemptingURL = nil
         desktop.lastSuccessfulURL = activeURL ?? desktop.lastSuccessfulURL
         lastConnectionError = nil
-        persist(desktop)
+        persistIfChanged()
         setState(.online)
         if subscribedThreads != threadIds { watch(threadIds: threadIds) }
-        return client
+    }
+
+    /// Keeps a quiet connection honest. Skipped while frames keep arriving: any frame proves
+    /// the socket is alive, and each hello costs the desktop a runtime RPC.
+    private func heartbeat(_ client: RemoteClient, generation: UUID) async {
+        while isCurrent(generation), self.client === client {
+            let quiet = client.lastReceivedAt.duration(to: .now)
+            do {
+                if quiet < Self.heartbeatInterval {
+                    try await Task.sleep(for: Self.heartbeatInterval - quiet)
+                    continue
+                }
+                try checkCurrent(generation, client: client)
+                let _: RemoteHelloOutput = try await client.call("remote.hello", HelloInput.current, timeout: Self.greetingTimeout)
+                try checkCurrent(generation, client: client)
+                lastSeen = Date()
+            } catch {
+                guard isCurrent(generation), self.client === client else { return }
+                if (error as? URLError)?.code == .timedOut {
+                    lastConnectionError = "The desktop did not respond to remote.hello before the timeout."
+                }
+                client.close()
+                return
+            }
+        }
     }
 
     private func accept(_ progress: DesktopConnector.Progress, generation: UUID) {
@@ -298,50 +389,22 @@ final class DesktopLink {
             recovery = status
             if status.outcome != .checking {
                 desktop = updated
-                desktop.cursor = tracker.cursor
-                persist(desktop)
+                desktop.cursor = nil
+                persistIfChanged()
             }
         }
         onChange(self)
     }
 
-    /// A silent half-open socket otherwise leaves the UI online indefinitely. The deadline
-    /// closes only this socket, releasing its pending RPCs and push consumer even on timeout.
-    private func boundedCall<Output: Decodable>(_ client: RemoteClient, _ method: String, _ input: some Encodable) async throws -> Output {
-        let token = generation
-        let deadline = Task {
-            do { try await Task.sleep(for: .seconds(10)) } catch { return }
-            guard isCurrent(token), self.client === client else { return }
-            callTimedOut = true
-            lastConnectionError = "The desktop did not respond to \(method) before the timeout."
-            client.close()
-        }
-        defer { deadline.cancel() }
-        return try await client.call(method, input)
-    }
-
     private func consumePushes(_ client: RemoteClient, generation: UUID) async {
-        let heartbeat = Task {
-            while isCurrent(generation), self.client === client {
-                do {
-                    try await Task.sleep(for: .seconds(20))
-                    try checkCurrent(generation, client: client)
-                    let _: RemoteHelloOutput = try await boundedCall(client, "remote.hello", HelloInput.current)
-                    try checkCurrent(generation, client: client)
-                    lastSeen = Date()
-                } catch {
-                    client.close()
-                    return
-                }
-            }
-        }
-        defer { heartbeat.cancel() }
         for await push in client.pushes {
             guard isCurrent(generation), self.client === client else { return }
             lastSeen = Date()
             for decision in tracker.observe(push) {
                 switch decision {
-                case let .apply(event, seq): onEvent(self, event, seq)
+                case let .apply(event, seq):
+                    appliedEvents += 1
+                    onEvent(self, event, seq)
                 case .skip: continue
                 case .resync: onResync(self)
                 }

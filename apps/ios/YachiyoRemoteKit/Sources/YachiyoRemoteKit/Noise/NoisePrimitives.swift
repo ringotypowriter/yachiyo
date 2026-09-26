@@ -27,21 +27,24 @@ enum NoisePrimitives {
     }
 
     static func seal(key: Data, nonce: Data, ad: Data, plaintext: Data) throws -> Data {
-        let box = try ChaChaPoly.seal(
-            plaintext,
-            using: SymmetricKey(data: key),
-            nonce: ChaChaPoly.Nonce(data: nonce),
-            authenticating: ad
-        )
+        try seal(key: SymmetricKey(data: key), nonce: nonce, ad: ad, plaintext: plaintext)
+    }
+
+    static func seal(key: SymmetricKey, nonce: Data, ad: Data, plaintext: Data) throws -> Data {
+        let box = try ChaChaPoly.seal(plaintext, using: key, nonce: ChaChaPoly.Nonce(data: nonce), authenticating: ad)
         return box.ciphertext + box.tag
     }
 
     static func open(key: Data, nonce: Data, ad: Data, ciphertext: Data) throws -> Data {
+        try open(key: SymmetricKey(data: key), nonce: nonce, ad: ad, ciphertext: ciphertext)
+    }
+
+    static func open(key: SymmetricKey, nonce: Data, ad: Data, ciphertext: Data) throws -> Data {
         guard ciphertext.count >= tagLength else { throw NoiseError.messageTooShort }
         let body = ciphertext.prefix(ciphertext.count - tagLength)
         let tag = ciphertext.suffix(tagLength)
         let box = try ChaChaPoly.SealedBox(nonce: ChaChaPoly.Nonce(data: nonce), ciphertext: body, tag: tag)
-        return try ChaChaPoly.open(box, using: SymmetricKey(data: key), authenticating: ad)
+        return try ChaChaPoly.open(box, using: key, authenticating: ad)
     }
 
     static func sha256(_ parts: Data...) -> Data {

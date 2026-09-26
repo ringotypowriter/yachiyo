@@ -70,6 +70,8 @@ final class InboxViewController: UIViewController {
     private var readingDelayTask: Task<Void, Never>?
     private var showsReadingStatus = false
     private var readingDesktopId: String?
+    /// Store changes that arrived while the inbox was off screen, applied when it reappears.
+    private var needsStoreRefresh = false
     private let desktopButton = UIButton(type: .system)
     private let filterStatus = UIButton(type: .system)
     private lazy var filterItem = UIBarButtonItem(image: .lucide("list-filter"), menu: makeFilterMenu())
@@ -90,6 +92,11 @@ final class InboxViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setToolbarHidden(false, animated: animated)
+    }
+
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        if needsStoreRefresh { refreshFromStore() }
     }
 
     @objc private func styleDidChange() {
@@ -201,18 +208,29 @@ final class InboxViewController: UIViewController {
     private func observeStore() {
         store.$loadingInboxes
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateEmptyState(isEmpty: self?.visibleItems().isEmpty ?? true) }
-            .store(in: &cancellables)
-        store.$inbox
-            .combineLatest(store.$desktops, store.$unreadCompletions, store.$inboxLoadErrors)
-            .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.synchronizeDesktop()
-                self?.applySnapshot()
-                self?.filterItem.menu = self?.makeFilterMenu()
-                self?.runPendingRoute()
+                guard let self else { return }
+                guard view.window != nil else { needsStoreRefresh = true; return }
+                updateEmptyState(isEmpty: visibleItems().isEmpty)
             }
             .store(in: &cancellables)
+        // Bursts (resync pages, several runs finishing) collapse into one snapshot.
+        store.$inbox
+            .combineLatest(store.$desktops, store.$unreadCompletions, store.$inboxLoadErrors)
+            .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                guard view.window != nil else { needsStoreRefresh = true; return }
+                refreshFromStore()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func refreshFromStore() {
+        needsStoreRefresh = false
+        synchronizeDesktop()
+        applySnapshot()
+        runPendingRoute()
     }
 
     private func synchronizeDesktop(preferredId: String? = nil) {
@@ -257,14 +275,14 @@ final class InboxViewController: UIViewController {
     // MARK: Snapshot
 
     private func visibleItems() -> [InboxItem] {
-        store.inbox.filter { item in
+        let query = InboxItem.searchKey(searchQuery)
+        return store.inbox.filter { item in
             guard item.desktopId == selectedDesktopId else { return false }
             if filter.running, !item.summary.isRunning { return false }
             if filter.unread, !store.unreadCompletions.contains(item.id) { return false }
             if !filter.colorTags.isEmpty, !filter.colorTags.contains(item.summary.colorTag?.rawValue ?? "") { return false }
-            if !searchQuery.isEmpty {
-                let local = item.summary.title.localizedCaseInsensitiveContains(searchQuery)
-                    || (item.summary.preview ?? "").localizedCaseInsensitiveContains(searchQuery)
+            if !query.isEmpty {
+                let local = item.searchTitle.contains(query) || item.searchPreview.contains(query)
                 let remote = remoteSearchHits?.contains(item.id) ?? false
                 if !local, !remote { return false }
             }
@@ -290,7 +308,7 @@ final class InboxViewController: UIViewController {
             snapshot.appendItems(starred, toSection: .starred)
         }
         let calendar = Calendar.current
-        let byDay = Dictionary(grouping: rest) { calendar.startOfDay(for: $0.summary.updatedDate) }
+        let byDay = Dictionary(grouping: rest) { calendar.startOfDay(for: $0.updatedDate) }
         for day in byDay.keys.sorted(by: >) {
             snapshot.appendSections([.day(day)])
             snapshot.appendItems(byDay[day] ?? [], toSection: .day(day))
@@ -468,16 +486,18 @@ final class InboxViewController: UIViewController {
         pendingMutations.insert(item.id)
         Task {
             defer { pendingMutations.remove(item.id) }
-            let thread = ThreadStore(desktopId: item.desktopId, threadId: item.summary.id)
-            let succeeded: Bool
-            if archive {
-                succeeded = await thread.archive()
-            } else {
-                await thread.setStarred(!item.summary.starred)
-                succeeded = thread.lastError == nil
+            var failure: String?
+            do {
+                if archive {
+                    try await store.archive(desktopId: item.desktopId, threadId: item.summary.id)
+                } else {
+                    try await store.setStarred(desktopId: item.desktopId, threadId: item.summary.id, starred: !item.summary.starred)
+                }
+            } catch {
+                failure = (error as? RemoteCallError)?.message ?? error.localizedDescription
             }
-            completion(succeeded)
-            if let error = thread.lastError, presentedViewController == nil || presentedViewController is UISearchController {
+            completion(failure == nil)
+            if let error = failure, presentedViewController == nil || presentedViewController is UISearchController {
                 let alert = UIAlertController(title: String(localized: "Couldn't update thread"), message: error, preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
                 (presentedViewController ?? self).present(alert, animated: true)

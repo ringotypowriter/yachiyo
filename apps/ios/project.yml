@@ -63,6 +63,19 @@ targets:
         NSAppTransportSecurity:
           # Remote traffic is end-to-end encrypted by the app; LAN endpoints use plain ws://.
           NSAllowsLocalNetworking: true
+    postBuildScripts:
+      # Settings > About shows this commit so a build can be traced to its source. Without git
+      # (for example a source archive) the key is left out rather than guessed.
+      - name: Embed git commit
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        script: |
+          plist="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Delete :YachiyoGitCommit" "$plist" >/dev/null 2>&1 || true
+          if commit=$(git -C "$SRCROOT" rev-parse --short HEAD 2>/dev/null); then
+            /usr/libexec/PlistBuddy -c "Add :YachiyoGitCommit string $commit" "$plist"
+          fi
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.ringo.yachiyo.remote
@@ -71,6 +84,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # The commit script reads the repository's .git, which a sandboxed script cannot reach.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
   YachiyoRemoteUITests:
     type: bundle.ui-testing
     platform: iOS

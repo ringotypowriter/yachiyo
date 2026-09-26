@@ -52,7 +52,7 @@ final class RemoteMessageCodecTests: XCTestCase {
         let encoded = try codec.encode(json(4096))
         var damaged = encoded
         damaged[damaged.count - 8] ^= 1 // checksum
-        let invalid = [Data(), Data([0]), Data([2]), Data(" []".utf8), Data([1]),
+        let invalid = [Data(), Data([0]), Data([2]), Data([2, 0]), Data(" []".utf8), Data([1]),
                        Data(encoded.dropLast()), encoded + Data([0]),
                        encoded + encoded.dropFirst(), damaged]
         for frame in invalid { XCTAssertThrowsError(try codec.decode(frame)) }
@@ -68,12 +68,68 @@ final class RemoteMessageCodecTests: XCTestCase {
         }
     }
 
-    func testNegotiationFailsClosedExceptEmptyLegacyReply() throws {
-        XCTAssertFalse(try RemoteMessageCodec.negotiated(reply: Data()).gzip)
-        XCTAssertTrue(try RemoteMessageCodec.negotiated(reply: Data("{\"compression\":\"gzip\"}".utf8)).gzip)
-        for reply in ["{}", "null", "[]", "garbage", "{\"compression\":\"brotli\"}",
-                      "{\"compression\":[\"gzip\"]}", "{\"compression\":\"gzip\",\"extra\":true}"] {
-            XCTAssertThrowsError(try RemoteMessageCodec.negotiated(reply: Data(reply.utf8)))
+    func testNegotiationAcceptsLegacyAndTypedRepliesAndFailsClosedOtherwise() throws {
+        XCTAssertFalse(try RemoteHandshakeNegotiation.parse(reply: Data()).codec.gzip)
+        let legacyGzip = try RemoteHandshakeNegotiation.parse(reply: Data("{\"compression\":\"gzip\"}".utf8))
+        XCTAssertTrue(legacyGzip.codec.gzip)
+        XCTAssertFalse(legacyGzip.codec.streamDeflate)
+        XCTAssertTrue(legacyGzip.features.isEmpty)
+        XCTAssertFalse(try RemoteHandshakeNegotiation.parse(reply: Data("{}".utf8)).codec.gzip)
+
+        let hello = #"{"activeRunEnterBehavior":"enter-steers","appVersion":"1","deviceName":"Mac","epoch":"e1","protocolVersion":1,"remoteDeviceId":"desktop"}"#
+        let typed = try RemoteHandshakeNegotiation.parse(reply: Data(#"{"compression":"gzip","features":["handshake-hello","stream-deflate"],"hello":\#(hello),"extra":true}"#.utf8))
+        XCTAssertTrue(typed.codec.gzip)
+        XCTAssertTrue(typed.codec.streamDeflate)
+        XCTAssertEqual(typed.features, ["handshake-hello", "stream-deflate"])
+        XCTAssertEqual(typed.hello?.epoch, "e1")
+        // A hello without the feature is not trusted as the greeting.
+        XCTAssertNil(try RemoteHandshakeNegotiation.parse(reply: Data(#"{"features":[],"hello":\#(hello)}"#.utf8)).hello)
+
+        for reply in ["null", "[]", "garbage", "{\"compression\":\"brotli\"}", "{\"compression\":[\"gzip\"]}",
+                      "{\"features\":[\"not-offered\"]}", "{\"features\":[\"handshake-hello\"],\"hello\":{}}"] {
+            XCTAssertThrowsError(try RemoteHandshakeNegotiation.parse(reply: Data(reply.utf8)), reply)
+        }
+    }
+
+    func testDecodesDesktopStreamDeflateFixtureInOrder() throws {
+        let fixture = try XCTUnwrap(Fixtures.json("remote-stream-deflate.json") as? [String: [String]])
+        let raw = try XCTUnwrap(fixture["raw"])
+        let encoded = try XCTUnwrap(fixture["encodedBase64"]).map { try XCTUnwrap(Data(base64Encoded: $0)) }
+        XCTAssertEqual(raw.count, encoded.count)
+        let codec = RemoteMessageCodec(gzip: true, streamDeflate: true)
+        let stream = try RemoteStreamInflater()
+        for (message, frame) in zip(raw, encoded) {
+            XCTAssertEqual(frame.first, 0x02)
+            XCTAssertEqual(try codec.decode(frame, stream: stream), Data(message.utf8))
+        }
+        // Raw and gzip messages may still interleave with the stream.
+        XCTAssertEqual(try codec.decode(Data(raw[0].utf8), stream: stream), Data(raw[0].utf8))
+    }
+
+    func testStreamDeflateNeedsNegotiationOrderAndAValidStream() throws {
+        let fixture = try XCTUnwrap(Fixtures.json("remote-stream-deflate.json") as? [String: [String]])
+        let encoded = try XCTUnwrap(fixture["encodedBase64"]).map { try XCTUnwrap(Data(base64Encoded: $0)) }
+        XCTAssertThrowsError(try codec.decode(encoded[0], stream: try RemoteStreamInflater()), "not negotiated")
+        let negotiated = RemoteMessageCodec(gzip: true, streamDeflate: true)
+        XCTAssertThrowsError(try negotiated.decode(encoded[0]), "no stream context")
+        // A later segment cannot be decoded without the earlier ones: its back references
+        // point into a window this context never saw.
+        XCTAssertThrowsError(try negotiated.decode(encoded[1], stream: try RemoteStreamInflater()))
+        let broken = try RemoteStreamInflater()
+        XCTAssertThrowsError(try negotiated.decode(Data([0x02, 0xff, 0xff, 0xff]), stream: broken))
+        XCTAssertThrowsError(try negotiated.decode(encoded[0], stream: broken), "a failed context stays failed")
+    }
+
+    func testStreamDeflateBoundsEachMessage() throws {
+        let deflater = TestStreamDeflater()
+        let negotiated = RemoteMessageCodec(gzip: true, streamDeflate: true)
+        let stream = try RemoteStreamInflater()
+        let small = Data("{\"a\":1}".utf8)
+        XCTAssertEqual(try negotiated.decode(deflater.encode(small), stream: stream), small)
+        let bomb = deflater.encode(Data([0x7b]) + Data(repeating: 0x61, count: remoteMaxMessageBytes))
+        XCTAssertLessThan(bomb.count, remoteMaxMessageBytes)
+        XCTAssertThrowsError(try negotiated.decode(bomb, stream: stream)) { error in
+            XCTAssertEqual(error as? RemoteMessageCodecError, .messageTooLarge)
         }
     }
 }

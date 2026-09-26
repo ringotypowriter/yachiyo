@@ -38,10 +38,12 @@ final class DeviceViewController: UITableViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 72
         store.$desktops
+            .map { [id = desktop.id] snapshots in snapshots.first { $0.id == id } }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshots in
+            .sink { [weak self] snapshot in
                 guard let self else { return }
-                guard let updated = snapshots.first(where: { $0.id == self.desktop.id }) else {
+                guard let updated = snapshot else {
                     if self.navigationController?.topViewController === self {
                         self.navigationController?.popViewController(animated: true)
                     }

@@ -3,41 +3,55 @@ import Foundation
 import YachiyoChatUI
 import YachiyoRemoteKit
 
-/// Uploads composer attachments in 512 KB chunks (`attachments.begin/chunk/commit`) and returns
-/// the attachment ids `chat.send` references.
+/// Uploads composer attachments in chunks (`attachments.begin/chunk/commit`) and returns the
+/// attachment ids `chat.send` references. Up to the desktop's `maxInFlightChunks` chunk calls
+/// are pipelined; at most that many encoded chunks (plus the one being prepared) are in memory.
 enum AttachmentUploader {
-    static let chunkSize = 512 * 1024
+    /// Bytes acknowledged by the desktop so far, and the total across all attachments.
+    typealias Progress = @MainActor (_ sent: Int, _ total: Int) -> Void
 
     @MainActor
-    static func upload(_ attachments: [ChatInputAttachment], to desktopId: String) async throws -> [String] {
+    static func upload(_ attachments: [ChatInputAttachment], to desktopId: String, progress: Progress? = nil) async throws -> [String] {
+        var payloads: [(Data, String, String)] = []
+        for attachment in attachments { payloads.append(try await payload(for: attachment)) }
+        let total = payloads.reduce(0) { $0 + $1.0.count }
+        var sent = 0
+        progress?(0, total)
         var ids: [String] = []
-        for attachment in attachments {
-            let (data, mediaType, filename) = try await payload(for: attachment)
+        for (data, mediaType, filename) in payloads {
             let begun: RemoteAttachmentsBeginOutput = try await RemoteStore.shared.call(desktopId, "attachments.begin", BeginInput(filename: filename, mediaType: mediaType, size: data.count))
-            var index = 0
-            var offset = 0
-            while offset < data.count {
-                let end = min(offset + chunkSize, data.count)
-                let range = offset ..< end
-                // Prepare only the chunk about to be sent, away from the main actor.
-                let encoded = try await prepare {
-                    try Task.checkCancellation()
-                    return data.subdata(in: range).base64EncodedString()
+            guard begun.chunkSize > 0 else { throw RemoteCallError(name: "RemoteValidationError", message: "Invalid upload chunk size.") }
+            let window = max(1, begun.maxInFlightChunks ?? 1)
+            let reader = ChunkReader(data: data, chunkSize: begun.chunkSize)
+            var inFlight: [(call: RemotePendingCall<RemoteAttachmentsChunkOutput>, bytes: Int)] = []
+            // An abandoned upload must not leave its queued chunks waiting on the socket.
+            defer { for entry in inFlight { entry.call.cancel() } }
+            while let chunk = try await prepare({
+                try Task.checkCancellation()
+                return reader.next()
+            }) {
+                try Task.checkCancellation()
+                if inFlight.count >= window {
+                    let oldest = inFlight.removeFirst()
+                    _ = try await oldest.call.value()
+                    sent += oldest.bytes
+                    progress?(sent, total)
                 }
-                try Task.checkCancellation()
-                let _: RemoteAttachmentsChunkOutput = try await RemoteStore.shared.call(desktopId, "attachments.chunk", ChunkInput(
-                    uploadId: begun.uploadId,
-                    index: index,
-                    data: encoded
-                ))
-                offset = end
-                index += 1
+                guard let link = RemoteStore.shared.link(for: desktopId) else {
+                    throw RemoteCallError(name: "RemoteOffline", message: "Unknown device.")
+                }
+                // Queued synchronously, so chunks reach the desktop in index order.
+                let call = try link.startCall("attachments.chunk", ChunkInput(uploadId: begun.uploadId, index: chunk.index, data: chunk.base64), as: RemoteAttachmentsChunkOutput.self)
+                inFlight.append((call, chunk.bytes))
             }
-            let digest = try await prepare {
-                try Task.checkCancellation()
-                return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            while !inFlight.isEmpty {
+                let oldest = inFlight.removeFirst()
+                _ = try await oldest.call.value()
+                sent += oldest.bytes
+                progress?(sent, total)
             }
             try Task.checkCancellation()
+            let digest = reader.digest()
             let committed: RemoteAttachmentsCommitOutput = try await RemoteStore.shared.call(desktopId, "attachments.commit", CommitInput(uploadId: begun.uploadId, sha256: digest))
             ids.append(committed.attachmentId)
         }
@@ -67,6 +81,39 @@ enum AttachmentUploader {
             try await work.value
         } onCancel: {
             work.cancel()
+        }
+    }
+
+    private struct Chunk: Sendable { let index: Int; let base64: String; let bytes: Int }
+
+    /// Slices, encodes and hashes the file in one pass. `next()` runs off the main actor, one
+    /// call at a time (each is awaited before the next starts).
+    private final class ChunkReader: @unchecked Sendable {
+        private let data: Data
+        private let chunkSize: Int
+        private var offset = 0
+        private var index = 0
+        private var hasher = SHA256()
+
+        init(data: Data, chunkSize: Int) {
+            self.data = data
+            self.chunkSize = chunkSize
+        }
+
+        func next() -> Chunk? {
+            guard offset < data.count else { return nil }
+            let end = min(offset + chunkSize, data.count)
+            let slice = data.subdata(in: offset ..< end)
+            hasher.update(data: slice)
+            defer {
+                offset = end
+                index += 1
+            }
+            return Chunk(index: index, base64: slice.base64EncodedString(), bytes: slice.count)
+        }
+
+        func digest() -> String {
+            hasher.finalize().map { String(format: "%02x", $0) }.joined()
         }
     }
 

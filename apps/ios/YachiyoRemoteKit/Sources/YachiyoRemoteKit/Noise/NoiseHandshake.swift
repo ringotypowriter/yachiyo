@@ -16,12 +16,14 @@ public enum NoisePattern: Sendable {
 }
 
 /// Noise CipherState; the counter only advances after a successful encrypt or decrypt.
+/// Not synchronized: `NoiseTransport` serializes each direction.
 public final class NoiseCipherState: @unchecked Sendable {
-    private let key: Data?
+    /// Built once per key rather than once per message.
+    private let key: SymmetricKey?
     private(set) var counter: UInt64 = 0
 
     init(key: Data?) {
-        self.key = key
+        self.key = key.map { SymmetricKey(data: $0) }
     }
 
     var hasKey: Bool { key != nil }

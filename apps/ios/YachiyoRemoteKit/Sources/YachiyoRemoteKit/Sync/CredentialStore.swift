@@ -3,6 +3,10 @@ import Security
 
 /// Phone keys and pairings. Production uses the Keychain with this-device-only accessibility,
 /// so pairings never leave the phone through backups.
+///
+/// Implementations are thread-safe: every method may be called from any thread, and calls are
+/// serialized internally. Keychain calls block, so callers should stay off the main thread.
+/// Callers that write from several threads own the order of their writes (use one queue).
 public protocol RemoteCredentialStore: AnyObject, Sendable {
     /// The phone's X25519 static private key, created on first use.
     func phoneStaticKey() throws -> Data
@@ -47,6 +51,9 @@ public enum KeychainError: Error, Equatable {
 public final class KeychainCredentialStore: RemoteCredentialStore, @unchecked Sendable {
     private let service: String
     private let lock = NSLock()
+    /// The decoded `desktops` item after the first read or write; this process is its only
+    /// writer, so saves need not read the Keychain back first.
+    private var desktopsCache: [PairedDesktop]?
 
     public init(service: String = "sh.ringo.yachiyo.remote") {
         self.service = service
@@ -65,24 +72,31 @@ public final class KeychainCredentialStore: RemoteCredentialStore, @unchecked Se
         try lock.withLock { try readDesktops() }
     }
 
+    /// No Keychain write when the stored record is already identical.
     public func save(_ desktop: PairedDesktop) throws {
         try lock.withLock {
-            var desktops = try readDesktops().filter { $0.remoteDeviceId != desktop.remoteDeviceId }
-            desktops.append(desktop)
-            try write(JSONEncoder().encode(desktops), account: "desktops")
+            let existing = try readDesktops()
+            if existing.contains(desktop) { return }
+            try writeDesktops(existing.filter { $0.remoteDeviceId != desktop.remoteDeviceId } + [desktop])
         }
     }
 
     public func remove(remoteDeviceId: String) throws {
         try lock.withLock {
-            let desktops = try readDesktops().filter { $0.remoteDeviceId != remoteDeviceId }
-            try write(JSONEncoder().encode(desktops), account: "desktops")
+            try writeDesktops(try readDesktops().filter { $0.remoteDeviceId != remoteDeviceId })
         }
     }
 
     private func readDesktops() throws -> [PairedDesktop] {
-        guard let data = try read(account: "desktops") else { return [] }
-        return try JSONDecoder().decode([PairedDesktop].self, from: data)
+        if let desktopsCache { return desktopsCache }
+        let desktops = try read(account: "desktops").map { try JSONDecoder().decode([PairedDesktop].self, from: $0) } ?? []
+        desktopsCache = desktops
+        return desktops
+    }
+
+    private func writeDesktops(_ desktops: [PairedDesktop]) throws {
+        try write(JSONEncoder().encode(desktops), account: "desktops")
+        desktopsCache = desktops
     }
 
     private func baseQuery(account: String) -> [String: Any] {

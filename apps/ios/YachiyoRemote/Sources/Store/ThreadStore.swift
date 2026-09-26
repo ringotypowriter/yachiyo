@@ -22,18 +22,21 @@ enum ThreadReplyState: Equatable {
 /// take. Implements `ChatMessageSource` so the forked message list renders it directly.
 @MainActor
 final class ThreadStore: ChatMessageSource {
+    private static let maxFinishedRuns = 64
+    private static let maxRunFooters = 8
+
     let desktopId: String
     let threadId: String
     private let store: RemoteStore
-    private let sentImages = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
     // Include misses: remote-only images must not trigger disk reads on every streaming delta.
     private var imageData: [String: Data] = [:]
     private var missingImages: Set<String> = []
+    private var loadingImages: Set<String> = []
     private var pendingSteerImages: [String: (runId: String, data: Data)] = [:]
     private var ambiguousSteerFilenames: Set<String> = []
 
     @Published private(set) var summary: RemoteThreadSummary?
-    @Published private(set) var detail: RemoteThreadDetail?
+    @Published private(set) var detail: RemoteThreadDetail? { didSet { toolCallsCache = nil } }
     @Published private(set) var isLoading = false
     @Published private(set) var loadError: String?
     @Published private(set) var isStopping = false
@@ -41,15 +44,18 @@ final class ThreadStore: ChatMessageSource {
     private var reloadAgain = false
     private var loadToken: UUID?
     private var isOpen = false
+    private var cacheLoadTask: Task<Void, Never>?
     private var eventsDuringLoad: [(event: RemoteEvent, seq: Int)] = []
     private var loadEventsOverflowed = false
     private var isReplayingLoadEvents = false
     private var deltaRebuildTask: Task<Void, Never>?
+    private var pendingRebuildScrolls = false
     @Published private(set) var lastError: String?
     @Published private(set) var outboundState: ThreadOutboundState = .idle
     @Published private(set) var replyState: ThreadReplyState = .idle
     private var respondingRunIds: Set<String> = []
-    private var finishedRunIds: Set<String> = []
+    /// Oldest first; bounded, since only recent runs can still send late events.
+    private var finishedRunIds: [String] = []
     var isSending: Bool { outboundState == .uploading || outboundState == .sending }
 
     /// Messages streaming in the active run (message id → accumulated text / reasoning).
@@ -57,12 +63,39 @@ final class ThreadStore: ChatMessageSource {
     private var streamingReasoning: [String: String] = [:]
     private var streamingParent: [String: String] = [:]
     private var streamingOrder: [String] = []
-    private var liveToolCalls: [String: RemoteToolCall] = [:]
-    private var runFooters: [String: String] = [:]
+    /// Captured once per streaming message so its rows keep a stable identity.
+    private var streamingCreatedAt: [String: Date] = [:]
+    private var activeRunObservedAt = Date()
+    private var liveToolCalls: [String: RemoteToolCall] = [:] { didSet { toolCallsCache = nil } }
+    private var toolCallsCache: [RemoteToolCall]?
+    /// Previews fetched on demand when `threads.load` omitted them.
+    private var toolPreviews: [String: RemoteToolsGetPreviewOutput] = [:]
+    /// Assistant message id → the run that produced it, learned from stream events.
+    private var messageRunIds: [String: String] = [:]
+    private struct RunFooter {
+        let runId: String
+        let text: String
+        let createdAt: Date
+    }
+    /// Oldest first; a footer attaches only to a message of its own run.
+    private var runFooters: [RunFooter] = []
+    /// A terminal run with no message to carry its footer (for example, it failed before
+    /// replying) shows the footer on its own row until the next run or send.
+    private var standaloneFooterRunId: String?
     private var pendingPlanContent: String?
     private var planReadToken: UUID?
     private var activeRunId: String?
     private var cancellables: Set<AnyCancellable> = []
+
+    private struct BuiltMessage {
+        let source: RemoteMessage
+        let toolCalls: [RemoteToolCall]
+        let images: [Bool]
+        let footer: String?
+        let message: ConversationMessage
+    }
+    /// Loaded, non-streaming messages are rebuilt only when one of their inputs changes.
+    private var builtMessages: [String: BuiltMessage] = [:]
 
     private(set) var messages: [ConversationMessage] = []
     private let messagesSubject = PassthroughSubject<([ConversationMessage], Bool), Never>()
@@ -77,13 +110,13 @@ final class ThreadStore: ChatMessageSource {
         self.desktopId = desktopId
         self.threadId = threadId
         self.store = store
-        let cached = store.cachedThread(desktopId: desktopId, threadId: threadId)
-        detail = cached?.detail
-        activeRunId = cached?.detail.activeRunId
-        replyState = activeRunId == nil ? .idle : .waiting
-        needsReload = cached == nil || cached?.needsRefresh == true || activeRunId != nil
-        summary = store.summary(desktopId: desktopId, threadId: threadId) ?? cached?.detail.thread
+        summary = store.summary(desktopId: desktopId, threadId: threadId)
         rebuild(scrolling: false)
+        // The history file is read off the main thread; reloads wait for it (see reloadIfNeeded).
+        cacheLoadTask = Task { [weak self] in
+            let cached = await store.cachedThread(desktopId: desktopId, threadId: threadId)
+            self?.applyCached(cached)
+        }
         store.threadEvents
             .filter { [desktopId, threadId] in $0.desktopId == desktopId && $0.event.threadId == threadId }
             .sink { [weak self] in self?.apply($0.event, seq: $0.seq) }
@@ -105,11 +138,31 @@ final class ThreadStore: ChatMessageSource {
                 }
             }
             .store(in: &cancellables)
-        store.$inbox
-            .map { [desktopId, threadId] in $0.first { $0.desktopId == desktopId && $0.summary.id == threadId }?.summary }
-            .removeDuplicates()
-            .sink { [weak self] in if let summary = $0 { self?.summary = summary } }
+        store.summaryUpdates
+            .filter { [desktopId, threadId] in $0.desktopId == desktopId && $0.summary.id == threadId }
+            .sink { [weak self] update in
+                guard let self, summary != update.summary else { return }
+                summary = update.summary
+            }
             .store(in: &cancellables)
+    }
+
+    private func applyCached(_ cached: RemoteCachedThread?) {
+        cacheLoadTask = nil
+        // A network snapshot that already arrived is newer than anything on disk.
+        guard let cached, detail == nil else { return }
+        detail = cached.detail
+        if activeRunId == nil, let runId = cached.detail.activeRunId, !finishedRunIds.contains(runId) { activeRunId = runId }
+        updateReplyState()
+        needsReload = cached.needsRefresh || activeRunId != nil
+        if summary == nil { summary = cached.detail.thread }
+        rebuild(scrolling: false)
+    }
+
+    /// Resolves once the cached history (if any) is applied. The list positions itself at the
+    /// bottom on its first content, so it attaches after this.
+    func waitForCachedHistory() async {
+        if let cacheLoadTask { await cacheLoadTask.value }
     }
 
     var isRunning: Bool { activeRunId != nil }
@@ -119,10 +172,14 @@ final class ThreadStore: ChatMessageSource {
     var queuedFollowUps: [RemoteMessage] { detail?.queuedFollowUps ?? [] }
     var isReadOnly: Bool { summary?.isReadOnly ?? false }
 
+    /// Loaded and live tool calls by start time, computed once per change.
     private var allToolCalls: [RemoteToolCall] {
+        if let toolCallsCache { return toolCallsCache }
         var byId = Dictionary((detail?.toolCalls ?? []).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
         for (id, call) in liveToolCalls { byId[id] = call }
-        return byId.values.sorted { $0.startedAt < $1.startedAt }
+        let sorted = byId.values.sorted { $0.startedAt < $1.startedAt }
+        toolCallsCache = sorted
+        return sorted
     }
 
     func message(for id: String) -> ConversationMessage? {
@@ -163,6 +220,8 @@ final class ThreadStore: ChatMessageSource {
     }
 
     private func reloadIfNeeded() async {
+        // A fresh cached history makes the network load unnecessary.
+        if let cacheLoadTask { await cacheLoadTask.value }
         guard needsReload || detail == nil else { return }
         await reload(force: false)
     }
@@ -196,19 +255,19 @@ final class ThreadStore: ChatMessageSource {
             }
         }
         do {
-            let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: 50, beforeMessageId: nil))
+            // Previews are fetched when a tool call is opened; older desktops ignore the flag.
+            let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: 50, beforeMessageId: nil, omitToolPreviews: true))
             guard loadToken == token, isOpen, !loadEventsOverflowed, !Task.isCancelled else { return }
+            cacheLoadTask?.cancel()
+            cacheLoadTask = nil
             pendingPlanContent = nil
             detail = loaded
-            summary = loaded.thread
+            if summary != loaded.thread { summary = loaded.thread }
             store.upsert(desktopId: desktopId, summary: loaded.thread)
             activeRunId = loaded.activeRunId.flatMap { finishedRunIds.contains($0) ? nil : $0 }
             updateReplyState()
-            streamingText.removeAll()
-            streamingReasoning.removeAll()
-            streamingParent.removeAll()
-            streamingOrder.removeAll()
-            liveToolCalls.removeAll()
+            clearStreaming()
+            toolPreviews = toolPreviews.filter { id, _ in loaded.toolCalls.contains { $0.id == id } }
             let buffered = eventsDuringLoad
             needsReload = reloadAgain
             store.cacheThread(desktopId: desktopId, detail: loaded, needsRefresh: !buffered.isEmpty || reloadAgain)
@@ -232,7 +291,8 @@ final class ThreadStore: ChatMessageSource {
             if loaded.activeRunId == nil && buffered.isEmpty {
                 pendingSteerImages.removeAll()
                 ambiguousSteerFilenames.removeAll()
-                try? sentImages.removePending(desktopId: desktopId, threadId: threadId)
+                let (desktopId, threadId) = (desktopId, threadId)
+                SentImages.queue.async { try? SentImages.store.removePending(desktopId: desktopId, threadId: threadId) }
             }
             let visibleImageKeys = Set((detail?.messages ?? []).flatMap { message in
                 message.images.map { imageKey(messageId: message.id, imageId: $0.imageId) }
@@ -241,6 +301,8 @@ final class ThreadStore: ChatMessageSource {
             })
             imageData = imageData.filter { visibleImageKeys.contains($0.key) }
             missingImages = missingImages.intersection(visibleImageKeys)
+            let knownMessages = Set(loadedMessages.map(\.id))
+            messageRunIds = messageRunIds.filter { knownMessages.contains($0.key) }
             rebuild(scrolling: initialLoad)
             if loaded.pendingPlan, detail?.pendingPlan == true, isOpen {
                 // The file-backed preview is optional; do not delay history or review actions.
@@ -264,23 +326,48 @@ final class ThreadStore: ChatMessageSource {
     // MARK: Events
 
     private func updateReplyState() {
-        guard let activeRunId else { replyState = .idle; return }
-        replyState = respondingRunIds.contains(activeRunId) ? .responding : .waiting
+        let next: ThreadReplyState
+        if let activeRunId { next = respondingRunIds.contains(activeRunId) ? .responding : .waiting }
+        else { next = .idle }
+        if replyState != next { replyState = next }
+    }
+
+    private func clearStreaming() {
+        streamingText.removeAll()
+        streamingReasoning.removeAll()
+        streamingParent.removeAll()
+        streamingOrder.removeAll()
+        streamingCreatedAt.removeAll()
+        liveToolCalls.removeAll()
     }
 
     private func observeRun(_ runId: String?, responding: Bool = false) {
         guard let runId, !finishedRunIds.contains(runId) else { return }
         if activeRunId != runId {
             // A new run must not attach its tools to a previous run's unfinished bubble.
-            streamingText.removeAll()
-            streamingReasoning.removeAll()
-            streamingParent.removeAll()
-            streamingOrder.removeAll()
-            liveToolCalls.removeAll()
+            clearStreaming()
             activeRunId = runId
+            activeRunObservedAt = Date()
+            standaloneFooterRunId = nil
         }
         if responding { respondingRunIds.insert(runId) }
         updateReplyState()
+    }
+
+    private func finishRun(_ runId: String) {
+        if !finishedRunIds.contains(runId) {
+            finishedRunIds.append(runId)
+            if finishedRunIds.count > Self.maxFinishedRuns { finishedRunIds.removeFirst() }
+        }
+        respondingRunIds.remove(runId)
+    }
+
+    private func beginStreaming(_ messageId: String, runId: String?) {
+        if let runId { messageRunIds[messageId] = runId }
+        guard streamingText[messageId] == nil else { return }
+        streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
+        streamingCreatedAt[messageId] = Date()
+        streamingOrder.append(messageId)
     }
 
     private func apply(_ event: RemoteEvent, seq: Int) {
@@ -297,28 +384,19 @@ final class ThreadStore: ChatMessageSource {
         case .messageStarted:
             guard let messageId = event.messageId else { return }
             observeRun(event.runId)
-            if streamingText[messageId] == nil {
-                streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
-                streamingOrder.append(messageId)
-            }
+            beginStreaming(messageId, runId: event.runId)
             if let parent = event.parentMessageId { streamingParent[messageId] = parent }
-            rebuild(scrolling: true)
+            scheduleDeltaRebuild()
         case .messageDelta:
             guard let messageId = event.messageId else { return }
             observeRun(event.runId ?? activeRunId, responding: true)
-            if streamingText[messageId] == nil {
-                streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
-                streamingOrder.append(messageId)
-            }
+            beginStreaming(messageId, runId: event.runId ?? activeRunId)
             streamingText[messageId, default: ""] += event.delta ?? ""
             scheduleDeltaRebuild()
         case .messageReasoningDelta:
             guard let messageId = event.messageId else { return }
             observeRun(event.runId ?? activeRunId, responding: true)
-            if streamingText[messageId] == nil {
-                streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
-                streamingOrder.append(messageId)
-            }
+            beginStreaming(messageId, runId: event.runId ?? activeRunId)
             if streamingReasoning[messageId] == nil {
                 streamingReasoning[messageId] = detail?.messages.first { $0.id == messageId }?.reasoning ?? ""
             }
@@ -327,29 +405,39 @@ final class ThreadStore: ChatMessageSource {
         case .messageCompleted:
             guard let message = event.message else { return }
             if message.role == .user { materializeSteerImages(in: message, runId: event.runId) }
+            if message.role == .assistant, let runId = event.runId { messageRunIds[message.id] = runId }
             upsertLoaded(message)
             streamingText[message.id] = nil
             streamingReasoning[message.id] = nil
+            streamingCreatedAt[message.id] = nil
             streamingOrder.removeAll { $0 == message.id }
             rebuild(scrolling: true)
         case .toolUpdated:
             guard let toolCall = event.toolCall else { return }
             observeRun(event.runId ?? toolCall.runId, responding: true)
-            liveToolCalls[toolCall.id] = toolCall
-            rebuild(scrolling: true)
+            if liveToolCalls[toolCall.id] != toolCall {
+                liveToolCalls[toolCall.id] = toolCall
+                scheduleDeltaRebuild()
+            }
         case .runStatus:
             guard let runId = event.runId, let status = event.status else { return }
             if status == .running {
                 observeRun(runId)
             } else {
-                finishedRunIds.insert(runId)
-                respondingRunIds.remove(runId)
+                finishRun(runId)
                 if activeRunId == runId { activeRunId = nil }
                 updateReplyState()
+                runFooters.removeAll { $0.runId == runId }
+                let footer: String?
                 switch status {
-                case .cancelled: runFooters[runId] = String(localized: "Stopped")
-                case .failed: runFooters[runId] = String(localized: "Failed: \(event.error ?? "")")
-                default: runFooters[runId] = nil
+                case .cancelled: footer = String(localized: "Stopped")
+                case .failed: footer = String(localized: "Failed: \(event.error ?? "")")
+                default: footer = nil
+                }
+                if let footer {
+                    runFooters.append(RunFooter(runId: runId, text: footer, createdAt: Date()))
+                    if runFooters.count > Self.maxRunFooters { runFooters.removeFirst() }
+                    standaloneFooterRunId = runId
                 }
                 // The finished branch (sibling ids, final tool summaries) comes from a reload.
                 if !isReplayingLoadEvents { invalidate() }
@@ -372,15 +460,10 @@ final class ThreadStore: ChatMessageSource {
             summary = nil
             activeRunId = nil
             updateReplyState()
-            streamingText.removeAll()
-            streamingReasoning.removeAll()
-            streamingParent.removeAll()
-            streamingOrder.removeAll()
-            liveToolCalls.removeAll()
-            rebuild(scrolling: false)
-        case .todoUpdated:
+            clearStreaming()
             rebuild(scrolling: false)
         default:
+            // Todos are not rendered; `todo.updated` needs no rebuild.
             break
         }
     }
@@ -393,50 +476,77 @@ final class ThreadStore: ChatMessageSource {
         } else {
             list.append(message)
         }
+        if message.role == .user { standaloneFooterRunId = nil }
         detail = current.replacing(messages: list)
         if let detail { store.cacheThread(desktopId: desktopId, detail: detail, needsRefresh: true) }
     }
 
     // MARK: Timeline
 
-    private func scheduleDeltaRebuild() {
+    /// Coalesces bursts (deltas, tool updates, image loads) into one rebuild per 16 ms.
+    private func scheduleDeltaRebuild(scrolling: Bool = true) {
+        pendingRebuildScrolls = pendingRebuildScrolls || scrolling
         guard deltaRebuildTask == nil, !isReplayingLoadEvents else { return }
         deltaRebuildTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
             guard let self, isOpen else { return }
             deltaRebuildTask = nil
-            rebuild(scrolling: true)
+            rebuild(scrolling: pendingRebuildScrolls)
         }
     }
 
     private func rebuild(scrolling: Bool) {
         deltaRebuildTask?.cancel()
         deltaRebuildTask = nil
+        pendingRebuildScrolls = false
         guard !isReplayingLoadEvents else { return }
         let toolCalls = allToolCalls
         let loaded = detail?.messages ?? []
-        var built: [ConversationMessage] = []
-
-        for message in loaded {
-            built.append(conversationMessage(
-                id: message.id,
-                role: message.role == .user ? .user : .assistant,
-                text: streamingText[message.id] ?? message.content,
-                reasoning: streamingReasoning[message.id] ?? message.reasoning,
-                reasoningCollapsed: true,
-                createdAt: message.createdAt.isoDate ?? Date(),
-                attachments: message.attachments.map(\.filename),
-                toolCalls: toolCalls.filter { $0.assistantMessageId == message.id },
-                siblings: message.siblingIds,
-                plan: message.isPlanDocument ? "accepted" : nil,
-                images: message.images
-            ))
-        }
-
+        let callsByMessage = Dictionary(grouping: toolCalls.filter { $0.assistantMessageId != nil }) { $0.assistantMessageId! }
         let loadedIds = Set(loaded.map(\.id))
         let unattached = toolCalls.filter { call in
             call.runId == activeRunId && activeRunId != nil && (call.assistantMessageId == nil || !loadedIds.contains(call.assistantMessageId!))
         }
+        let footers = footersByMessage(loaded: loaded, callsByMessage: callsByMessage)
+        var built: [ConversationMessage] = []
+        var retained: [String: BuiltMessage] = [:]
+
+        for message in loaded {
+            let calls = callsByMessage[message.id] ?? []
+            let footer = footers.byMessage[message.id]
+            let previous = builtMessages[message.id]
+            let createdAt = previous?.source.createdAt == message.createdAt ? previous!.message.createdAt : (message.createdAt.isoDate ?? Date())
+            if let text = streamingText[message.id] {
+                built.append(conversationMessage(
+                    id: message.id, role: message.role == .user ? .user : .assistant,
+                    text: text, reasoning: streamingReasoning[message.id] ?? message.reasoning,
+                    reasoningCollapsed: true, createdAt: createdAt,
+                    attachments: message.attachments.map(\.filename), toolCalls: calls,
+                    siblings: message.siblingIds, plan: message.isPlanDocument ? "accepted" : nil,
+                    images: message.images, footer: footer
+                ))
+                continue
+            }
+            let images = message.images.map { retainedImage(messageId: message.id, imageId: $0.imageId) != nil }
+            if let previous, previous.source == message, previous.toolCalls == calls,
+               previous.images == images, previous.footer == footer {
+                retained[message.id] = previous
+                built.append(previous.message)
+                continue
+            }
+            let conversation = conversationMessage(
+                id: message.id, role: message.role == .user ? .user : .assistant,
+                text: message.content, reasoning: message.reasoning,
+                reasoningCollapsed: true, createdAt: createdAt,
+                attachments: message.attachments.map(\.filename), toolCalls: calls,
+                siblings: message.siblingIds, plan: message.isPlanDocument ? "accepted" : nil,
+                images: message.images, footer: footer
+            )
+            retained[message.id] = BuiltMessage(source: message, toolCalls: calls, images: images, footer: footer, message: conversation)
+            built.append(conversation)
+        }
+        builtMessages = retained
+
         for (index, id) in streamingOrder.enumerated() where !loadedIds.contains(id) {
             let isLast = index == streamingOrder.count - 1
             built.append(conversationMessage(
@@ -445,21 +555,26 @@ final class ThreadStore: ChatMessageSource {
                 text: streamingText[id] ?? "",
                 reasoning: streamingReasoning[id],
                 reasoningCollapsed: !(streamingText[id] ?? "").isEmpty,
-                createdAt: Date(),
+                createdAt: streamingCreatedAt[id] ?? activeRunObservedAt,
                 attachments: [],
                 toolCalls: isLast ? unattached : [],
                 siblings: nil,
-                plan: nil
+                plan: nil,
+                footer: footers.byMessage[id]
             ))
         }
         if streamingOrder.isEmpty, !unattached.isEmpty {
             built.append(conversationMessage(
                 id: "run-\(activeRunId ?? "")", role: .assistant, text: "", reasoning: nil, reasoningCollapsed: true,
-                createdAt: Date(), attachments: [], toolCalls: unattached, siblings: nil, plan: nil
+                createdAt: activeRunObservedAt, attachments: [], toolCalls: unattached, siblings: nil, plan: nil
             ))
         }
-        if let last = built.last(where: { $0.role == .assistant }), let footer = runFooters.values.first {
-            last.metadata[MessageMetadataKey.footer] = footer
+        if let standalone = footers.standalone {
+            built.append(conversationMessage(
+                id: "run-\(standalone.runId)", role: .assistant, text: "", reasoning: nil, reasoningCollapsed: true,
+                createdAt: standalone.createdAt, attachments: [], toolCalls: [], siblings: nil, plan: nil,
+                footer: standalone.text
+            ))
         }
         // The current file-backed plan is independent of historical marker messages.
         // Never offer an old document for acceptance when reading the current file fails.
@@ -476,6 +591,28 @@ final class ThreadStore: ChatMessageSource {
         messagesSubject.send((built, scrolling))
     }
 
+    /// Each footer belongs to its run: it goes on the last assistant message that run produced,
+    /// never on a later reply.
+    private func footersByMessage(
+        loaded: [RemoteMessage], callsByMessage: [String: [RemoteToolCall]]
+    ) -> (byMessage: [String: String], standalone: RunFooter?) {
+        guard !runFooters.isEmpty else { return ([:], nil) }
+        func runId(of messageId: String) -> String? {
+            messageRunIds[messageId] ?? callsByMessage[messageId]?.lazy.compactMap(\.runId).first
+        }
+        let assistantIds = loaded.filter { $0.role == .assistant }.map(\.id)
+            + streamingOrder.filter { id in !loaded.contains { $0.id == id } }
+        var lastByRun: [String: String] = [:]
+        for id in assistantIds { if let run = runId(of: id) { lastByRun[run] = id } }
+        var byMessage: [String: String] = [:]
+        var standalone: RunFooter?
+        for footer in runFooters {
+            if let messageId = lastByRun[footer.runId] { byMessage[messageId] = footer.text }
+            else if footer.runId == standaloneFooterRunId, activeRunId == nil { standalone = footer }
+        }
+        return (byMessage, standalone)
+    }
+
     private func conversationMessage(
         id: String,
         role: MessageRole,
@@ -487,7 +624,8 @@ final class ThreadStore: ChatMessageSource {
         toolCalls: [RemoteToolCall],
         siblings: [String]?,
         plan: String?,
-        images: [RemoteImageRef] = []
+        images: [RemoteImageRef] = [],
+        footer: String? = nil
     ) -> ConversationMessage {
         var parts: [ContentPart] = []
         if let reasoning, !reasoning.isEmpty {
@@ -534,6 +672,7 @@ final class ThreadStore: ChatMessageSource {
             metadata[MessageMetadataKey.siblingCount] = String(siblings.count)
         }
         if let plan { metadata[MessageMetadataKey.plan] = plan }
+        if let footer { metadata[MessageMetadataKey.footer] = footer }
         return ConversationMessage(id: id, conversationID: threadId, role: role, parts: parts, createdAt: createdAt, metadata: metadata)
     }
 
@@ -541,39 +680,67 @@ final class ThreadStore: ChatMessageSource {
         "\(messageId.utf8.count):\(messageId)\(imageId)"
     }
 
+    /// Returns what is in memory and starts a background read on the first miss; the timeline
+    /// rebuilds when the file arrives.
     private func retainedImage(messageId: String, imageId: String) -> Data? {
         let key = imageKey(messageId: messageId, imageId: imageId)
         if let data = imageData[key] { return data }
-        if missingImages.contains(key) { return nil }
-        if let data = sentImages.load(desktopId: desktopId, threadId: threadId, messageId: messageId, imageId: imageId) {
-            imageData[key] = data
-            return data
+        guard !missingImages.contains(key), loadingImages.insert(key).inserted else { return nil }
+        let (desktopId, threadId) = (desktopId, threadId)
+        SentImages.queue.async { [weak self] in
+            let data = SentImages.store.load(desktopId: desktopId, threadId: threadId, messageId: messageId, imageId: imageId)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, loadingImages.remove(key) != nil else { return }
+                if let data {
+                    imageData[key] = data
+                    scheduleDeltaRebuild(scrolling: false)
+                } else {
+                    missingImages.insert(key)
+                }
+            }
         }
-        missingImages.insert(key)
         return nil
     }
 
     private func materializeSteerImages(in message: RemoteMessage, runId: String? = nil, allowedFilenames: Set<String>? = nil) {
         guard message.role == .user else { return }
         let filenames = message.images.compactMap(\.filename)
+        var jobs: [(filename: String, imageId: String, pending: (runId: String, data: Data)?)] = []
         for reference in message.images {
             guard let filename = reference.filename,
                   filenames.filter({ $0 == filename }).count == 1,
                   allowedFilenames?.contains(filename) ?? true,
-                  !ambiguousSteerFilenames.contains(filename),
-                  let pending = pendingSteerImages[filename]
-                    ?? sentImages.loadPending(desktopId: desktopId, threadId: threadId, filename: filename),
-                  runId == nil || pending.runId == runId else { continue }
-            do {
-                try sentImages.save(pending.data, desktopId: desktopId, threadId: threadId,
-                                    messageId: message.id, imageId: reference.imageId)
-                let key = imageKey(messageId: message.id, imageId: reference.imageId)
-                imageData[key] = pending.data
-                missingImages.remove(key)
-                pendingSteerImages[filename] = nil
-                try sentImages.removePending(desktopId: desktopId, threadId: threadId, filename: filename)
-            } catch {
-                lastError = String(localized: "Image sent, but its local preview could not be saved.")
+                  !ambiguousSteerFilenames.contains(filename) else { continue }
+            jobs.append((filename, reference.imageId, pendingSteerImages[filename]))
+        }
+        guard !jobs.isEmpty else { return }
+        let (desktopId, threadId, messageId) = (desktopId, threadId, message.id)
+        SentImages.queue.async { [weak self] in
+            let store = SentImages.store
+            var saved: [(filename: String, imageId: String, data: Data)] = []
+            var failed = false
+            for job in jobs {
+                guard let pending = job.pending ?? store.loadPending(desktopId: desktopId, threadId: threadId, filename: job.filename),
+                      runId == nil || pending.runId == runId else { continue }
+                do {
+                    try store.save(pending.data, desktopId: desktopId, threadId: threadId, messageId: messageId, imageId: job.imageId)
+                    saved.append((job.filename, job.imageId, pending.data))
+                    try store.removePending(desktopId: desktopId, threadId: threadId, filename: job.filename)
+                } catch {
+                    failed = true
+                }
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for image in saved {
+                    let key = imageKey(messageId: messageId, imageId: image.imageId)
+                    imageData[key] = image.data
+                    missingImages.remove(key)
+                    loadingImages.remove(key)
+                    pendingSteerImages[image.filename] = nil
+                }
+                if failed { lastError = String(localized: "Image sent, but its local preview could not be saved.") }
+                if !saved.isEmpty { scheduleDeltaRebuild(scrolling: false) }
             }
         }
     }
@@ -620,41 +787,18 @@ final class ThreadStore: ChatMessageSource {
             if let userMessage = accepted.userMessage {
                 let images = attachments.filter { $0.type == .image }
                 if images.count == userMessage.images.count {
+                    var writes: [(data: Data, imageId: String)] = []
                     for (image, reference) in zip(images, userMessage.images) {
-                        do {
-                            try sentImages.save(image.fileData, desktopId: desktopId, threadId: threadId, messageId: userMessage.id, imageId: reference.imageId)
-                            let key = imageKey(messageId: userMessage.id, imageId: reference.imageId)
-                            if !image.fileData.isEmpty { imageData[key] = image.fileData }
-                            missingImages.remove(key)
-                        } catch {
-                            // Delivery succeeded; failure to retain a local preview cannot reject it.
-                            lastError = String(localized: "Image sent, but its local preview could not be saved.")
-                        }
+                        let key = imageKey(messageId: userMessage.id, imageId: reference.imageId)
+                        if !image.fileData.isEmpty { imageData[key] = image.fileData }
+                        missingImages.remove(key)
+                        writes.append((image.fileData, reference.imageId))
                     }
+                    saveSentImages(writes, messageId: userMessage.id)
                 }
                 upsertLoaded(userMessage)
             } else if accepted.kind == .activeRunSteerPending {
-                for image in attachments where image.type == .image && !image.fileData.isEmpty {
-                    let filename = image.storageFilename
-                    // Only composer-generated UUID names are unambiguous across pending steers.
-                    guard filename.hasSuffix(".jpeg"),
-                          UUID(uuidString: String(filename.dropLast(5))) != nil,
-                          !(detail?.messages ?? []).contains(where: { $0.images.contains(where: { $0.filename == filename }) }),
-                          !ambiguousSteerFilenames.contains(filename) else { continue }
-                    if pendingSteerImages[filename] != nil || sentImages.loadPending(desktopId: desktopId, threadId: threadId, filename: filename) != nil {
-                        pendingSteerImages[filename] = nil
-                        ambiguousSteerFilenames.insert(filename)
-                        try? sentImages.removePending(desktopId: desktopId, threadId: threadId, filename: filename)
-                    } else {
-                        do {
-                            try sentImages.savePending(image.fileData, desktopId: desktopId, threadId: threadId,
-                                                       filename: filename, runId: accepted.runId)
-                            pendingSteerImages[filename] = (accepted.runId, image.fileData)
-                        } catch {
-                            lastError = String(localized: "Image sent, but its local preview could not be saved.")
-                        }
-                    }
-                }
+                savePendingSteerImages(attachments, runId: accepted.runId)
             }
             // Acknowledgement clears the draft immediately; history refresh must not delay it.
             if accepted.kind == .activeRunFollowUp { invalidate() }
@@ -677,6 +821,73 @@ final class ThreadStore: ChatMessageSource {
                 lastError = String(localized: "Delivery unconfirmed. Check the conversation before sending again; your draft is kept.") + " " + describe(error)
             }
             return false
+        }
+    }
+
+    /// Delivery already succeeded; failing to retain a local preview cannot reject it.
+    private func saveSentImages(_ writes: [(data: Data, imageId: String)], messageId: String) {
+        guard !writes.isEmpty else { return }
+        let (desktopId, threadId) = (desktopId, threadId)
+        SentImages.queue.async { [weak self] in
+            var failed = false
+            for write in writes {
+                do { try SentImages.store.save(write.data, desktopId: desktopId, threadId: threadId, messageId: messageId, imageId: write.imageId) }
+                catch { failed = true }
+            }
+            guard failed else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.lastError = String(localized: "Image sent, but its local preview could not be saved.")
+            }
+        }
+    }
+
+    /// A steer has no message id yet; its composer UUID filename identifies the image until the
+    /// user message materializes. A name seen twice is ambiguous and never materializes.
+    private func savePendingSteerImages(_ attachments: [ChatInputAttachment], runId: String) {
+        var candidates: [(filename: String, data: Data)] = []
+        for image in attachments where image.type == .image && !image.fileData.isEmpty {
+            let filename = image.storageFilename
+            // Only composer-generated UUID names are unambiguous across pending steers.
+            guard filename.hasSuffix(".jpeg"),
+                  UUID(uuidString: String(filename.dropLast(5))) != nil,
+                  !(detail?.messages ?? []).contains(where: { $0.images.contains(where: { $0.filename == filename }) }),
+                  !ambiguousSteerFilenames.contains(filename) else { continue }
+            if pendingSteerImages[filename] != nil {
+                pendingSteerImages[filename] = nil
+                ambiguousSteerFilenames.insert(filename)
+                let (desktopId, threadId) = (desktopId, threadId)
+                SentImages.queue.async { try? SentImages.store.removePending(desktopId: desktopId, threadId: threadId, filename: filename) }
+            } else {
+                // Recorded now so a completion that arrives before the disk write still finds it.
+                pendingSteerImages[filename] = (runId, image.fileData)
+                candidates.append((filename, image.fileData))
+            }
+        }
+        guard !candidates.isEmpty else { return }
+        let (desktopId, threadId) = (desktopId, threadId)
+        SentImages.queue.async { [weak self] in
+            let store = SentImages.store
+            var ambiguous: [String] = []
+            var failed = false
+            for candidate in candidates {
+                // A pending file from an earlier session with the same name makes it ambiguous.
+                if store.loadPending(desktopId: desktopId, threadId: threadId, filename: candidate.filename) != nil {
+                    ambiguous.append(candidate.filename)
+                    try? store.removePending(desktopId: desktopId, threadId: threadId, filename: candidate.filename)
+                    continue
+                }
+                do { try store.savePending(candidate.data, desktopId: desktopId, threadId: threadId, filename: candidate.filename, runId: runId) }
+                catch { failed = true }
+            }
+            guard failed || !ambiguous.isEmpty else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for filename in ambiguous {
+                    pendingSteerImages[filename] = nil
+                    ambiguousSteerFilenames.insert(filename)
+                }
+                if failed { lastError = String(localized: "Image sent, but its local preview could not be saved.") }
+            }
         }
     }
 
@@ -785,13 +996,39 @@ final class ThreadStore: ChatMessageSource {
     }
 
     func toolCall(_ id: String) -> RemoteToolCall? {
-        allToolCalls.first { $0.id == id }
+        liveToolCalls[id] ?? detail?.toolCalls.first { $0.id == id }
+    }
+
+    /// The preview to show: inline (older desktops) or fetched on demand.
+    func toolPreview(_ id: String) -> (input: String?, output: String?) {
+        let call = toolCall(id)
+        let fetched = toolPreviews[id]
+        return (call?.inputPreview ?? fetched?.inputPreview, call?.outputPreview ?? fetched?.outputPreview)
+    }
+
+    /// True when the desktop holds a preview this phone has not fetched yet.
+    func needsToolPreview(_ id: String) -> Bool {
+        guard let call = toolCall(id), call.hasPreview == true,
+              call.inputPreview == nil, call.outputPreview == nil else { return false }
+        return toolPreviews[id] == nil
+    }
+
+    /// Fetches the preview with `tools.getPreview`; `refresh` replaces a cached one. Returns an
+    /// error description when it could not be loaded.
+    func loadToolPreview(_ id: String, refresh: Bool = false) async -> String? {
+        guard let call = toolCall(id), call.hasPreview == true, refresh || toolPreviews[id] == nil else { return nil }
+        do {
+            let preview: RemoteToolsGetPreviewOutput = try await store.call(desktopId, "tools.getPreview", RemoteToolsGetPreviewInput(threadId: threadId, toolCallId: id))
+            toolPreviews[id] = preview
+            return nil
+        } catch {
+            return describe(error)
+        }
     }
 
     func setStarred(_ starred: Bool) async {
         do {
-            let _: RemoteOk = try await store.call(desktopId, "threads.star", StarInput(threadId: threadId, starred: starred))
-            if let summary { store.upsert(desktopId: desktopId, summary: summary.with(starred: starred)) }
+            try await store.setStarred(desktopId: desktopId, threadId: threadId, starred: starred)
         } catch {
             lastError = describe(error)
         }
@@ -799,7 +1036,7 @@ final class ThreadStore: ChatMessageSource {
 
     func archive() async -> Bool {
         do {
-            let _: RemoteOk = try await store.call(desktopId, "threads.archive", ThreadRefInput(threadId: threadId))
+            try await store.archive(desktopId: desktopId, threadId: threadId)
             return true
         } catch {
             lastError = describe(error)
@@ -815,7 +1052,7 @@ final class ThreadStore: ChatMessageSource {
 
 // MARK: - Inputs
 
-struct ThreadLoadInput: Encodable { let threadId: String; let limit: Int?; let beforeMessageId: String? }
+struct ThreadLoadInput: Encodable { let threadId: String; let limit: Int?; let beforeMessageId: String?; let omitToolPreviews: Bool? }
 struct ThreadRefInput: Encodable { let threadId: String }
 struct MessageRefInput: Encodable { let threadId: String; let messageId: String }
 struct ChatSendInput: Encodable { let threadId: String; let content: String; let attachmentIds: [String]?; let mode: String? }
@@ -840,7 +1077,7 @@ extension RemoteThreadDetail {
 extension RemoteToolCall {
     func answered(_ answer: String) -> RemoteToolCall {
         RemoteToolCall(
-            assistantMessageId: assistantMessageId, error: error, finishedAt: finishedAt, id: id,
+            assistantMessageId: assistantMessageId, error: error, finishedAt: finishedAt, hasPreview: hasPreview, id: id,
             inputPreview: inputPreview, outputPreview: outputPreview,
             question: question.map { RemoteToolQuestion(answer: answer, choices: $0.choices, question: $0.question) },
             requestMessageId: requestMessageId, runId: runId, startedAt: startedAt, status: .running,

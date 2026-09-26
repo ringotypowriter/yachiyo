@@ -30,6 +30,7 @@ final class SettingsViewController: UITableViewController {
         })
         desktops = store.desktops
         store.$desktops
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshots in
                 self?.desktops = snapshots
@@ -117,7 +118,7 @@ final class SettingsViewController: UITableViewController {
             switch indexPath.row {
             case 0:
                 content.text = String(localized: "Version")
-                content.secondaryText = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+                content.secondaryText = Self.versionText
             case 1:
                 content.text = String(localized: "Protocol")
                 content.secondaryText = String(remoteProtocolVersion)
@@ -209,6 +210,15 @@ final class SettingsViewController: UITableViewController {
             presenter.present(picker, animated: true)
         })
         presenter.present(alert, animated: true)
+    }
+
+    /// "0.1.0 (1) · abc1234": marketing version, build number, and the commit the build came from.
+    private static var versionText: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        var text = "\(version) (\(info["CFBundleVersion"] as? String ?? "?"))"
+        if let commit = info["YachiyoGitCommit"] as? String, !commit.isEmpty { text += " · \(commit)" }
+        return text
     }
 
     private var primaryName: String {

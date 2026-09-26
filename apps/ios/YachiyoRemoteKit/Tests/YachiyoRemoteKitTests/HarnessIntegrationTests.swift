@@ -16,6 +16,8 @@ final class HarnessIntegrationTests: XCTestCase {
         let payload = try PairingURL.decode(url)
         let (client, desktop, hello) = try await connector.pair(payload)
         XCTAssertTrue(client.codec.gzip)
+        XCTAssertEqual(client.features, ["handshake-hello", "event-batch", "stream-deflate"])
+        XCTAssertNotNil(client.handshakeHello)
         XCTAssertEqual(hello.protocolVersion, 1)
         XCTAssertFalse(desktop.pairingId.isEmpty)
 
@@ -28,12 +30,13 @@ final class HarnessIntegrationTests: XCTestCase {
         let thread = started.thread
         let accepted = started.accepted
         _ = tracker.accept(try await client.call("events.subscribe", tracker.subscribeInput(threadIds: [thread.id])))
+        // A batch push carries several events; every decision must be inspected.
         var question: RemoteToolCall?
-        for await push in client.pushes {
-            guard case let .apply(event, _)? = tracker.observe(push).first else { continue }
-            if event.type == .toolUpdated, event.toolCall?.status == .waitingForUser {
+        waiting: for await push in client.pushes {
+            for case let .apply(event, _) in tracker.observe(push)
+            where event.type == .toolUpdated && event.toolCall?.status == .waitingForUser {
                 question = event.toolCall
-                break
+                break waiting
             }
         }
         let toolCall = try XCTUnwrap(question)
@@ -53,11 +56,11 @@ final class HarnessIntegrationTests: XCTestCase {
         let resumed = resumedTracker.accept(try await reconnected.call("events.subscribe", resumedTracker.subscribeInput(threadIds: [thread.id])))
         XCTAssertFalse(resumed, "resume within the buffer should not need a resync")
         var completed = false
-        for await push in reconnected.pushes {
-            guard case let .apply(event, _)? = resumedTracker.observe(push).first else { continue }
-            if event.type == .runStatus, event.runId == accepted.runId, event.status == .completed {
+        running: for await push in reconnected.pushes {
+            for case let .apply(event, _) in resumedTracker.observe(push)
+            where event.type == .runStatus && event.runId == accepted.runId && event.status == .completed {
                 completed = true
-                break
+                break running
             }
         }
         XCTAssertTrue(completed)

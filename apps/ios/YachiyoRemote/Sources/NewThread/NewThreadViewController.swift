@@ -23,6 +23,7 @@ final class NewThreadViewController: UIViewController {
     private var desktopId: String?
     private var essentials: [RemoteEssential] = []
     private var essentialImages: [String: UIImage] = [:]
+    private var essentialTiles: [String: UIButton] = [:]
     private var essentialId: String?
     private var workspaces: [RemoteWorkspace] = []
     private var workspacePath: String?
@@ -65,6 +66,7 @@ final class NewThreadViewController: UIViewController {
         desktopId = targetDesktopId ?? online.first(where: \.isPrimary)?.id ?? online.first?.id
         configureDevices(online)
         store.$desktops
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] desktops in self?.synchronizeDevices(desktops) }
             .store(in: &cancellables)
@@ -282,10 +284,14 @@ final class NewThreadViewController: UIViewController {
                 )
             }
             guard optionsToken == token, self.desktopId == desktopId, !Task.isCancelled else { return }
+            // Decoded and downsampled off the main thread.
             guard let data,
-                  let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 32, height: 32)) else { continue }
+                  let image = await UIImage(data: data)?.byPreparingThumbnail(ofSize: CGSize(width: 32, height: 32)),
+                  optionsToken == token, self.desktopId == desktopId, !Task.isCancelled else { continue }
             essentialImages[essential.id] = image.withRenderingMode(.alwaysOriginal)
-            rebuildEssentials()
+            if let tile = essentialTiles[essential.id] {
+                tile.configuration = tileConfiguration(title: essential.icon ?? "•", id: essential.id)
+            }
         }
     }
 
@@ -305,13 +311,16 @@ final class NewThreadViewController: UIViewController {
 
     private func rebuildEssentials() {
         essentialsRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        essentialTiles = [:]
         essentialsRow.addArrangedSubview(makeEssentialTile(title: "＋", id: nil, label: String(localized: "Blank")))
         for essential in essentials {
-            essentialsRow.addArrangedSubview(makeEssentialTile(title: essential.icon ?? "•", id: essential.id, label: essential.label ?? ""))
+            let tile = makeEssentialTile(title: essential.icon ?? "•", id: essential.id, label: essential.label ?? "")
+            essentialTiles[essential.id] = tile
+            essentialsRow.addArrangedSubview(tile)
         }
     }
 
-    private func makeEssentialTile(title: String, id: String?, label: String) -> UIButton {
+    private func tileConfiguration(title: String, id: String?) -> UIButton.Configuration {
         var configuration = UIButton.Configuration.plain()
         configuration.title = title
         if let id, let image = essentialImages[id] {
@@ -323,7 +332,12 @@ final class NewThreadViewController: UIViewController {
         configuration.background.backgroundColor = selected ? .yachiyo(.accent, alpha: 0.10) : YachiyoStyle.ink(0.04)
         configuration.background.strokeColor = selected ? .yachiyo(.accent) : .clear
         configuration.background.strokeWidth = selected ? 1 : 0
-        let button = UIButton(configuration: configuration)
+        return configuration
+    }
+
+    private func makeEssentialTile(title: String, id: String?, label: String) -> UIButton {
+        let selected = essentialId == id
+        let button = UIButton(configuration: tileConfiguration(title: title, id: id))
         button.accessibilityLabel = label.isEmpty ? title : label
         button.isSelected = selected
         button.accessibilityIdentifier = "newThread.essential.\(id ?? "blank")"
@@ -438,10 +452,14 @@ extension NewThreadViewController: ChatInputDelegate {
                 if let userMessage = output.accepted.userMessage {
                     let images = object.attachments.filter { $0.type == .image }
                     if images.count == userMessage.images.count {
-                        let sentImages = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
-                        for (image, reference) in zip(images, userMessage.images) {
-                            // The thread was created successfully even if its local preview cannot be retained.
-                            try? sentImages.save(image.fileData, desktopId: desktopId, threadId: output.thread.id, messageId: userMessage.id, imageId: reference.imageId)
+                        let writes = zip(images, userMessage.images).map { ($0.fileData, $1.imageId) }
+                        let threadId = output.thread.id
+                        // Queued before the thread screen opens, so its first read finds them.
+                        SentImages.queue.async {
+                            for (data, imageId) in writes {
+                                // The thread was created successfully even if its local preview cannot be retained.
+                                try? SentImages.store.save(data, desktopId: desktopId, threadId: threadId, messageId: userMessage.id, imageId: imageId)
+                            }
                         }
                     }
                 }

@@ -308,66 +308,49 @@ final class RemoteClientTests: XCTestCase {
         }
     }
 
-    func testPushOverflowClosesSocketAndReplaysFromLastAppliedCursor() async throws {
+    func testPushesWaitForTheConsumerAndStayInOrderWithResponses() async throws {
         let channel = SuspendedSendChannel()
         let client = RemoteClient(channel: channel, transport: channel.clientTransport, pushBufferCapacity: 2)
         defer { client.close() }
+        let pending = Task { try await client.callRaw("pending", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
         try channel.receivePush(seq: 1, type: "message.started")
         try channel.receivePush(seq: 2, type: "message.delta")
         try channel.receivePush(seq: 3, type: "message.completed")
+        // The reply to `pending` is queued after the three pushes.
+        channel.releaseFirstSend()
 
-        // No consumer is running yet: the third push must not evict either earlier event.
-        await fulfillment(of: [channel.didClose], timeout: 2)
+        // No consumer yet: the third push waits instead of evicting or closing.
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(channel.sendCount, 1)
         var tracker = EventCursorTracker()
         var delivered: [Int] = []
-        for await push in client.pushes {
+        var iterator = client.pushes.makeAsyncIterator()
+        while delivered.count < 3, let push = await iterator.next() {
             delivered.append(try XCTUnwrap(push.seq))
             _ = tracker.observe(push)
         }
-        XCTAssertEqual(delivered, [1, 2])
-        XCTAssertEqual(tracker.cursor?.seq, 2)
-        XCTAssertEqual(tracker.subscribeInput(threadIds: []).resumeFrom?.seq, 2)
-        var closureIterator = client.closures.makeAsyncIterator()
-        let closeReason = await closureIterator.next()
-        XCTAssertEqual(closeReason as? RemotePushBufferError, .overflow)
-        do {
-            _ = try await client.callRaw("later", input: [:])
-            XCTFail("Overflowed socket must reject later calls")
-        } catch {
-            XCTAssertEqual(error as? WebSocketChannelError, .closed(code: 1000))
-        }
-
-        // A new socket can replay the omitted event from the last applied cursor.
-        let replayChannel = SuspendedSendChannel()
-        let replay = RemoteClient(channel: replayChannel, transport: replayChannel.clientTransport, pushBufferCapacity: 2)
-        defer { replay.close() }
-        try replayChannel.receivePush(seq: 3, type: "message.completed")
-        var iterator = replay.pushes.makeAsyncIterator()
-        let recovered = await iterator.next()
-        XCTAssertEqual(recovered?.seq, 3)
-        if let recovered { _ = tracker.observe(recovered) }
+        XCTAssertEqual(delivered, [1, 2, 3])
         XCTAssertEqual(tracker.cursor?.seq, 3)
+        let result = try await pending.value
+        XCTAssertEqual(String(data: result, encoding: .utf8), "\"pending\"")
+        let later = try await client.callRaw("later", input: [:])
+        XCTAssertEqual(String(data: later, encoding: .utf8), "\"later\"")
     }
 
-    func testPushOverflowFailsPendingCallWithoutSendingAnotherNoiseFrame() async throws {
+    func testPushesReceivedBeforeCloseAreStillDelivered() async throws {
         let channel = SuspendedSendChannel()
-        let client = RemoteClient(channel: channel, transport: channel.clientTransport, pushBufferCapacity: 1)
-        defer { client.close() }
-        let pending = Task { try await client.callRaw("pending", input: [:]) }
-        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport, pushBufferCapacity: 4)
         try channel.receivePush(seq: 1, type: "message.delta")
         try channel.receivePush(seq: 2, type: "message.completed")
-        await fulfillment(of: [channel.didClose], timeout: 2)
-        do {
-            _ = try await pending.value
-            XCTFail("Overflow must fail in-flight calls")
-        } catch {
-            XCTAssertEqual(error as? RemotePushBufferError, .overflow)
-        }
-        XCTAssertEqual(channel.sendCount, 1)
+        try await Task.sleep(for: .milliseconds(50))
+        client.close()
         var delivered: [Int] = []
         for await push in client.pushes { delivered.append(try XCTUnwrap(push.seq)) }
-        XCTAssertEqual(delivered, [1])
+        XCTAssertEqual(delivered, [1, 2])
+        var closureIterator = client.closures.makeAsyncIterator()
+        let closeReason = await closureIterator.next()
+        XCTAssertNil(closeReason ?? nil)
     }
 }
 

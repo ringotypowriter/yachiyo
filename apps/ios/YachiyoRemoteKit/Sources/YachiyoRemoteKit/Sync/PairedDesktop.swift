@@ -37,7 +37,11 @@ public struct PairedDesktop: Codable, Equatable, Sendable, Identifiable {
     public var mailboxCounter: Int
     public var endpoints: [StoredEndpoint]
     public var syncDeviceId: String?
+    /// Legacy: the event cursor now lives in the snapshot cache (`RemoteCache`). Kept decodable
+    /// so a record written by an older build can seed a cache that has no cursor yet; new
+    /// writes leave it nil.
     public var cursor: ResumeCursor?
+    /// Dialed first on the next connect, across launches.
     public var lastSuccessfulURL: String?
     public var lastAddressUpdateAt: Date?
     public var lastAddressUpdateURL: String?
