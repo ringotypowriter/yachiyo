@@ -27,8 +27,11 @@ const GC_GRACE_MS = 60 * 60 * 1000
  * 2. Orphan sweep: delete backup blobs not referenced by any surviving snapshot.
  *    This phase runs unconditionally so that blobs orphaned by restoreToCheckpoint
  *    or other snapshot deletions are always reclaimed.
+ *
+ * Returns the run ids whose snapshots were deleted, so callers can clear the
+ * file counts that still advertise those runs as reviewable.
  */
-export async function runGc(workspaceHash: string): Promise<void> {
+export async function runGc(workspaceHash: string): Promise<string[]> {
   const snapshotsDir = join(resolveYachiyoFileHistoryDir(), workspaceHash, 'snapshots')
   const backupsDir = join(resolveYachiyoFileHistoryDir(), workspaceHash, 'backups')
 
@@ -40,7 +43,7 @@ export async function runGc(workspaceHash: string): Promise<void> {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       // No snapshots dir — still sweep orphan blobs if backups dir exists
       await sweepOrphanBlobs(workspaceHash, backupsDir, new Set())
-      return
+      return []
     }
     throw err
   }
@@ -71,9 +74,11 @@ export async function runGc(workspaceHash: string): Promise<void> {
     }
   }
 
+  const expiredRunIds: string[] = []
   for (const s of snapshots) {
     if (!toKeep.has(s.runId)) {
       await deleteSnapshotIndex(workspaceHash, s.runId)
+      expiredRunIds.push(s.runId)
     }
   }
 
@@ -92,6 +97,7 @@ export async function runGc(workspaceHash: string): Promise<void> {
   }
 
   await sweepOrphanBlobs(workspaceHash, backupsDir, referencedHashes)
+  return expiredRunIds
 }
 
 async function sweepOrphanBlobs(

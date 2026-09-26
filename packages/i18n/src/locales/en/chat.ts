@@ -398,6 +398,7 @@ export const chat = {
     revertAll: 'Revert all',
     loadFailed: 'Failed to load changes.',
     noFileChanges: 'No file changes.',
+    historyExpired: 'File history for this run is no longer kept.',
     openInApp: 'Open in {app}',
     openWithDefaultApp: 'Open with default app',
     reverted: 'Reverted',

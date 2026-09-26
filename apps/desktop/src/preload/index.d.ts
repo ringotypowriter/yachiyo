@@ -408,10 +408,14 @@ declare global {
         markThreadAsRead: (input: { threadId: string }) => Promise<ThreadRecord>
 
         // File snapshots
+        /**
+         * Resolves null when the run's snapshot is gone (never recorded or expired); the run's
+         * stored file count is cleared so it stops advertising a review.
+         */
         getSnapshotDiff: (input: {
           runId: string
           workspacePath: string
-        }) => Promise<import('@yachiyo/shared/fileSnapshot').FileChangeForReview[]>
+        }) => Promise<import('@yachiyo/shared/fileSnapshot').FileChangeForReview[] | null>
         revertSnapshotFile: (input: {
           runId: string
           workspacePath: string

@@ -41,7 +41,7 @@ test('diffGenerator', async (t) => {
     await writeFile(filePath, 'line1\nline2-changed\nline3\n')
     await tracker.finalize()
 
-    const changes = await generateDiffForRun(workspaceDir, 'run-1')
+    const changes = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changes.length, 1)
     assert.equal(changes[0]!.status, 'modified')
     assert.equal(changes[0]!.relativePath, 'file.txt')
@@ -59,7 +59,7 @@ test('diffGenerator', async (t) => {
     await writeFile(filePath, 'brand new content\n')
     await tracker.finalize()
 
-    const changes = await generateDiffForRun(workspaceDir, 'run-1')
+    const changes = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changes.length, 1)
     assert.equal(changes[0]!.status, 'created')
     assert.ok(changes[0]!.diff.includes('+brand new content'))
@@ -77,7 +77,7 @@ test('diffGenerator', async (t) => {
     await unlink(filePath)
     await tracker.finalize()
 
-    const changes = await generateDiffForRun(workspaceDir, 'run-1')
+    const changes = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changes.length, 1)
     assert.equal(changes[0]!.status, 'deleted')
     assert.ok(changes[0]!.diff.includes('-goodbye'))
@@ -93,7 +93,7 @@ test('diffGenerator', async (t) => {
     // Don't modify the file
     await tracker.finalize()
 
-    const changes = await generateDiffForRun(workspaceDir, 'run-1')
+    const changes = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changes.length, 0)
   })
 
@@ -120,13 +120,13 @@ test('diffGenerator', async (t) => {
     await writeFile(filePath, 'modified')
     await tracker.finalize()
 
-    const changesBefore = await generateDiffForRun(workspaceDir, 'run-1')
+    const changesBefore = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changesBefore.length, 1)
     assert.equal(changesBefore[0]!.reverted, undefined)
 
     await revertFile(workspaceDir, 'run-1', 'file.txt')
 
-    const changesAfter = await generateDiffForRun(workspaceDir, 'run-1')
+    const changesAfter = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changesAfter.length, 1)
     assert.equal(changesAfter[0]!.reverted, true)
     assert.equal(changesAfter[0]!.status, 'modified')
@@ -141,13 +141,13 @@ test('diffGenerator', async (t) => {
     await writeFile(filePath, 'new content')
     await tracker.finalize()
 
-    const changesBefore = await generateDiffForRun(workspaceDir, 'run-1')
+    const changesBefore = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changesBefore.length, 1)
     assert.equal(changesBefore[0]!.reverted, undefined)
 
     await revertFile(workspaceDir, 'run-1', 'new.txt')
 
-    const changesAfter = await generateDiffForRun(workspaceDir, 'run-1')
+    const changesAfter = (await generateDiffForRun(workspaceDir, 'run-1'))!
     assert.equal(changesAfter.length, 1)
     assert.equal(changesAfter[0]!.reverted, true)
     assert.equal(changesAfter[0]!.status, 'created')
@@ -186,10 +186,12 @@ test('diffGenerator', async (t) => {
     await assert.rejects(() => access(file2))
   })
 
-  await t.test('returns empty for unknown run', async () => {
-    const changes = await generateDiffForRun(workspaceDir, 'nonexistent')
-    assert.equal(changes.length, 0)
-  })
+  await t.test(
+    'reports a run without a snapshot as unavailable rather than unchanged',
+    async () => {
+      assert.equal(await generateDiffForRun(workspaceDir, 'nonexistent'), null)
+    }
+  )
 
   await t.test('survives a missing backup blob without blanking other entries', async () => {
     const good = join(workspaceDir, 'keep.txt')
@@ -216,7 +218,7 @@ test('diffGenerator', async (t) => {
     const warnings: string[] = []
     console.warn = (msg: string) => warnings.push(msg)
     try {
-      const changes = await generateDiffForRun(workspaceDir, 'run-1')
+      const changes = (await generateDiffForRun(workspaceDir, 'run-1'))!
       const byPath = new Map(changes.map((c) => [c.relativePath, c]))
       const goodChange = byPath.get('keep.txt')
       const brokenChange = byPath.get('orphan.txt')

@@ -379,6 +379,7 @@ export const chat = {
     revertAll: '全部还原',
     loadFailed: '加载变更失败。',
     noFileChanges: '没有文件变更。',
+    historyExpired: '这次运行的文件记录已被清理。',
     openInApp: '在 {app} 中打开',
     openWithDefaultApp: '使用默认应用打开',
     reverted: '已还原',

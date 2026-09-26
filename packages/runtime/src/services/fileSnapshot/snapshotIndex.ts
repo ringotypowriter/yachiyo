@@ -79,17 +79,6 @@ export async function listSnapshotRuns(workspaceHash: string): Promise<SnapshotS
   return summaries
 }
 
-/** Return the number of snapshot files for a workspace (cheap readdir). */
-export async function countSnapshots(workspaceHash: string): Promise<number> {
-  try {
-    const files = await readdir(snapshotsDir(workspaceHash))
-    return files.filter((f) => f.endsWith('.json')).length
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0
-    throw err
-  }
-}
-
 /** Delete a specific snapshot index file. */
 export async function deleteSnapshotIndex(workspaceHash: string, runId: string): Promise<void> {
   try {

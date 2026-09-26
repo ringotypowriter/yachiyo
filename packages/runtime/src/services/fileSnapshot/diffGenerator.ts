@@ -69,14 +69,17 @@ const UNAVAILABLE_PLACEHOLDER = '<< original content unavailable — backup blob
  * state so reverted files disappear from the diff. For historical runs, uses the
  * stored `afterHash` from the snapshot so that later runs' edits are not
  * attributed to this run.
+ *
+ * Returns null when the run has no snapshot on disk (never recorded, or removed
+ * by retention), which is distinct from a snapshot whose changes net to nothing.
  */
 export async function generateDiffForRun(
   workspacePath: string,
   runId: string
-): Promise<FileChangeForReview[]> {
+): Promise<FileChangeForReview[] | null> {
   const workspaceHash = hashWorkspacePath(workspacePath)
   const snapshot = await loadSnapshotIndex(workspaceHash, runId)
-  if (!snapshot) return []
+  if (!snapshot) return null
 
   // Determine whether this is the latest snapshot so we know whether to read
   // the current workspace (live diffing) or the stored after-state (historical).
@@ -237,9 +240,9 @@ export async function restoreToCheckpoint(workspacePath: string, runId: string):
     destroyedRunIds.push(snap.runId)
   }
 
-  // Run GC to clean up unreferenced blobs
+  // Run GC to clean up unreferenced blobs; retention may expire further runs.
   const { runGc } = await import('./snapshotGc.ts')
-  await runGc(workspaceHash)
+  destroyedRunIds.push(...(await runGc(workspaceHash)))
 
   return destroyedRunIds
 }

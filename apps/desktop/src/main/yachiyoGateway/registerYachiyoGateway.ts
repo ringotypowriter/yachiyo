@@ -1416,8 +1416,11 @@ export function registerYachiyoGateway(options: {
 
   handleYachiyoIpc(
     IPC_CHANNELS.getSnapshotDiff,
-    (input: { runId: string; workspacePath: string }) =>
-      generateDiffForRun(input.workspacePath, input.runId)
+    async (input: { runId: string; workspacePath: string }) => {
+      const changes = await generateDiffForRun(input.workspacePath, input.runId)
+      if (!changes) await rpc().clearRunSnapshotFileCounts({ runIds: [input.runId] })
+      return changes
+    }
   )
 
   handleYachiyoIpc(

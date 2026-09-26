@@ -43,7 +43,7 @@ test('snapshotGc', async (t) => {
     }
     await writeFile(join(snapshotsDir, 'old-run.json'), JSON.stringify(oldSnapshot), 'utf8')
 
-    await runGc(workspaceHash)
+    assert.deepEqual(await runGc(workspaceHash), ['old-run'])
 
     const files = await readdir(snapshotsDir)
     assert.ok(!files.includes('old-run.json'), 'old snapshot should be deleted')
@@ -63,7 +63,7 @@ test('snapshotGc', async (t) => {
     }
     await writeFile(join(snapshotsDir, 'recent-run.json'), JSON.stringify(recentSnapshot), 'utf8')
 
-    await runGc(workspaceHash)
+    assert.deepEqual(await runGc(workspaceHash), [])
 
     const files = await readdir(snapshotsDir)
     assert.ok(files.includes('recent-run.json'), 'recent snapshot should be kept')

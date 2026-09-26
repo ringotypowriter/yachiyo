@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks'
 import { runGc } from '../../../../services/fileSnapshot/snapshotGc.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
+import type { YachiyoStorage } from '../../../../storage/storage.ts'
 import type { SnapshotReadyEvent } from '@yachiyo/shared/protocol'
 import type { RunExecutionDeps } from './runExecutionTypes.ts'
 
@@ -36,11 +37,29 @@ export async function finalizeRunSnapshot(input: FinalizeRunSnapshotInput): Prom
       fileCount: snapshot.entries.length,
       workspacePath: snapshotTracker.workspacePath
     })
-    runGc(snapshotTracker.workspaceHash).catch(() => {})
+    expireRunSnapshots(
+      deps.storage,
+      snapshotTracker.workspaceHash,
+      snapshotTracker.workspacePath
+    ).catch(() => {})
   } catch (error) {
     input.onError?.(error)
   } finally {
     input.perfCollector?.recordSnapshotFinalize(performance.now() - startedAt)
     snapshotTracker.dispose()
+  }
+}
+
+/**
+ * Applies snapshot retention and clears the file counts of runs whose snapshots
+ * it removed, so their footers stop offering a review that can no longer load.
+ */
+export async function expireRunSnapshots(
+  storage: Pick<YachiyoStorage, 'updateRunSnapshot'>,
+  workspaceHash: string,
+  workspacePath: string
+): Promise<void> {
+  for (const runId of await runGc(workspaceHash)) {
+    storage.updateRunSnapshot(runId, { fileCount: 0, workspacePath })
   }
 }

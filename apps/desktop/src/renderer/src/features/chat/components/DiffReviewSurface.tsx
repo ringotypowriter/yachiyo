@@ -55,6 +55,7 @@ export function DiffReviewSurface({
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
   const [error, setError] = useState(false)
+  const [expired, setExpired] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [reverting, setReverting] = useState(false)
   const [confirmRevertMode, setConfirmRevertMode] = useState<'file' | 'all' | null>(null)
@@ -65,11 +66,18 @@ export function DiffReviewSurface({
   useEffect(() => {
     setChanges(null)
     setError(false)
+    setExpired(false)
     let ignore = false
     window.api.yachiyo
       .getSnapshotDiff({ runId, workspacePath })
       .then((result) => {
         if (ignore) return
+        if (!result) {
+          setExpired(true)
+          setChanges([])
+          useAppStore.getState().updateSnapshotFileCount(threadId, runId, 0)
+          return
+        }
         setChanges(result)
         if (result.length > 0)
           setSelectedIdx(
@@ -103,7 +111,7 @@ export function DiffReviewSurface({
       try {
         await window.api.yachiyo.revertSnapshotFile({ runId, workspacePath, relativePath })
         // Re-fetch diffs after revert
-        const updated = await window.api.yachiyo.getSnapshotDiff({ runId, workspacePath })
+        const updated = (await window.api.yachiyo.getSnapshotDiff({ runId, workspacePath })) ?? []
         setChanges(updated)
         if (selectedIdx >= updated.length) setSelectedIdx(Math.max(0, updated.length - 1))
         const activeCount = updated.filter((c) => !c.reverted).length
@@ -336,7 +344,9 @@ export function DiffReviewSurface({
                 ? t('chat.diff.loadFailed')
                 : changes === null
                   ? t('common.loading')
-                  : t('chat.diff.noFileChanges')}
+                  : expired
+                    ? t('chat.diff.historyExpired')
+                    : t('chat.diff.noFileChanges')}
             </span>
           </div>
         )}

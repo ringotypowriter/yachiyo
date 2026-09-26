@@ -332,44 +332,6 @@ test('SnapshotTracker', async (t) => {
     tracker.dispose()
   })
 
-  await t.test('finalize triggers GC when snapshot count exceeds threshold', async () => {
-    const workspaceHash = hashWorkspacePath(workspaceDir)
-    const snapshotsDir = join(tempDir, 'file-history', workspaceHash, 'snapshots')
-    await mkdir(snapshotsDir, { recursive: true })
-
-    // Seed 25 old snapshots (above the 20 threshold) with old timestamps
-    for (let i = 0; i < 25; i++) {
-      const oldSnapshot = {
-        runId: `old-run-${i}`,
-        threadId: 'thread-1',
-        workspacePath: workspaceDir,
-        createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        entries: []
-      }
-      await writeFile(join(snapshotsDir, `old-run-${i}.json`), JSON.stringify(oldSnapshot), 'utf8')
-    }
-
-    // Create a tracker and finalize — this should trigger auto-GC
-    await writeFile(join(workspaceDir, 'gc-test.txt'), 'v1')
-    const tracker = new SnapshotTracker(workspaceDir, 'run-gc-trigger', 'thread-1')
-    await tracker.trackBeforeWrite(join(workspaceDir, 'gc-test.txt'))
-    await writeFile(join(workspaceDir, 'gc-test.txt'), 'v2')
-    await tracker.finalize()
-    tracker.dispose()
-
-    // Give the fire-and-forget GC a moment to complete
-    await new Promise((r) => setTimeout(r, 200))
-
-    const remaining = (await readdir(snapshotsDir)).filter((f) => f.endsWith('.json'))
-    // All 25 old snapshots had expired timestamps — GC should have cleaned them.
-    // Only the freshly finalized snapshot should survive.
-    assert.ok(remaining.length <= 2, `expected at most 2 snapshots, got ${remaining.length}`)
-    assert.ok(
-      remaining.includes('run-gc-trigger.json'),
-      'the freshly finalized snapshot should survive GC'
-    )
-  })
-
   await t.test('baseline captures symlinked files edited through the symlink', async () => {
     // Simulates: the model edits a symlink inside the workspace whose target
     // lives elsewhere, via a bash command that never fires a Layer 1/2 hook.
