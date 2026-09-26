@@ -41,9 +41,7 @@ const overlayStyle: React.CSSProperties = {
 const toolbarStyle: React.CSSProperties = {
   position: 'absolute',
   top: 12,
-  // Portaled outside the zoomed #root, so window pixels apply directly; keep
-  // clear of the native caption buttons, which always paint above web content.
-  right: 12 + resolveAppTabFrameTitleBarInsets(window.api.process.platform).right,
+  right: 12,
   display: 'flex',
   gap: 4,
   padding: 4,
@@ -299,7 +297,16 @@ export function ImageCanvas({
       <div
         data-toolbar
         className={embedded ? 'content-reader-image-toolbar' : undefined}
-        style={embedded ? undefined : toolbarStyle}
+        style={
+          embedded
+            ? undefined
+            : {
+                ...toolbarStyle,
+                // Portaled outside the zoomed #root, so window pixels apply directly;
+                // keep clear of the native caption buttons, which paint above web content.
+                right: 12 + resolveAppTabFrameTitleBarInsets(window.api.process.platform).right
+              }
+        }
       >
         <Tooltip content="Zoom in" placement="bottom" dark>
           <ToolbarButton onClick={handleZoomIn} label="Zoom in">
