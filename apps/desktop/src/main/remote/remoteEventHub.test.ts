@@ -368,7 +368,8 @@ test('resume replays buffered events after the given seq', async () => {
   )
 
   source.emit({ type: 'run.created', threadId: 't1', runId: 'live' })
-  assert.equal(pushes.at(-1)?.type === 'event' && pushes.at(-1)?.seq, 6)
+  const live = pushes.at(-1)
+  assert.equal(live?.type === 'event' ? live.seq : undefined, 6)
   hub.stop()
 })
 
