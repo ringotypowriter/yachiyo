@@ -3,6 +3,8 @@
   "version": "1.7.0",
   "private": true,
   "description": "Yachiyo desktop app",
+  "author": "Ringo",
+  "homepage": "https://github.com/ringotypowriter/yachiyo",
   "main": "./out/main/index.js",
   "bin": {
     "yachiyo": "bin/yachiyo"
