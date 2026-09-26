@@ -59,6 +59,7 @@ mac:
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
+  artifactName: yachiyo-${version}.${ext}
   electronLanguages:
     - en-US
     - zh-CN
@@ -69,7 +70,7 @@ linux:
   maintainer: Yachiyo
   category: Utility
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: yachiyo-${version}.${ext}
 publish:
   provider: github
   owner: ringotypowriter
