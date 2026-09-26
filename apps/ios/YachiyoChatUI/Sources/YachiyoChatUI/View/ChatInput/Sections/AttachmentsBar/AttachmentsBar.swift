@@ -21,9 +21,10 @@ class AttachmentsBar: EditorSectionView {
 
     var inset: UIEdgeInsets = .init(top: 10, left: 10, bottom: 0, right: 10)
     let itemSpacing: CGFloat = 10
-    let itemSize = CGSize(width: 80, height: AttachmentsBar.itemHeight)
+    let itemSize = AttachmentsBar.imageItemSize
 
-    static let itemHeight: CGFloat = 80
+    nonisolated static let itemHeight: CGFloat = 80
+    nonisolated static let imageItemSize = CGSize(width: 80, height: itemHeight)
 
     weak var delegate: Delegate?
     var animatingDifferences: Bool = true
@@ -122,31 +123,34 @@ class AttachmentsBar: EditorSectionView {
     }
 
     func updateDataSource() {
-        var snapshot = dataSource.snapshot()
-        if snapshot.sectionIdentifiers.isEmpty {
-            snapshot.appendSections([.main])
-        }
-        let currentItemIdentifiers = attachments.keys
-        for item in snapshot.itemIdentifiers {
-            if !currentItemIdentifiers.contains(item) {
-                snapshot.deleteItems([item])
-            }
-        }
-        for item in currentItemIdentifiers {
-            if !snapshot.itemIdentifiers.contains(item) {
-                snapshot.appendItems([item])
-            }
-        }
+        // A fresh snapshot in dictionary order; the data source diffs it against the current one.
+        var snapshot = Snapshot()
+        snapshot.appendSections([.main])
+        snapshot.appendItems(Array(attachments.keys))
         dataSource.apply(snapshot, animatingDifferences: animatingDifferences)
         delegate?.attachmentBarDidUpdateAttachments(Array(attachments.values))
 
-        if attachments.isEmpty {
-            doEditorLayoutAnimation { self.heightPublisher.send(0) }
-        } else {
-            doEditorLayoutAnimation { [self] in
-                heightPublisher.send(itemSize.height + inset.top + inset.bottom)
-            }
+        let height = attachments.isEmpty ? 0 : itemSize.height + inset.top + inset.bottom
+        guard height != heightPublisher.value else { return }
+        doEditorLayoutAnimation { self.heightPublisher.send(height) }
+    }
+
+    /// Replaces the items in one pass: one snapshot apply, plus a reconfigure for items whose id
+    /// stayed but whose content changed. Returns false when nothing changed.
+    @discardableResult
+    func replaceItems(with items: [Item]) -> Bool {
+        let replacement = OrderedDictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        guard replacement != attachments else { return false }
+        let changed = replacement.compactMap { id, item in
+            attachments[id].map { $0 != item ? id : nil } ?? nil
         }
+        attachments = replacement
+        if !changed.isEmpty {
+            var snapshot = dataSource.snapshot()
+            snapshot.reconfigureItems(changed)
+            dataSource.apply(snapshot, animatingDifferences: false)
+        }
+        return true
     }
 
     func reloadItem(itemIdentifier: Item.ID) {

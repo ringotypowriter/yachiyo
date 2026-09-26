@@ -70,7 +70,9 @@ extension ChatInputView: InputEditor.Delegate {
 
     func onInputEditorTextChanged(text: String) {
         dropColorView.alpha = 0
-        publishNewEditorStatus()
+        // Drafts only need to survive leaving the thread; coalesce keystrokes. Ending editing,
+        // resigning active, leaving the window and submitting all publish immediately.
+        scheduleEditorStatusPublish()
         guard text.isEmpty else { return }
         controlPanel.close()
     }
@@ -191,32 +193,61 @@ extension ChatInputView {
 
 extension ChatInputView {
     func process(image: UIImage) {
-        guard let compressed = image.prepareAttachment(compressImage: configuration.compressImage) else {
-            delegate?.chatInputDidReportError(self, error: String.localized("Failed to process image."))
-            return
-        }
+        let compress = configuration.compressImage
         let storageFilename = storage.makeUniqueFilenameStem() + ".jpeg"
         let destinationURL = storage.fileURL(for: storageFilename)
-        do {
-            try? FileManager.default.createDirectory(
-                at: destinationURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try? FileManager.default.removeItem(at: destinationURL)
-            FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
-            try compressed.write(to: destinationURL)
-        } catch {
+        Task { [weak self] in
+            let prepared = await ChatInputView.prepareImageAttachment(image, compress: compress, destination: destinationURL)
+            guard let self else { return }
+            insertPreparedImage(prepared, storageFilename: storageFilename)
+        }
+    }
+
+    private struct PreparedImage: Sendable {
+        let fileData: Data
+        let previewData: Data
+    }
+
+    private func insertPreparedImage(_ prepared: PreparedImage?, storageFilename: String) {
+        guard let prepared else {
             delegate?.chatInputDidReportError(self, error: String.localized("Failed to process image."))
             return
         }
-        let attachment = ChatInputAttachment(
+        attachmentsBar.insert(item: ChatInputAttachment(
             type: .image,
             name: String.localized("Image"),
-            previewImageData: image.jpeg(.medium) ?? Data(),
-            fileData: compressed,
+            previewImageData: prepared.previewData,
+            fileData: prepared.fileData,
             storageFilename: storageFilename
-        )
-        attachmentsBar.insert(item: attachment)
+        ))
+    }
+
+    /// Resize, JPEG encode, EXIF strip, write and preview, all off the main actor. The preview is
+    /// an ImageIO thumbnail of the encoded file, not a second full-resolution JPEG.
+    private nonisolated static func prepareImageAttachment(
+        _ image: UIImage,
+        compress: Bool,
+        destination: URL
+    ) async -> PreparedImage? {
+        await Task.detached(priority: .userInitiated) {
+            guard let compressed = image.prepareAttachment(compressImage: compress) else { return nil }
+            do {
+                try FileManager.default.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try? FileManager.default.removeItem(at: destination)
+                try compressed.write(to: destination)
+            } catch {
+                return nil
+            }
+            let preview = ImageDownsampler.previewJPEG(
+                from: compressed,
+                filling: AttachmentsBar.imageItemSize,
+                scale: 3
+            ) ?? compressed
+            return PreparedImage(fileData: compressed, previewData: preview)
+        }.value
     }
 
     func process(file: URL) {
@@ -285,18 +316,21 @@ extension ChatInputView {
             preferredStyle: .actionSheet
         )
         alert.addAction(UIAlertAction(title: String.localized("Import Text"), style: .default) { [weak self] _ in
-            guard let self else { return }
-            let attachment = ChatInputAttachment(
-                type: .document,
-                name: file.lastPathComponent,
-                textContent: pdfDocument.string ?? "",
-                storageFilename: file.lastPathComponent
-            )
-            if attachment.textContent.count > 1_000_000 {
-                delegate?.chatInputDidReportError(self, error: String.localized("Text too long."))
-                return
+            Task { [weak self] in
+                // Text extraction walks every page; keep it off the main actor.
+                let text = await Task.detached(priority: .userInitiated) { pdfDocument.string ?? "" }.value
+                guard let self else { return }
+                if text.count > 1_000_000 {
+                    delegate?.chatInputDidReportError(self, error: String.localized("Text too long."))
+                    return
+                }
+                attachmentsBar.insert(item: ChatInputAttachment(
+                    type: .document,
+                    name: file.lastPathComponent,
+                    textContent: text,
+                    storageFilename: file.lastPathComponent
+                ))
             }
-            attachmentsBar.insert(item: attachment)
         })
         alert.addAction(UIAlertAction(title: String.localized("Convert to Images"), style: .default) { [weak self] _ in
             self?.convertPDFToImages(pdfDocument: pdfDocument)
@@ -310,27 +344,49 @@ extension ChatInputView {
         parentViewController?.present(alert, animated: true)
     }
 
+    /// Longest page side, in pixels, for PDF page images. Attachments are resized further (to
+    /// 1024) when compression is on; this bound only keeps huge media boxes from exhausting memory.
+    nonisolated static let maximumPDFPagePixelSize: CGFloat = 2048
+
+    /// Renders pages one at a time off the main actor, inserting each page as it is ready, so
+    /// neither the rendering nor every full-size page image stays on the main actor or in memory.
     func convertPDFToImages(pdfDocument: PDFDocument) {
         let pageCount = pdfDocument.pageCount
-        Task(priority: .userInitiated) { [weak self] in
-            var images: [UIImage] = []
-            for i in 0 ..< pageCount {
-                guard let page = pdfDocument.page(at: i) else { continue }
-                let rect = page.bounds(for: .mediaBox)
-                let renderer = UIGraphicsImageRenderer(size: rect.size)
-                let image = renderer.image { context in
-                    UIColor.white.set()
-                    context.fill(CGRect(origin: .zero, size: rect.size))
-                    context.cgContext.translateBy(x: 0, y: rect.size.height)
-                    context.cgContext.scaleBy(x: 1, y: -1)
-                    context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
-                    page.draw(with: .mediaBox, to: context.cgContext)
-                }
-                images.append(image)
+        let compress = configuration.compressImage
+        let destinations = (0 ..< pageCount).map { _ -> (String, URL) in
+            let filename = storage.makeUniqueFilenameStem() + ".jpeg"
+            return (filename, storage.fileURL(for: filename))
+        }
+        Task { [weak self] in
+            for index in 0 ..< pageCount {
+                let (filename, destination) = destinations[index]
+                let prepared: PreparedImage? = await Task.detached(priority: .userInitiated) {
+                    guard let page = pdfDocument.page(at: index),
+                          let image = ChatInputView.renderPage(page)
+                    else { return nil }
+                    return await ChatInputView.prepareImageAttachment(image, compress: compress, destination: destination)
+                }.value
+                guard let self else { return }
+                insertPreparedImage(prepared, storageFilename: filename)
             }
-            for image in images {
-                self?.process(image: image)
-            }
+        }
+    }
+
+    private nonisolated static func renderPage(_ page: PDFPage) -> UIImage? {
+        let rect = page.bounds(for: .mediaBox)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let scale = min(1, maximumPDFPagePixelSize / max(rect.width, rect.height))
+        let size = CGSize(width: floor(rect.width * scale), height: floor(rect.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.set()
+            context.fill(CGRect(origin: .zero, size: size))
+            context.cgContext.translateBy(x: 0, y: size.height)
+            context.cgContext.scaleBy(x: scale, y: -scale)
+            context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
+            page.draw(with: .mediaBox, to: context.cgContext)
         }
     }
 

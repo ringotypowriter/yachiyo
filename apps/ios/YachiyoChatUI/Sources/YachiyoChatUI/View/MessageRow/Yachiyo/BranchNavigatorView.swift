@@ -12,7 +12,12 @@ import YachiyoMaterial
 final class BranchNavigatorView: MessageListRowView {
     static let height: CGFloat = 44
 
-    var position: MessageListView.BranchPosition? { didSet { update() } }
+    var position: MessageListView.BranchPosition? {
+        didSet {
+            guard oldValue != position else { return }
+            update()
+        }
+    }
     var onStep: ((Int) -> Void)?
 
     private let icon = UIImageView(image: UIImage(systemName: "arrow.triangle.branch"))
@@ -55,11 +60,10 @@ final class BranchNavigatorView: MessageListRowView {
         label.text = "\(position.index + 1)/\(position.count)"
         previous.isEnabled = position.index > 0
         nextButton.isEnabled = position.index < position.count - 1
-        setNeedsLayout()
+        setNeedsContentLayout()
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
+    override func layoutContent() {
         let height = contentView.bounds.height
         icon.frame = CGRect(x: 0, y: (height - 14) / 2, width: 14, height: 14)
         label.sizeToFit()

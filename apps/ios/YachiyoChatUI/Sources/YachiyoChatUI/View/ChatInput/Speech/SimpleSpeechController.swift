@@ -16,6 +16,7 @@ class SimpleSpeechController: ModalContentController {
     let placeholderText = "..."
 
     var sessionItems: [Any] = []
+    var isAudioSessionActive = false
 
     override init() {
         super.init()

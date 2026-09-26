@@ -120,13 +120,11 @@ extension InputEditor: UITextViewDelegate {
 
     func updateTextHeight() {
         guard textView.bounds.width > 0 else { return }
-        let attrText = textView.attributedText ?? .init()
-        let textHeight = TextMeasurementHelper.shared.measureSize(
-            of: attrText,
-            usingWidth: textView.frame.width,
-            lineBreakMode: .byWordWrapping
-        ).height
-        let decision = ceil(max(textHeight, font.lineHeight))
+        // The text view's own layout already holds the text; measuring it does not re-typeset a copy.
+        let fittingHeight = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)).height
+        let decision = ceil(max(fittingHeight, font.lineHeight))
+        // Most keystrokes do not change the line count: no animation, no parent layout.
+        guard decision != textHeight.value else { return }
         doEditorLayoutAnimation { self.textHeight.send(decision) }
     }
 

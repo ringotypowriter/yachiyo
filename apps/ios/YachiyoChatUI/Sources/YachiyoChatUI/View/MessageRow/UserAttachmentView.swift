@@ -23,14 +23,7 @@ final class UserAttachmentView: MessageListRowView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        attachmentsBar.deleteAllItems()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
+    override func layoutContent() {
         let idealWidth = attachmentsBar.idealSize().width
         let bounds = contentView.bounds
         let width = min(idealWidth, bounds.width)
@@ -42,10 +35,10 @@ final class UserAttachmentView: MessageListRowView {
         )
     }
 
+    /// Attachment ids are stable across rebuilds, so an unchanged message is a no-op here and a
+    /// reused row only inserts, removes or reconfigures what differs.
     func update(with attachments: MessageListView.Attachments) {
-        attachmentsBar.deleteAllItems()
-        for element in attachments.items {
-            attachmentsBar.insert(item: element)
-        }
+        guard attachmentsBar.replaceItems(with: attachments.items) else { return }
+        setNeedsContentLayout()
     }
 }

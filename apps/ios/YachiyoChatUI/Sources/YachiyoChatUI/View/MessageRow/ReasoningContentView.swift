@@ -28,6 +28,7 @@ final class ReasoningContentView: MessageListRowView {
 
     var thinkingDuration: TimeInterval = 0 {
         didSet {
+            guard oldValue != thinkingDuration else { return }
             thinkingTile.thinkingDuration = thinkingDuration
         }
     }
@@ -36,38 +37,60 @@ final class ReasoningContentView: MessageListRowView {
 
     var isRevealed: Bool = false {
         didSet {
-            doWithAnimation { [self] in
+            guard oldValue != isRevealed else { return }
+            // Collapsed rows skip building the full reasoning text until they are revealed.
+            if isRevealed { applyRevealedText() }
+            isCollapsing = !isRevealed
+            doWithAnimation({ [self] in
                 thinkingTile.isRevealed = isRevealed
-                setNeedsLayout()
+                setNeedsContentLayout()
+                layoutIfNeeded()
+            }, completion: { [self] in
+                // Fade out first, then take the hidden text out of rendering.
+                isCollapsing = false
+                textView.isHidden = !isRevealed
+            })
+        }
+    }
+
+    private var isCollapsing = false
+
+    var isThinking: Bool = false {
+        didSet {
+            guard oldValue != isThinking else { return }
+            doWithAnimation { [self] in
+                thinkingTile.isThinking = isThinking
+                setNeedsContentLayout()
                 layoutIfNeeded()
             }
         }
     }
 
-    var isThinking: Bool = false {
-        didSet { doWithAnimation { [self] in
-            thinkingTile.isThinking = isThinking
-            setNeedsLayout()
-            layoutIfNeeded()
-        } }
-    }
-
     var text: String? {
         didSet {
-            if let text {
-                textView.attributedText = .init(string: text, attributes: [
-                    .font: theme.fonts.footnote,
-                    .foregroundColor: UIColor.secondaryLabel,
-                    .paragraphStyle: Self.paragraphStyle,
-                ])
-            } else {
-                textView.attributedText = .init()
-            }
-            let singleLineContent = text?.replacingOccurrences(of: "\n", with: " ")
-            thinkingTile.thinkingContent = singleLineContent?.suffix(50)
-                .map { String($0) }
-                .joined()
-            setNeedsLayout()
+            guard text != oldValue else { return }
+            isRevealedTextStale = true
+            if isRevealed { applyRevealedText() }
+            // The tile shows the last 50 characters on one line; only those need rewriting.
+            thinkingTile.thinkingContent = text.map { String($0.suffix(50)).replacingOccurrences(of: "\n", with: " ") }
+            setNeedsContentLayout()
+        }
+    }
+
+    /// The full text label is hidden while collapsed and filled in when first revealed.
+    private var isRevealedTextStale = true
+
+    private func applyRevealedText() {
+        guard isRevealedTextStale else { return }
+        isRevealedTextStale = false
+        if let text {
+            textView.attributedText = .init(string: text, attributes: [
+                .font: theme.fonts.footnote,
+                .foregroundColor: UIColor.secondaryLabel,
+                .paragraphStyle: Self.paragraphStyle,
+            ])
+        } else {
+            textView.attributedText = .init()
         }
     }
 
@@ -103,11 +126,11 @@ final class ReasoningContentView: MessageListRowView {
         super.themeDidUpdate()
         thinkingTile.titleLabel.font = theme.fonts.body
         thinkingTile.thinkingContentFont = theme.fonts.footnote
+        isRevealedTextStale = true
+        if isRevealed { applyRevealedText() }
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
+    override func layoutContent() {
         thinkingTile.frame = .init(
             x: 0,
             y: 0,
@@ -141,9 +164,10 @@ final class ReasoningContentView: MessageListRowView {
             x: textViewOrigin.x,
             y: textViewOrigin.y,
             width: textWidth,
-            height: ceil(textView.intrinsicContentSize.height)
+            height: isRevealed || isCollapsing ? ceil(textView.intrinsicContentSize.height) : 0
         )
         textView.alpha = isRevealed ? 1 : 0
+        textView.isHidden = !isRevealed && !isCollapsing
     }
 
     @objc
@@ -162,12 +186,14 @@ extension ReasoningContentView {
 
         var isRevealed: Bool = false {
             didSet {
+                guard oldValue != isRevealed else { return }
                 setNeedsLayout()
             }
         }
 
         var isThinking: Bool = true {
             didSet {
+                guard oldValue != isThinking else { return }
                 loadingSymbol.isHidden = !isThinking
                 setNeedsLayout()
             }
@@ -175,26 +201,31 @@ extension ReasoningContentView {
 
         var thinkingContentFont: UIFont = .systemFont(ofSize: 12) {
             didSet {
-                let content = thinkingContent
-                thinkingContent = content // do update
+                guard oldValue != thinkingContentFont else { return }
+                updateThinkingContent()
             }
         }
 
         var thinkingContent: String? {
             didSet {
-                if let content = thinkingContent {
-                    textView.attributedText = .init(string: content, attributes: [
-                        .font: thinkingContentFont,
-                        .foregroundColor: UIColor.secondaryLabel,
-                    ])
-                } else {
-                    textView.attributedText = .init()
-                }
-                if textView.bounds.width > 0 {
-                    doWithAnimation { self.layoutTextView() }
-                } else {
-                    layoutTextView()
-                }
+                guard oldValue != thinkingContent else { return }
+                updateThinkingContent()
+            }
+        }
+
+        private func updateThinkingContent() {
+            if let content = thinkingContent {
+                textView.attributedText = .init(string: content, attributes: [
+                    .font: thinkingContentFont,
+                    .foregroundColor: UIColor.secondaryLabel,
+                ])
+            } else {
+                textView.attributedText = .init()
+            }
+            if textView.bounds.width > 0 {
+                doWithAnimation { self.layoutTextView() }
+            } else {
+                layoutTextView()
             }
         }
 

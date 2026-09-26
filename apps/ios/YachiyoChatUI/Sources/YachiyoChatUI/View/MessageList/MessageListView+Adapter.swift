@@ -24,12 +24,13 @@ private extension MessageListView {
 }
 
 extension MessageListView: ListViewAdapter {
-    private func entryForRow(at index: Int) -> Entry? {
-        dataSource.snapshot().item(at: index)
+    /// ListViewKit hands over the entry itself; the snapshot fallback copies every entry.
+    private func entryForRow(_ item: any Identifiable, at index: Int) -> Entry? {
+        (item as? Entry) ?? dataSource.snapshot().item(at: index)
     }
 
-    public func listView(_: ListView, rowKindFor _: any Identifiable, at index: Int) -> any Hashable {
-        guard let entry = entryForRow(at: index) else { return RowType.hint }
+    public func listView(_: ListView, rowKindFor item: any Identifiable, at index: Int) -> any Hashable {
+        guard let entry = entryForRow(item, at: index) else { return RowType.hint }
         return switch entry {
         case .userContent: RowType.userContent
         case .userAttachment: RowType.userAttachment
@@ -73,66 +74,92 @@ extension MessageListView: ListViewAdapter {
         return view
     }
 
-    public func listView(_ listView: ListView, heightFor _: any Identifiable, at index: Int) -> CGFloat {
-        guard let entry = entryForRow(at: index) else { return 0 }
-
-        let listRowInsets = MessageListView.listRowInsets
-        let containerWidth = max(0, listView.bounds.width - listRowInsets.horizontal)
+    public func listView(_ listView: ListView, heightFor item: any Identifiable, at index: Int) -> CGFloat {
+        guard let entry = entryForRow(item, at: index) else { return 0 }
+        let containerWidth = max(0, listView.bounds.width - MessageListView.listRowInsets.horizontal)
         if containerWidth == 0 { return 0 }
-
-        let bottomInset = listRowInsets.bottom
-        let contentHeight: CGFloat = {
-            switch entry {
-            case let .userContent(_, message):
-                let attributedContent = NSAttributedString(string: message.content, attributes: [
-                    .font: theme.fonts.body,
-                    .foregroundColor: theme.colors.body,
-                ])
-                let availableWidth = UserMessageView.availableTextWidth(for: containerWidth)
-                return boundingSize(with: availableWidth, for: attributedContent).height + UserMessageView.textPadding * 2
-            case .userAttachment:
-                return AttachmentsBar.itemHeight
-            case let .reasoningContent(_, message):
-                let attributedContent = NSAttributedString(string: message.content, attributes: [
-                    .font: theme.fonts.footnote,
-                    .paragraphStyle: ReasoningContentView.paragraphStyle,
-                ])
-                if message.isRevealed {
-                    return boundingSize(with: containerWidth - 16, for: attributedContent).height
-                        + ReasoningContentView.spacing
-                        + ReasoningContentView.revealedTileHeight
-                        + 2
-                } else {
-                    return ReasoningContentView.unrevealedTileHeight
-                }
-            case let .responseContent(_, message):
-                markdownViewForSizeCalculation.theme = theme
-                let package = markdownPackageCache.package(for: message, theme: theme)
-                markdownViewForSizeCalculation.setMarkdownManually(package)
-                return ceil(markdownViewForSizeCalculation.boundingSize(for: containerWidth).height)
-            case .hint:
-                return ceil(theme.fonts.footnote.lineHeight + 16)
-            case let .activityReporting(content):
-                let textHeight = boundingSize(with: .greatestFiniteMagnitude, for: NSAttributedString(string: content, attributes: [
-                    .font: theme.fonts.body,
-                ])).height
-                return max(textHeight, ActivityReportingView.loadingSymbolSize.height + 16)
-            case let .toolCallHint(_, calls, selectedID, showsAll):
-                return ToolHintView.height(width: containerWidth, callCount: calls.count, isExpanded: selectedID != nil, showsAll: showsAll)
-            case let .questionCard(_, question):
-                return QuestionCardView.height(for: question, width: containerWidth)
-            case let .planCard(_, plan):
-                return PlanCardView.height(for: plan, width: containerWidth)
-            case .branchNavigator:
-                return BranchNavigatorView.height
-            }
-        }()
-
-        return contentHeight + bottomInset
+        let contentHeight = contentHeight(for: entry, width: containerWidth)
+        if case let .responseContent(_, chunk) = entry {
+            return Self.responseRowHeight(contentHeight: contentHeight, spacingAfter: chunk.spacingAfter)
+        }
+        return contentHeight + MessageListView.listRowInsets.bottom
     }
 
-    public func listView(_: ListView, configureRowView rowView: ListRowView, for _: any Identifiable, at index: Int) {
-        guard let entry = entryForRow(at: index) else { return }
+    /// A reply's last chunk keeps the standard inset. Earlier chunks add MarkdownView's own block
+    /// spacing, rounded to the nearest point (ListViewKit rounds row heights up to whole points),
+    /// so the next chunk starts within half a point of where the unsplit reply would draw it.
+    static func responseRowHeight(contentHeight: CGFloat, spacingAfter: CGFloat?) -> CGFloat {
+        guard let spacingAfter else { return ceil(contentHeight) + listRowInsets.bottom }
+        return (contentHeight + spacingAfter).rounded()
+    }
+
+    /// Measured content height (row height without the bottom inset), cached across rebuilds.
+    func contentHeight(for entry: Entry, width containerWidth: CGFloat) -> CGFloat {
+        let category = traitCollection.preferredContentSizeCategory
+        if let cached = rowHeightCache.height(for: entry, width: containerWidth, category: category) {
+            return cached
+        }
+        let height = measureContentHeight(for: entry, width: containerWidth)
+        rowHeightCache.store(height, for: entry, width: containerWidth, category: category)
+        return height
+    }
+
+    private func measureContentHeight(for entry: Entry, width containerWidth: CGFloat) -> CGFloat {
+        switch entry {
+        case let .userContent(_, message):
+            let attributedContent = NSAttributedString(string: message.content, attributes: [
+                .font: theme.fonts.body,
+                .foregroundColor: theme.colors.body,
+            ])
+            let availableWidth = UserMessageView.availableTextWidth(for: containerWidth)
+            return boundingSize(with: availableWidth, for: attributedContent).height + UserMessageView.textPadding * 2
+        case .userAttachment:
+            return AttachmentsBar.itemHeight
+        case let .reasoningContent(_, message):
+            guard message.isRevealed else { return ReasoningContentView.unrevealedTileHeight }
+            let attributedContent = NSAttributedString(string: message.content, attributes: [
+                .font: theme.fonts.footnote,
+                .paragraphStyle: ReasoningContentView.paragraphStyle,
+            ])
+            return boundingSize(with: containerWidth - 16, for: attributedContent).height
+                + ReasoningContentView.spacing
+                + ReasoningContentView.revealedTileHeight
+                + 2
+        case let .responseContent(_, chunk):
+            if markdownViewForSizeCalculation.theme != theme {
+                markdownViewForSizeCalculation.theme = theme
+            }
+            let package = markdownPackageCache.package(
+                for: entry.id, content: chunk.content, endsInsideFence: chunk.endsInsideFence, theme: theme
+            )
+            markdownViewForSizeCalculation.setMarkdownManually(package)
+            // Pixel-rounded by Litext; the row height applies the whole-point rounding.
+            return markdownViewForSizeCalculation.boundingSize(for: containerWidth).height
+        case .hint:
+            return ceil(theme.fonts.footnote.lineHeight + 16)
+        case let .activityReporting(content):
+            let textHeight = boundingSize(with: .greatestFiniteMagnitude, for: NSAttributedString(string: content, attributes: [
+                .font: theme.fonts.body,
+            ])).height
+            return max(textHeight, ActivityReportingView.loadingSymbolSize.height + 16)
+        case let .toolCallHint(_, calls, selectedID, showsAll):
+            return ToolHintView.height(width: containerWidth, callCount: calls.count, isExpanded: selectedID != nil, showsAll: showsAll)
+        case let .questionCard(_, question):
+            return QuestionCardView.height(for: question, width: containerWidth)
+        case let .planCard(_, plan):
+            return PlanCardView.height(for: plan, width: containerWidth)
+        case .branchNavigator:
+            return BranchNavigatorView.height
+        }
+    }
+
+    public func listView(_ listView: ListView, configureRowView rowView: ListRowView, for item: any Identifiable, at index: Int) {
+        guard let entry = entryForRow(item, at: index) else { return }
+
+        if let messageRow = rowView as? MessageListRowView {
+            // A reconfigure of the same row (e.g. the streaming chunk growing) keeps its selection.
+            messageRow.represent(entryID: entry.id)
+        }
 
         if let questionView = rowView as? QuestionCardView {
             if case let .questionCard(_, question) = entry {
@@ -174,14 +201,17 @@ extension MessageListView: ListViewAdapter {
         }
         if let messageRow = rowView as? MessageListRowView {
             messageRow.contextMenuProvider = nil
-            switch entry {
-            case let .userContent(id, message), let .responseContent(id, message):
+            let menuTarget: (id: String, role: MessageRole)? = switch entry {
+            case let .userContent(_, message): (message.id, message.role)
+            // Every chunk of a reply offers the menu of the whole message.
+            case let .responseContent(_, chunk): (chunk.messageId, .assistant)
+            default: nil
+            }
+            if let menuTarget {
                 messageRow.contextMenuProvider = { [weak self] _ in
                     guard let self else { return nil }
-                    return interactionDelegate?.messageList(self, menuForMessage: id, role: message.role)
+                    return interactionDelegate?.messageList(self, menuForMessage: menuTarget.id, role: menuTarget.role)
                 }
-            default:
-                break
             }
         }
 
@@ -196,8 +226,9 @@ extension MessageListView: ListViewAdapter {
                 userAttachmentView.update(with: attachments)
             }
         } else if let responseView = rowView as? ResponseView {
-            if case let .responseContent(_, message) = entry {
+            if case let .responseContent(_, chunk) = entry {
                 responseView.theme = theme
+                let messageID = chunk.messageId
                 responseView.linkTapHandler = { [weak self] payload, _, _ in
                     guard let self else { return }
                     let destination: String
@@ -205,10 +236,20 @@ extension MessageListView: ListViewAdapter {
                     case let .url(url): destination = url.absoluteString
                     case let .string(string): destination = string
                     }
-                    interactionDelegate?.messageList(self, openLink: destination, messageId: message.id)
+                    interactionDelegate?.messageList(self, openLink: destination, messageId: messageID)
                 }
-                let package = markdownPackageCache.package(for: message, theme: theme)
-                responseView.markdownView.setMarkdown(package)
+                let containerWidth = max(0, listView.bounds.width - MessageListView.listRowInsets.horizontal)
+                if containerWidth > 0 {
+                    // The content view hugs the measured text; the rest of the row is the gap.
+                    let height = contentHeight(for: entry, width: containerWidth)
+                    responseView.rowBottomInset = Self.responseRowHeight(contentHeight: height, spacingAfter: chunk.spacingAfter) - height
+                }
+                let package = markdownPackageCache.package(
+                    for: entry.id, content: chunk.content, endsInsideFence: chunk.endsInsideFence, theme: theme
+                )
+                if responseView.markdownView.document !== package {
+                    responseView.markdownView.setMarkdown(package)
+                }
             }
         } else if let hintMessageView = rowView as? HintMessageView {
             if case let .hint(_, content) = entry {

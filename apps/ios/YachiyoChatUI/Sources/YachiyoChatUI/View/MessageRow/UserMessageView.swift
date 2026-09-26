@@ -15,6 +15,7 @@ final class UserMessageView: MessageListRowView {
 
     var text: String? {
         didSet {
+            guard text != oldValue || attributedText == nil else { return }
             guard let text else {
                 attributedText = nil
                 return
@@ -29,6 +30,7 @@ final class UserMessageView: MessageListRowView {
     private var attributedText: NSAttributedString? {
         didSet {
             textView.attributedText = attributedText ?? .init()
+            setNeedsContentLayout()
         }
     }
 
@@ -38,19 +40,17 @@ final class UserMessageView: MessageListRowView {
     override init(frame: CGRect) {
         super.init(frame: frame)
 
-        let accentColor = UIColor.accent
-        backgroundGradientLayer.colors = [
-            accentColor.withAlphaComponent(0.10).cgColor,
-            accentColor.withAlphaComponent(0.15).cgColor,
-        ]
         backgroundGradientLayer.startPoint = .init(x: 0.6, y: 0)
         backgroundGradientLayer.endPoint = .init(x: 0.4, y: 1)
+        backgroundGradientLayer.cornerCurve = .continuous
+        // Rounding the sublayer-free gradient itself stays on the fast path; clipping the whole
+        // bubble forced an offscreen pass (and would cut off Litext's selection handles).
+        backgroundGradientLayer.masksToBounds = true
         contentView.layer.insertSublayer(backgroundGradientLayer, at: 0)
 
         contentView.backgroundColor = .clear
         contentView.layer.cornerRadius = 12
         contentView.layer.cornerCurve = .continuous
-        contentView.clipsToBounds = true
 
         textView.backgroundColor = .clear
         contentView.addSubview(textView)
@@ -61,13 +61,26 @@ final class UserMessageView: MessageListRowView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func themeDidUpdate() {
+        super.themeDidUpdate()
+        let accentColor = UIColor.accent.resolvedColor(with: traitCollection)
+        backgroundGradientLayer.colors = [
+            accentColor.withAlphaComponent(0.10).cgColor,
+            accentColor.withAlphaComponent(0.15).cgColor,
+        ]
+        if let text {
+            attributedText = .init(string: text, attributes: [
+                .font: theme.fonts.body,
+                .foregroundColor: theme.colors.body,
+            ])
+        }
+    }
+
     override var intrinsicContentSize: CGSize {
         textView.intrinsicContentSize
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
+    override func layoutContent() {
         let insets = MessageListView.listRowInsets
         let textContainerWidth = Self.availableTextWidth(for: bounds.width - insets.horizontal)
         textView.preferredMaxLayoutWidth = textContainerWidth

@@ -73,6 +73,7 @@ open class ChatInputView: EditorSectionView {
 
     public weak var delegate: ChatInputDelegate?
     var objectTransactionInProgress = false
+    var hasScheduledEditorStatusPublish = false
     var pendingSubmissionID: UUID?
 
     /// True until the submission delegate acknowledges or rejects the current send.
@@ -115,13 +116,14 @@ open class ChatInputView: EditorSectionView {
             let glass = UIGlassEffect()
             glass.isInteractive = true
             let effectView = UIVisualEffectView(effect: glass)
-            effectView.layer.cornerRadius = shadowContainer.layer.cornerRadius
-            effectView.layer.cornerCurve = .continuous
-            effectView.clipsToBounds = true
+            effectView.cornerConfiguration = .corners(radius: .fixed(shadowContainer.layer.cornerRadius))
             addSubview(effectView)
             glassEffectView = effectView
 
             shadowContainer.backgroundColor = .clear
+            // The glass and the scroll edge effect replace the full-width blur; keeping both
+            // costs a second backdrop pass under the composer.
+            backgroundBlurView.isHidden = true
         } else {
             shadowContainer.backgroundColor = handlerColor
             shadowContainer.layer.shadowColor = UIColor.black.cgColor
@@ -298,12 +300,14 @@ open class ChatInputView: EditorSectionView {
     }
 
     public func prepareForReuse() {
+        flushScheduledEditorStatus()
         invalidateSubmission()
         storage = .init(id: "-1")
         resetValues()
     }
 
     public func bind(conversationID: String) {
+        flushScheduledEditorStatus()
         invalidateSubmission()
         storage = .init(id: conversationID)
         restoreEditorStatusIfPossible()
@@ -317,6 +321,12 @@ open class ChatInputView: EditorSectionView {
 
     @objc private func applicationWillResignActive() {
         publishNewEditorStatus()
+    }
+
+    override open func didMoveToWindow() {
+        super.didMoveToWindow()
+        // Leaving the screen must not drop the last keystrokes' draft.
+        if window == nil { flushScheduledEditorStatus() }
     }
 
     // MARK: - Responder chain helper

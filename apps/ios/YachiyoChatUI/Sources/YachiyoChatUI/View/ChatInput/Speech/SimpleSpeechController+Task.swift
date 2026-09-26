@@ -69,11 +69,21 @@ extension SimpleSpeechController {
 
     func stopTranscript() {
         for item in sessionItems {
-            if let task = item as? SFSpeechRecognitionTask {
+            if let engine = item as? AVAudioEngine {
+                engine.stop()
+                engine.inputNode.removeTap(onBus: 0)
+            } else if let request = item as? SFSpeechAudioBufferRecognitionRequest {
+                request.endAudio()
+            } else if let task = item as? SFSpeechRecognitionTask {
                 task.cancel()
             }
         }
         sessionItems.removeAll()
+        // Give the microphone back and let ducked audio (music, podcasts) resume.
+        if isAudioSessionActive {
+            isAudioSessionActive = false
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     private func startTranscriptEx() async throws {
@@ -99,6 +109,7 @@ extension SimpleSpeechController {
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        isAudioSessionActive = true
         let audioEngine = AVAudioEngine()
         let inputNode = audioEngine.inputNode
 
@@ -126,12 +137,12 @@ extension SimpleSpeechController {
         }
 
         installRecognitionTap(inputNode: inputNode, recognitionRequest: recognitionRequest)
+        // Registered before starting, so a failed start still removes the tap and ends the task.
+        sessionItems.append(audioEngine)
+        sessionItems.append(recognitionRequest)
+        sessionItems.append(recognitionTask)
 
         audioEngine.prepare()
         try audioEngine.start()
-
-        sessionItems.append(audioEngine)
-        sessionItems.append(inputNode)
-        sessionItems.append(recognitionTask)
     }
 }

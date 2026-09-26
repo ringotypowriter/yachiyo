@@ -39,14 +39,13 @@ final class ResponseView: MessageListRowView {
     override func themeDidUpdate() {
         // The adapter measures with this theme; rendering with MarkdownView's
         // default fonts leaves unused height at the end of long responses.
-        // The base row also calls this during layout, so avoid re-publishing an
-        // unchanged document through MarkdownView's streaming throttle.
+        // Trait changes also call this, so avoid re-publishing an unchanged
+        // document through MarkdownView's streaming throttle.
         guard markdownView.theme != theme else { return }
         markdownView.theme = theme
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
+    override func layoutContent() {
         markdownView.frame = contentView.bounds
         markdownView.bindContentOffset(from: nearestScrollView)
     }

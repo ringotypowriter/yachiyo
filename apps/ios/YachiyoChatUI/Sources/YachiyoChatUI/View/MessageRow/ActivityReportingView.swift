@@ -67,7 +67,11 @@ final class ActivityReportingLabel: UIView {
 
 final class ActivityReportingView: MessageListRowView {
     var text: String? {
-        set { reportingLabel.text = newValue }
+        set {
+            guard newValue != reportingLabel.text else { return }
+            reportingLabel.text = newValue
+            setNeedsContentLayout()
+        }
         get { reportingLabel.text }
     }
 
@@ -82,9 +86,7 @@ final class ActivityReportingView: MessageListRowView {
         contentView.addSubview(reportingLabel)
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
+    override func layoutContent() {
         let labelSize = reportingLabel.intrinsicContentSize
         reportingLabel.frame = CGRect(
             x: 0,

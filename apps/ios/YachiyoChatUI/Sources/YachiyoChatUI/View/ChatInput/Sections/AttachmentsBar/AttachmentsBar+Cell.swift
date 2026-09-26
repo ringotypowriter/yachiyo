@@ -29,13 +29,17 @@ extension AttachmentsBar {
 
         override init(frame: CGRect) {
             super.init(frame: frame)
-            contentContainer.clipsToBounds = true
+            // Round the image itself rather than clipping the container with its subviews: the
+            // same shape without an offscreen pass. The delete button sits inside the bounds.
             contentContainer.layer.cornerRadius = 10
             contentContainer.layer.cornerCurve = .continuous
             contentContainer.backgroundColor = .gray.withAlphaComponent(0.1)
             contentView.addSubview(contentContainer)
 
             iconView.contentMode = .scaleAspectFill
+            iconView.layer.cornerRadius = 10
+            iconView.layer.cornerCurve = .continuous
+            iconView.clipsToBounds = true
             contentContainer.addSubview(iconView)
 
             contentContainer.addSubview(deleteButton)
@@ -64,8 +68,24 @@ extension AttachmentsBar {
         }
 
         func configure(item: Item) {
+            let previous = self.item
             self.item = item
-            iconView.image = .init(data: item.previewImageData)
+            if previous?.id == item.id, previous?.previewImageData == item.previewImageData, iconView.image != nil {
+                return
+            }
+            let pointSize = AttachmentsBar.imageItemSize
+            let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 3
+            let key = AttachmentThumbnailCache.key(id: item.id, data: item.previewImageData, pointSize: pointSize, scale: scale)
+            let cache = AttachmentThumbnailCache.shared
+            if let image = cache.cachedImage(for: key) {
+                iconView.image = image
+                return
+            }
+            iconView.image = nil
+            cache.loadImage(for: key, data: item.previewImageData, pointSize: pointSize, scale: scale) { [weak self] image in
+                guard let self, self.item?.id == item.id, self.item?.previewImageData.count == item.previewImageData.count else { return }
+                iconView.image = image
+            }
         }
     }
 }

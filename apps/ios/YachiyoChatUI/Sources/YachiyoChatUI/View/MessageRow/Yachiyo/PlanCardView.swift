@@ -14,8 +14,14 @@ final class PlanCardView: MessageListRowView {
     static let padding: CGFloat = 16
     static let buttonHeight: CGFloat = 44
     static let previewLines = 6
+    static let cornerRadius: CGFloat = 16
 
-    var plan: MessageListView.PlanCard? { didSet { rebuild() } }
+    var plan: MessageListView.PlanCard? {
+        didSet {
+            guard oldValue != plan else { return }
+            rebuild()
+        }
+    }
     var onAction: ((PlanCardAction) -> Void)?
 
     private let card = UIView()
@@ -23,27 +29,59 @@ final class PlanCardView: MessageListRowView {
     private let statusLabel = PaddedLabel()
     private let previewLabel = UILabel()
     private let buttons = UIStackView()
+    private var shadowPathSize: CGSize?
+
+    /// Dynamic colors are created once; layers get them resolved in `themeDidUpdate`.
+    private enum Palette {
+        static let surface = UIColor.yachiyo(.surface)
+        static let shadow = YachiyoStyle.ink(0.06)
+        static let ink = UIColor.yachiyo(.ink)
+        static let textSecondary = UIColor.yachiyo(.textSecondary)
+        static let pendingStatusBackground = YachiyoStyle.ink(0.06)
+        static let acceptedStatusBackground = UIColor.yachiyo(.accent, alpha: 0.12)
+        static let accentStrong = UIColor.yachiyo(.accentStrong)
+    }
+
+    /// Scaled fonts per Dynamic Type size, instead of new font objects on every measurement.
+    private struct Fonts {
+        let meta: UIFont
+        let caption: UIFont
+        let cardTitleStrong: UIFont
+
+        private static var cache: (category: UIContentSizeCategory, fonts: Fonts)?
+
+        static var current: Fonts {
+            let category = UITraitCollection.current.preferredContentSizeCategory
+            if let cache, cache.category == category { return cache.fonts }
+            let fonts = Fonts(meta: YachiyoFonts.meta(), caption: YachiyoFonts.caption(), cardTitleStrong: YachiyoFonts.cardTitleStrong())
+            cache = (category, fonts)
+            return fonts
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        card.layer.cornerRadius = 16
+        card.layer.cornerRadius = Self.cornerRadius
         card.layer.cornerCurve = .continuous
         card.layer.shadowOffset = CGSize(width: 0, height: 8)
         card.layer.shadowRadius = 12
         card.layer.shadowOpacity = 1
         contentView.addSubview(card)
 
-        titleLabel.font = YachiyoFonts.cardTitleStrong()
+        let fonts = Fonts.current
+        titleLabel.font = fonts.cardTitleStrong
         titleLabel.text = String.localized("Execution plan")
+        titleLabel.textColor = Palette.ink
         card.addSubview(titleLabel)
 
-        statusLabel.font = YachiyoFonts.caption()
+        statusLabel.font = fonts.caption
         statusLabel.layer.cornerRadius = 9
         statusLabel.clipsToBounds = true
         card.addSubview(statusLabel)
 
         previewLabel.numberOfLines = Self.previewLines
-        previewLabel.font = YachiyoFonts.meta()
+        previewLabel.font = fonts.meta
+        previewLabel.textColor = Palette.textSecondary
         previewLabel.isUserInteractionEnabled = true
         previewLabel.accessibilityIdentifier = "plan.open"
         previewLabel.accessibilityTraits.insert(.button)
@@ -85,27 +123,39 @@ final class PlanCardView: MessageListRowView {
 
     override func themeDidUpdate() {
         super.themeDidUpdate()
-        card.backgroundColor = .yachiyo(.surface)
-        card.layer.shadowColor = YachiyoStyle.ink(0.06).resolvedColor(with: traitCollection).cgColor
-        titleLabel.textColor = .yachiyo(.ink)
-        previewLabel.textColor = .yachiyo(.textSecondary)
+        // Layer colors do not follow trait or Yachiyo theme changes on their own.
+        card.layer.backgroundColor = Palette.surface.resolvedColor(with: traitCollection).cgColor
+        card.layer.shadowColor = Palette.shadow.resolvedColor(with: traitCollection).cgColor
+        let fonts = Fonts.current
+        titleLabel.font = fonts.cardTitleStrong
+        statusLabel.font = fonts.caption
+        previewLabel.font = fonts.meta
+        updateStatus()
+    }
+
+    private func updateStatus() {
         let pending = plan?.isPending ?? true
         statusLabel.text = pending ? String.localized("Ready") : String.localized("Accepted")
-        statusLabel.backgroundColor = pending ? YachiyoStyle.ink(0.06) : .yachiyo(.accent, alpha: 0.12)
-        statusLabel.textColor = pending ? .yachiyo(.textSecondary) : .yachiyo(.accentStrong)
+        let background = pending ? Palette.pendingStatusBackground : Palette.acceptedStatusBackground
+        statusLabel.layer.backgroundColor = background.resolvedColor(with: traitCollection).cgColor
+        statusLabel.textColor = pending ? Palette.textSecondary : Palette.accentStrong
     }
 
     private func rebuild() {
         accessibilityIdentifier = "plan.card"
         previewLabel.text = plan?.content
         buttons.isHidden = !(plan?.isPending ?? false)
-        themeDidUpdate()
-        setNeedsLayout()
+        updateStatus()
+        setNeedsContentLayout()
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
+    override func layoutContent() {
         card.frame = contentView.bounds
+        if shadowPathSize != card.bounds.size {
+            // An explicit path spares Core Animation an offscreen pass to find the shadow's shape.
+            shadowPathSize = card.bounds.size
+            card.layer.shadowPath = UIBezierPath(roundedRect: card.bounds, cornerRadius: Self.cornerRadius).cgPath
+        }
         let padding = Self.padding
         let width = card.bounds.width - padding * 2
         let statusSize = statusLabel.intrinsicContentSize
@@ -117,27 +167,63 @@ final class PlanCardView: MessageListRowView {
         buttons.frame = CGRect(x: padding, y: previewLabel.frame.maxY + 12, width: width, height: Self.actionsHeight(width: width))
     }
 
+    private struct PreviewKey: Hashable {
+        let prefix: Substring
+        let width: CGFloat
+        let category: UIContentSizeCategory
+    }
+
+    private static var previewHeights: [PreviewKey: CGFloat] = [:]
+
     static func previewHeight(for content: String, width: CGFloat) -> CGFloat {
-        let font = YachiyoFonts.meta()
-        let full = ceil((content as NSString).boundingRect(
+        let font = Fonts.current.meta
+        let clampedHeight = ceil(font.lineHeight * CGFloat(previewLines))
+        let prefix = previewPrefix(of: content, width: width, font: font)
+        let key = PreviewKey(prefix: prefix, width: width, category: UITraitCollection.current.preferredContentSizeCategory)
+        if let cached = previewHeights[key] { return cached }
+        let measured = ceil((String(prefix) as NSString).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font],
             context: nil
         ).height)
-        return max(44, min(full, ceil(font.lineHeight * CGFloat(previewLines))))
+        let height = max(44, min(measured, clampedHeight))
+        if previewHeights.count > 64 { previewHeights.removeAll() }
+        previewHeights[key] = height
+        return height
+    }
+
+    /// The preview shows at most six lines, so only text that can reach the seventh line matters:
+    /// six line breaks, or enough characters to fill six lines at the narrowest plausible glyph
+    /// advance. Either prefix already measures at least six lines, so the clamp is unchanged.
+    private static func previewPrefix(of content: String, width: CGFloat, font: UIFont) -> Substring {
+        let charactersPerLine = Int(width / max(1, font.pointSize * 0.15)) + 1
+        let characterLimit = charactersPerLine * previewLines
+        var lineBreaks = 0
+        var end = content.startIndex
+        var count = 0
+        while end < content.endIndex, count < characterLimit {
+            if content[end].isNewline {
+                lineBreaks += 1
+                if lineBreaks == previewLines { break }
+            }
+            end = content.index(after: end)
+            count += 1
+        }
+        return content[..<end]
     }
 
     private static func stacksActions(width: CGFloat) -> Bool {
-        width < 480 || YachiyoFonts.caption().pointSize > 18
+        width < 480 || Fonts.current.caption.pointSize > 18
     }
 
     private static var headerHeight: CGFloat {
-        ceil(max(YachiyoFonts.cardTitleStrong().lineHeight, YachiyoFonts.caption().lineHeight + 4))
+        let fonts = Fonts.current
+        return ceil(max(fonts.cardTitleStrong.lineHeight, fonts.caption.lineHeight + 4))
     }
 
     private static func actionsHeight(width: CGFloat) -> CGFloat {
-        let rowHeight = max(buttonHeight, ceil(YachiyoFonts.caption().lineHeight) + 20)
+        let rowHeight = max(buttonHeight, ceil(Fonts.current.caption.lineHeight) + 20)
         return stacksActions(width: width) ? rowHeight * 3 + 16 : rowHeight
     }
 

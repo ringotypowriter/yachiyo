@@ -216,7 +216,8 @@ final class ToolHintViewTests: XCTestCase {
         XCTAssertEqual(more.configuration?.titleLineBreakMode, .byClipping)
         XCTAssertEqual(more.configuration?.contentInsets, .zero)
         XCTAssertEqual(more.titleLabel?.numberOfLines, 1)
-        XCTAssertTrue(view("toolDeck.call.call0", in: deck)?.isHidden == true)
+        // Calls behind the overflow button have no visible icon (only visible icons are built).
+        XCTAssertTrue(view("toolDeck.call.call0", in: deck)?.isHidden ?? true)
         XCTAssertFalse(try XCTUnwrap(view("toolDeck.call.call119", in: deck)).isHidden)
 
         var expandCount = 0

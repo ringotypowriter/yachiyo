@@ -66,12 +66,29 @@ extension ChatInputView {
         delegate.chatInputDidSubmit(self, object: object, completion: completion)
     }
 
+    static let editorStatusPublishDelay: TimeInterval = 0.3
+
+    func scheduleEditorStatusPublish() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(flushScheduledEditorStatus), object: nil)
+        hasScheduledEditorStatusPublish = true
+        perform(#selector(flushScheduledEditorStatus), with: nil, afterDelay: Self.editorStatusPublishDelay)
+    }
+
+    @objc func flushScheduledEditorStatus() {
+        guard hasScheduledEditorStatusPublish else { return }
+        publishNewEditorStatus()
+    }
+
     func publishNewEditorStatus() {
         assert(Thread.isMainThread)
+        guard !objectTransactionInProgress else { return }
+        if hasScheduledEditorStatusPublish {
+            hasScheduledEditorStatusPublish = false
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(flushScheduledEditorStatus), object: nil)
+        }
         var object = collectObject()
         // Drafts retain whitespace and attachment-only input without the send-time fallback text.
         object.text = inputEditor.textView.text ?? ""
-        guard !objectTransactionInProgress else { return }
         objectTransactionInProgress = true
         defer { objectTransactionInProgress = false }
         delegate?.chatInputDidUpdateObject(self, object: object)

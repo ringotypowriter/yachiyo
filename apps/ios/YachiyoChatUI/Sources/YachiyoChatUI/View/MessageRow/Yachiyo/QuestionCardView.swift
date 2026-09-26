@@ -17,6 +17,7 @@ final class QuestionCardView: MessageListRowView {
 
     var question: QuestionContentPart? {
         didSet {
+            guard oldValue != question else { return }
             if oldValue?.id != question?.id { textField.text = "" }
             rebuild()
         }
@@ -110,8 +111,8 @@ final class QuestionCardView: MessageListRowView {
             stack.isHidden = true
             inputRow.isHidden = true
         }
-        themeDidUpdate()
-        setNeedsLayout()
+        updateSendButton()
+        setNeedsContentLayout()
     }
 
     private func makeChoiceButton(_ choice: String) -> UIButton {
@@ -163,8 +164,18 @@ final class QuestionCardView: MessageListRowView {
         onAnswer?(answer)
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
+    /// Choice heights for the last laid-out width, so relayouts skip the text measurement.
+    private var choiceHeightCache: (width: CGFloat, choices: [String], heights: [CGFloat])?
+
+    private func choiceHeights(width: CGFloat) -> [CGFloat] {
+        let choices = question?.choices ?? []
+        if let cache = choiceHeightCache, cache.width == width, cache.choices == choices { return cache.heights }
+        let heights = choices.map { Self.choiceHeight(for: $0, width: width) }
+        choiceHeightCache = (width, choices, heights)
+        return heights
+    }
+
+    override func layoutContent() {
         card.frame = contentView.bounds
         let padding = Self.padding
         let width = card.bounds.width - padding * 2
@@ -174,7 +185,7 @@ final class QuestionCardView: MessageListRowView {
         titleLabel.frame = CGRect(x: padding + 28, y: padding, width: titleWidth, height: max(20, titleHeight))
         var y = titleLabel.frame.maxY + Self.spacing
         if !stack.isHidden {
-            let heights = (question?.choices ?? []).map { Self.choiceHeight(for: $0, width: width) }
+            let heights = choiceHeights(width: width)
             for (button, height) in zip(stack.arrangedSubviews, heights) {
                 if let constraint = button.constraints.first(where: { $0.firstAttribute == .height }) {
                     constraint.constant = height

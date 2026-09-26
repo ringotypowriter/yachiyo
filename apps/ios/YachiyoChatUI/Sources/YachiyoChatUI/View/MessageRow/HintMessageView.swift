@@ -13,10 +13,6 @@ final class HintMessageView: MessageListRowView {
         get { label.text }
     }
 
-    override var theme: MarkdownTheme {
-        didSet { updateLabelStyle() }
-    }
-
     override init(frame: CGRect) {
         super.init(frame: frame)
 
@@ -31,14 +27,17 @@ final class HintMessageView: MessageListRowView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func themeDidUpdate() {
+        super.themeDidUpdate()
+        updateLabelStyle()
+    }
+
     private func updateLabelStyle() {
         label.textColor = theme.colors.body
         label.font = theme.fonts.footnote
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
+    override func layoutContent() {
         label.frame = contentView.bounds.insetBy(dx: 8, dy: 8)
     }
 }
