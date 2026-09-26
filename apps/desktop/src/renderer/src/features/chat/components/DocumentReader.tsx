@@ -1,8 +1,13 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { PreviewReadingState } from '../lib/previewRetention'
 import type { FilePreviewContent } from '@yachiyo/shared/filePreview'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { ReaderTarget } from '../lib/contentReader'
+import { detectLanguage } from '../lib/code-blocks/detectLanguage'
+import { codeHighlightTokenStyle } from '../lib/code-blocks/codeHighlightTheme'
+import { useCodeHighlightTokens } from '../lib/code-blocks/useCodeHighlightTokens'
+import type { HighlightToken } from '../lib/code-blocks/highlightTokens'
 
 const PdfDocument = lazy(() =>
   import('./PdfDocument').then((module) => ({ default: module.PdfDocument }))
@@ -120,8 +125,43 @@ function LoadedDocumentReader({
         </article>
       ) : null}
       {document?.kind === 'text' ? (
-        <pre className="content-reader-text content-selectable">{document.content}</pre>
+        <TextDocument content={document.content} path={target.path} />
       ) : null}
     </div>
+  )
+}
+
+function TextDocument({ content, path }: { content: string; path: string }): React.JSX.Element {
+  const tokens = useCodeHighlightTokens(content, detectLanguage(path))
+  return <TextDocumentContent content={content} tokens={tokens} />
+}
+
+export function TextDocumentContent({
+  content,
+  tokens
+}: {
+  content: string
+  tokens: HighlightToken[][] | null
+}): React.JSX.Element {
+  const lines = content.split('\n')
+  return (
+    <pre className="content-reader-text content-selectable">
+      {tokens
+        ? lines.map((line, index) => (
+            <Fragment key={index}>
+              {tokens[index]?.map((token, tokenIndex) => (
+                <span
+                  key={tokenIndex}
+                  className="yachiyo-code-token"
+                  style={codeHighlightTokenStyle(token) as CSSProperties | undefined}
+                >
+                  {token.content}
+                </span>
+              )) ?? line}
+              {index < lines.length - 1 ? '\n' : null}
+            </Fragment>
+          ))
+        : content}
+    </pre>
   )
 }
