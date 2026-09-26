@@ -55,7 +55,7 @@ in one thread.
 ## Do I have to pick one model for everything?
 
 No. There is a chat model and a separate [tool model](/docs/guides/providers/#the-tool-model)
-for background work like thread titles and memory distillation. Pointing the tool
+for background work like thread titles and saving memories. Pointing the tool
 model at something small and fast is the usual setup.
 
 ## Do my Claude Code / Codex skills work?

@@ -359,7 +359,7 @@ function renderTimelineItem(
   }
 
   if (item.kind === 'group-memory-recall') {
-    return <RunMemoryRecallRow entries={item.entries} recallDecision={item.recallDecision} />
+    return <RunMemoryRecallRow entries={item.entries} />
   }
 
   if (item.kind === 'group-work-summary') {

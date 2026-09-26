@@ -28,7 +28,8 @@ import {
   countToolCallsForRun,
   findLatestRunForRequests,
   formatWorkSummaryPerformance,
-  normalizeRunModelLabel
+  normalizeRunModelLabel,
+  parseRecalledMemories
 } from '../lib/run-memory/runMemoryPresentation.ts'
 import { ToolCallGroupRow } from './ToolCallGroupRow.tsx'
 import { ToolCallRow } from './ToolCallRow.tsx'
@@ -74,7 +75,7 @@ function getMutationPath(toolCall: ToolCall): string | null {
 function getItemLabel(item: WorkTrajectoryItem, t: Translate): string {
   switch (item.kind) {
     case 'memory':
-      return t('chat.workSummary.labelContext')
+      return t('chat.workSummary.labelMemory')
     case 'thought':
       return t('chat.timeline.thought')
     case 'note':
@@ -454,13 +455,15 @@ function TrajectoryItemContent({
     case 'memory':
       return (
         <div className="flex flex-col gap-1">
-          {item.entries.map((entry, index) => (
+          {parseRecalledMemories(item.entries).map((memory, index) => (
             <div
               key={`${item.key}:${index}`}
-              className="text-[11px] leading-relaxed"
+              className="whitespace-pre-wrap text-[11px] leading-relaxed"
               style={{ color: theme.text.muted }}
             >
-              {entry}
+              {memory.kind === 'note'
+                ? memory.text
+                : `${memory.title}: ${memory.fields.map(([, value]) => value).join(' · ')}`}
             </div>
           ))}
         </div>

@@ -46,10 +46,9 @@ export const layout = {
       lockedOff: 'Privacy Mode: Locked (Off)',
       on: 'Privacy Mode: On',
       off: 'Privacy Mode: Off',
-      descLockedOn:
-        'Memory recall and distillation are disabled — cannot change after messages are sent',
+      descLockedOn: 'Memory is off for this thread — cannot change after messages are sent',
       descLockedOff: 'Cannot change after messages are sent',
-      descOn: 'Memory recall and distillation are disabled',
+      descOn: 'Memory is off for this thread',
       descOff: 'Enable to hide this thread from memory'
     }
   },

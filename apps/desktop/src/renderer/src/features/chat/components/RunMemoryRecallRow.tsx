@@ -3,67 +3,32 @@ import { useId, useState } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
 import { tPlural } from '@yachiyo/i18n/index'
 import { useT } from '@yachiyo/i18n/react'
-import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { compactNovelTermsForDisplay } from '../lib/run-memory/runMemoryPresentation.ts'
+import { parseRecalledMemories } from '../lib/run-memory/runMemoryPresentation.ts'
+import type { RecalledMemory } from '../lib/run-memory/runMemoryPresentation.ts'
 
-interface ParsedCognitiveEntry {
-  relation: string
-  key: string
-  fields: Record<string, string>
-}
-
-function tryParseCognitiveEntry(text: string): ParsedCognitiveEntry | null {
-  const match = /^\[([^\]]+)\]\s+([^:]+):\s+(.+)$/.exec(text)
-  if (!match) return null
-
-  const relation = match[1]!.trim()
-  const key = match[2]!.trim()
-  const fieldsText = match[3]!.trim()
-  if (!relation || !key || !fieldsText) return null
-
-  const fields: Record<string, string> = {}
-  for (const part of fieldsText.split(';')) {
-    const trimmed = part.trim()
-    if (!trimmed) continue
-    const eqIndex = trimmed.indexOf('=')
-    if (eqIndex <= 0) continue
-    const fieldKey = trimmed.slice(0, eqIndex).trim()
-    const fieldValue = trimmed.slice(eqIndex + 1).trim()
-    if (fieldKey) fields[fieldKey] = fieldValue
-  }
-
-  if (Object.keys(fields).length === 0) return null
-  return { relation, key, fields }
-}
-
-interface MemoryEntryCardProps {
-  entry: string
-}
-
-function MemoryEntryCard({ entry }: MemoryEntryCardProps): React.JSX.Element {
-  const parsed = tryParseCognitiveEntry(entry)
-
-  if (!parsed) {
+function RecalledMemoryItem({ memory }: { memory: RecalledMemory }): React.JSX.Element {
+  if (memory.kind === 'note') {
     return (
       <div className="flex gap-2" style={{ fontSize: '12px', lineHeight: 1.5 }}>
         <span style={{ color: theme.text.accent }}>•</span>
-        <span className="message-selectable whitespace-pre-wrap wrap-break-words">{entry}</span>
+        <span className="message-selectable whitespace-pre-wrap wrap-break-words">
+          {memory.text}
+        </span>
       </div>
     )
   }
 
   return (
     <div style={{ fontSize: '12px', lineHeight: 1.5 }}>
-      <div className="message-selectable" style={{ color: theme.text.primary }}>
-        <span style={{ color: theme.text.accent }}>{parsed.relation}</span>{' '}
-        <span className="font-medium">{parsed.key}</span>
+      <div className="message-selectable font-medium" style={{ color: theme.text.primary }}>
+        {memory.title}
       </div>
       <div
         className="message-selectable flex flex-col"
         style={{ color: theme.text.secondary, gap: '1px' }}
       >
-        {Object.entries(parsed.fields).map(([fieldKey, fieldValue]) => (
+        {memory.fields.map(([fieldKey, fieldValue]) => (
           <div key={fieldKey} className="flex gap-1">
             <span style={{ color: theme.text.placeholder }}>{fieldKey}</span>
             <span
@@ -79,35 +44,11 @@ function MemoryEntryCard({ entry }: MemoryEntryCardProps): React.JSX.Element {
   )
 }
 
-interface RunMemoryRecallRowProps {
-  entries: string[]
-  recallDecision?: RecallDecisionSnapshot
-}
-
-function formatReason(reason: string, t: ReturnType<typeof useT>): string {
-  switch (reason) {
-    case 'topic-novelty':
-      return t('chat.memoryRecall.reasonNewTopic')
-    case 'recall-failed':
-      return t('chat.memoryRecall.reasonRecallFailed')
-    default:
-      return reason
-  }
-}
-
-export function RunMemoryRecallRow({
-  entries,
-  recallDecision
-}: RunMemoryRecallRowProps): React.JSX.Element {
+export function RunMemoryRecallRow({ entries }: { entries: string[] }): React.JSX.Element {
   const t = useT()
   const [isExpanded, setIsExpanded] = useState(false)
   const detailsId = useId()
-  const reasons = recallDecision?.reasons?.map((reason) => formatReason(reason, t)) ?? []
-  const debugLabel = reasons.length > 0 ? reasons.join(', ') : t('chat.memoryRecall.reasonManual')
-  const shouldShowNovelTerms = recallDecision?.reasons?.includes('topic-novelty') ?? false
-  const novelTerms = shouldShowNovelTerms
-    ? compactNovelTermsForDisplay(recallDecision?.novelTerms)
-    : []
+  const memories = parseRecalledMemories(entries)
 
   return (
     <div className="px-6 pb-1">
@@ -134,9 +75,8 @@ export function RunMemoryRecallRow({
       >
         <Brain size={12} strokeWidth={1.9} style={{ color: theme.text.accent }} />
         <span style={{ fontSize: '11px' }}>
-          {tPlural('chat.memoryRecall.recalled', entries.length)}
+          {tPlural('chat.memoryRecall.recalled', memories.length)}
         </span>
-        <span style={{ color: theme.text.placeholder, fontSize: '11px' }}>· {debugLabel}</span>
         <ChevronRight
           size={11}
           strokeWidth={1.8}
@@ -157,22 +97,11 @@ export function RunMemoryRecallRow({
             color: theme.text.secondary
           }}
         >
-          <div className="mb-1" style={{ color: theme.text.placeholder, fontSize: '11px' }}>
-            {t('chat.memoryRecall.reason', { reason: debugLabel })}
-          </div>
           <div className="flex flex-col gap-3">
-            {entries.map((entry, index) => (
-              <MemoryEntryCard key={`${index}:${entry.slice(0, 40)}`} entry={entry} />
+            {memories.map((memory, index) => (
+              <RecalledMemoryItem key={index} memory={memory} />
             ))}
           </div>
-          {novelTerms.length > 0 ? (
-            <div
-              className="mt-2 text-[11px]"
-              style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
-            >
-              {t('chat.memoryRecall.novelTerms', { terms: novelTerms.join(' · ') })}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>

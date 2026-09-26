@@ -329,8 +329,8 @@ export const chat = {
         done: { one: 'Evaluated code', other: 'Evaluated code · {count} snippets' }
       },
       querySources: {
-        active: { one: 'Querying source data', other: 'Querying source data · {count} times' },
-        done: { one: 'Queried source data', other: 'Queried source data · {count} times' }
+        active: { one: 'Searching history', other: 'Searching history · {count} times' },
+        done: { one: 'Searched history', other: 'Searched history · {count} times' }
       },
       readingFiles: 'Reading files',
       readFilesDone: 'Read files',
@@ -349,7 +349,7 @@ export const chat = {
     review: 'Review',
     fileChanges: 'File changes',
     reviewFileChanges: { one: 'Review {count} file change', other: 'Review {count} file changes' },
-    labelContext: 'Context',
+    labelMemory: 'Memory',
     labelNote: 'Note',
     labelUserSteer: 'User steer',
     labelAction: 'Action',
@@ -424,14 +424,9 @@ export const chat = {
     rejectedNote: 'Plan rejected. Send revision notes to continue.'
   },
   memoryRecall: {
-    recalled: { one: '{count} recalled memory', other: '{count} recalled memories' },
-    expandAria: 'Expand recalled memory',
-    collapseAria: 'Collapse recalled memory',
-    reason: 'Reason: {reason}',
-    novelTerms: 'Novel terms: {terms}',
-    reasonNewTopic: 'new topic',
-    reasonRecallFailed: 'recall failed',
-    reasonManual: 'manual/unknown'
+    recalled: { one: 'Used {count} memory', other: 'Used {count} memories' },
+    expandAria: 'Show memories used',
+    collapseAria: 'Hide memories used'
   },
   findBar: {
     placeholder: 'Find in thread…',

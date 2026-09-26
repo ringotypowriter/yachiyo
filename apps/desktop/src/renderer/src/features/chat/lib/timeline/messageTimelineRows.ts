@@ -38,7 +38,6 @@ export type WorkTrajectoryItem =
       kind: 'memory'
       key: string
       entries: string[]
-      recallDecision?: RunRecord['recallDecision']
     }
   | {
       kind: 'thought'
@@ -90,7 +89,6 @@ export type MessageTimelineRow =
       kind: 'group-memory-recall'
       group: MessageGroup
       entries: string[]
-      recallDecision?: RunRecord['recallDecision']
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-work-summary'
@@ -409,8 +407,7 @@ export function buildWorkTrajectoryItems(input: {
     items.push({
       kind: 'memory',
       key: `memory:${input.userMessageId}`,
-      entries: input.memorySummary.entries,
-      recallDecision: input.memorySummary.recallDecision
+      entries: input.memorySummary.entries
     })
   }
 
@@ -791,8 +788,7 @@ export function buildConversationGroupRows(
         requestMessageId,
         ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
         group,
-        entries: memorySummary.entries,
-        recallDecision: memorySummary.recallDecision
+        entries: memorySummary.entries
       })
       continue
     }

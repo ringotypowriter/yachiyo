@@ -313,8 +313,8 @@ export const chat = {
         done: { one: '已执行代码', other: '已执行代码 · {count} 段' }
       },
       querySources: {
-        active: { one: '正在查询源数据', other: '正在查询源数据 · {count} 次' },
-        done: { one: '已查询源数据', other: '已查询源数据 · {count} 次' }
+        active: { one: '正在查找历史', other: '正在查找历史 · {count} 次' },
+        done: { one: '已查找历史', other: '已查找历史 · {count} 次' }
       },
       readingFiles: '正在读取文件',
       readFilesDone: '已读取文件',
@@ -333,7 +333,7 @@ export const chat = {
     review: '审阅',
     fileChanges: '文件变更',
     reviewFileChanges: { other: '审阅 {count} 项文件变更' },
-    labelContext: '上下文',
+    labelMemory: '记忆',
     labelNote: '备注',
     labelUserSteer: '用户引导',
     labelAction: '操作',
@@ -404,14 +404,9 @@ export const chat = {
     rejectedNote: '计划已拒绝，发送修改意见以继续。'
   },
   memoryRecall: {
-    recalled: { other: '召回 {count} 条记忆' },
-    expandAria: '展开召回的记忆',
-    collapseAria: '收起召回的记忆',
-    reason: '原因:{reason}',
-    novelTerms: '新词条:{terms}',
-    reasonNewTopic: '新话题',
-    reasonRecallFailed: '召回失败',
-    reasonManual: '手动/未知'
+    recalled: { other: '使用了 {count} 条记忆' },
+    expandAria: '展开使用的记忆',
+    collapseAria: '收起使用的记忆'
   },
   findBar: {
     placeholder: '在会话中查找…',

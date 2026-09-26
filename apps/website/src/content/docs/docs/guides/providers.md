@@ -96,7 +96,7 @@ Separate from the model that talks to you, Yachiyo uses a **tool model** for
 background work:
 
 - thread titles
-- memory generation and distillation
+- saving memories
 - context handoff when a thread outgrows its window
 - image-to-text descriptions
 - group-chat probes and reply rewriting
@@ -104,11 +104,11 @@ background work:
 
 Three modes:
 
-| Mode       | Behavior                                                                     |
-| ---------- | ---------------------------------------------------------------------------- |
-| `default`  | Reuse the chat model. Simple, and the most expensive option.                 |
-| `custom`   | Name a specific provider and model.                                          |
-| `disabled` | Skip auxiliary generation entirely. Titles stay generic, distillation stops. |
+| Mode       | Behavior                                                                                     |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `default`  | Reuse the chat model. Simple, and the most expensive option.                                 |
+| `custom`   | Name a specific provider and model.                                                          |
+| `disabled` | Skip auxiliary generation entirely. Titles stay generic, memories stop saving automatically. |
 
 This work is frequent and low-stakes, so `custom` pointed at something small and
 fast is usually the right setup.

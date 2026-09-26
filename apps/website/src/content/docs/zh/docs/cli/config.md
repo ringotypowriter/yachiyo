@@ -46,8 +46,8 @@ yachiyo config set chat.stripCompactThresholdTokens 40000
 | `toolModel.mode`              | `string`  | `"default"`、`"custom"` 或 `"disabled"` |
 | `skills.enabled`              | `array`   | 已启用的技能名                          |
 | `memory.enabled`              | `boolean` | 记忆总开关                              |
-| `memory.autoRecall`           | `boolean` | 把调取到的上下文带进运行                |
-| `chat.autoMemoryDistillation` | `boolean` | 运行后蒸馏记忆                          |
+| `memory.autoRecall`           | `boolean` | 自动使用记忆                            |
+| `chat.autoMemoryDistillation` | `boolean` | 自动保存记忆                            |
 | `webSearch.exa.apiKey`        | `string`  | 让 Exa 加入自动网页搜索                 |
 | `webSearch.exa.baseUrl`       | `string`  | 自定义 Exa 端点                         |
 | `workspace.savedPaths`        | `array`   | 已注册的工作区目录                      |

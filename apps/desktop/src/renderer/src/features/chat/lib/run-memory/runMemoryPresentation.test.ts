@@ -9,12 +9,12 @@ import {
   formatTokensPerSecond,
   formatWorkSummaryPerformance,
   normalizeRunModelLabel,
-  compactNovelTermsForDisplay,
   countToolCallsForRun,
   findLatestRunForRequest,
   findLatestRunForRequests,
   findRunMemorySummary,
-  findRunMemorySummaryForRequests
+  findRunMemorySummaryForRequests,
+  parseRecalledMemories
 } from './runMemoryPresentation.ts'
 
 test('calculateTokensPerSecond uses total output tokens and model generation time', () => {
@@ -83,20 +83,7 @@ test('findRunMemorySummary returns the latest recalled memory for a request', ()
     'user-1'
   )
 
-  assert.deepEqual(summary, {
-    runId: 'run-2',
-    entries: ['newer'],
-    recallDecision: {
-      shouldRecall: true,
-      score: 0.8,
-      reasons: ['topic-novelty'],
-      messagesSinceLastRecall: 3,
-      charsSinceLastRecall: 1200,
-      idleMs: 0,
-      noveltyScore: 0.8,
-      novelTerms: ['deployment']
-    }
-  })
+  assert.deepEqual(summary, { runId: 'run-2', entries: ['newer'] })
 })
 
 test('findRunMemorySummary returns null when the matched run recalled nothing useful', () => {
@@ -211,36 +198,22 @@ test('findRunMemorySummaryForRequests reads memory from merged hidden request an
     ['user-1', 'hidden-background-notice']
   )
 
-  assert.deepEqual(summary, {
-    runId: 'run-hidden',
-    entries: ['background context'],
-    recallDecision: undefined
-  })
+  assert.deepEqual(summary, { runId: 'run-hidden', entries: ['background context'] })
 })
 
-test('compactNovelTermsForDisplay hides low-signal mixed-language fragments', () => {
-  const terms = compactNovelTermsForDisplay([
-    'my',
-    'alpha beta gamma',
-    'cache 模型',
-    'vector index',
-    'tool timeout',
-    'agent scheduling'
+test('parseRecalledMemories strips note ids and source refs from model-facing entries', () => {
+  const memories = parseRecalledMemories([
+    '[note n1] Prefers tradeoffs first.\nApplies to code reviews.\nSources: span:t1:m1:m2\n[note n2] Ships on Fridays.\nSources: unavailable',
+    '[preferences] editor: value=helix; source_threads=thread:t1',
+    'plain context'
   ])
 
-  assert.deepEqual(terms, ['vector index', 'tool timeout', 'agent scheduling'])
-})
-
-test('compactNovelTermsForDisplay keeps strong single technical terms and removes duplicates', () => {
-  const terms = compactNovelTermsForDisplay([
-    ' deploy ',
-    'deploy',
-    'system prompt',
-    'deploy workflow',
-    'your'
+  assert.deepEqual(memories, [
+    { kind: 'note', text: 'Prefers tradeoffs first.\nApplies to code reviews.' },
+    { kind: 'note', text: 'Ships on Fridays.' },
+    { kind: 'fact', title: 'editor', fields: [['value', 'helix']] },
+    { kind: 'note', text: 'plain context' }
   ])
-
-  assert.deepEqual(terms, ['deploy', 'system prompt', 'deploy workflow'])
 })
 
 test('countToolCallsForRun includes post-steer tool calls re-anchored to a new requestMessageId', () => {

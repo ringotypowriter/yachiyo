@@ -241,6 +241,47 @@ test('summarizeToolInput uses delegated agent names for delegateTask', () => {
   )
 })
 
+test('memory tool summaries read as prose instead of model-facing JSON', () => {
+  const textOutput = (payload: unknown): { content: Array<{ type: string; text: string }> } => ({
+    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }]
+  })
+
+  assert.equal(
+    summarizeToolInput('remember', { note: 'Prefers tradeoffs first.\nApplies to reviews.' }),
+    'Prefers tradeoffs first.'
+  )
+  assert.equal(summarizeToolInput('remember', { id: 'n1', action: 'delete' }), 'forget note')
+  assert.equal(
+    summarizeToolOutput('remember', textOutput({ savedCount: 1, id: 'n1' })),
+    'saved note'
+  )
+  assert.equal(
+    summarizeToolOutput('remember', textOutput({ savedCount: 0, deleted: true })),
+    'forgot note'
+  )
+
+  assert.equal(summarizeToolInput('querySource', { text: 'launch plan' }), 'launch plan')
+  assert.equal(summarizeToolInput('querySource', { ref: 'span:t1:m1:m2' }), 'open conversation')
+  assert.equal(
+    summarizeToolInput('querySource', { from: 'thread_spans', where: { text: 'launch' } }),
+    'conversations: launch'
+  )
+  assert.equal(
+    summarizeToolOutput(
+      'querySource',
+      textOutput({ table: 'recollections', rows: [{}, {}], nextCursor: 'c1' })
+    ),
+    '2 results, more available'
+  )
+  assert.equal(
+    summarizeToolOutput('querySource', {
+      content: [{ type: 'text', text: 'boom' }],
+      error: 'boom'
+    }),
+    'boom'
+  )
+})
+
 test('summarizeToolInput shows the target conversation for sendThreadMessage', () => {
   assert.equal(
     summarizeToolInput('sendThreadMessage', {

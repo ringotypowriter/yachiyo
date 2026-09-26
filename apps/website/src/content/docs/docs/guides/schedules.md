@@ -40,7 +40,7 @@ To switch between them, set the new field and set the old one to `null`.
    this fire is dropped. A schedule never runs twice in parallel.
 3. **Thread creation.** A new thread titled `Schedule: <name>` with the
    configured workspace. Scheduled runs are first-party local threads — full
-   memory recall, all tools.
+   memory, all tools.
 4. **Prompt delivery.** The prompt is sent as the first user message, with the
    `reportScheduleResult` tool added to the normal tool set.
 5. **Completion.** Results and token counts are recorded and a system

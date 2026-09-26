@@ -451,6 +451,41 @@ function summarizeBashOutputSnapshot(details: Partial<BashToolOutput['details']>
   return 'no output'
 }
 
+const QUERY_SOURCE_DISPLAY_NAMES: Record<string, string> = {
+  memories: 'memories',
+  threads: 'conversations',
+  thread_spans: 'conversations',
+  thread_messages: 'messages',
+  thread_folders: 'folders',
+  activity_records: 'activity',
+  source_events: 'events'
+}
+
+/** Timeline summaries for memory tools, whose raw output is model-facing JSON. */
+function summarizeMemoryToolOutput(
+  toolName: 'remember' | 'querySource',
+  output: unknown
+): string | undefined {
+  const typed = output as { content?: Array<{ type: string; text?: string }>; error?: string }
+  if (typed.error) return undefined
+  const text = typed.content?.find((b) => b.type === 'text')?.text
+  if (!text) return undefined
+  let payload: unknown
+  try {
+    payload = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (typeof payload !== 'object' || payload === null) return undefined
+  if (toolName === 'remember') {
+    return 'deleted' in payload && payload.deleted === true ? 'forgot note' : 'saved note'
+  }
+  if (!('rows' in payload) || !Array.isArray(payload.rows)) return undefined
+  const count = payload.rows.length
+  const more = 'nextCursor' in payload && payload.nextCursor ? ', more available' : ''
+  return `${count} result${count === 1 ? '' : 's'}${more}`
+}
+
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
   if (toolName === 'askUser') {
     const question =
@@ -543,10 +578,12 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
   }
 
   if (toolName === 'remember') {
-    const title = typeof input === 'object' && input !== null && 'title' in input ? input.title : ''
-    return typeof title === 'string' && title.trim().length > 0
-      ? takeTail(title, 160).text
-      : toolName
+    if (typeof input !== 'object' || input === null) return toolName
+    if ('action' in input && input.action === 'delete') return 'forget note'
+    const note = 'note' in input ? input.note : ''
+    if (typeof note !== 'string' || note.trim().length === 0) return toolName
+    const head = takeHead(note.trim().split('\n')[0]!, 120)
+    return `${head.text}${head.truncated ? '…' : ''}`
   }
 
   if (toolName === 'useThings' || toolName === 'reviewThings') {
@@ -559,16 +596,19 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
   }
 
   if (toolName === 'querySource') {
-    if (typeof input === 'object' && input !== null && 'from' in input) {
-      const from = input.from
+    if (typeof input !== 'object' || input === null) return toolName
+    if ('from' in input && typeof input.from === 'string') {
+      const source = QUERY_SOURCE_DISPLAY_NAMES[input.from] ?? input.from
       const where = 'where' in input ? input.where : undefined
       const text =
         typeof where === 'object' && where !== null && 'text' in where ? where.text : undefined
       return typeof text === 'string' && text.trim().length > 0
-        ? `${String(from)}: ${takeTail(text, 120).text}`
-        : String(from)
+        ? `${source}: ${takeTail(text, 120).text}`
+        : source
     }
-    return toolName
+    if ('ref' in input && typeof input.ref === 'string') return 'open conversation'
+    const text = 'text' in input ? input.text : ''
+    return typeof text === 'string' && text.trim().length > 0 ? takeTail(text, 120).text : toolName
   }
 
   if (toolName === 'sendThreadMessage') {
@@ -732,6 +772,11 @@ export function summarizeToolOutput(
     const details = (output as GlobToolOutput).details
     const summary = `found ${details.resultCount} file${details.resultCount === 1 ? '' : 's'}`
     return details.truncated ? `${summary} (truncated)` : summary
+  }
+
+  if (toolName === 'remember' || toolName === 'querySource') {
+    const summary = summarizeMemoryToolOutput(toolName, output)
+    if (summary) return summary
   }
 
   if (

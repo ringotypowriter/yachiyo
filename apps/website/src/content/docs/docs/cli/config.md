@@ -49,8 +49,8 @@ yachiyo config set chat.stripCompactThresholdTokens 40000
 | `toolModel.mode`              | `string`  | `"default"`, `"custom"`, or `"disabled"` |
 | `skills.enabled`              | `array`   | Enabled skill names                      |
 | `memory.enabled`              | `boolean` | Master memory switch                     |
-| `memory.autoRecall`           | `boolean` | Pull recalled context into runs          |
-| `chat.autoMemoryDistillation` | `boolean` | Distill memory after runs                |
+| `memory.autoRecall`           | `boolean` | Use memories automatically               |
+| `chat.autoMemoryDistillation` | `boolean` | Save memories automatically              |
 | `webSearch.exa.apiKey`        | `string`  | Add Exa to automatic web search          |
 | `webSearch.exa.baseUrl`       | `string`  | Custom Exa endpoint                      |
 | `workspace.savedPaths`        | `array`   | Registered workspace directories         |

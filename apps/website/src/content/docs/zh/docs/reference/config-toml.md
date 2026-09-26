@@ -61,7 +61,7 @@ runMode = "auto"
 | `activeRunEnterBehavior`      | `"enter-steers"` \| `"enter-queues-follow-up"` | `enter-steers` | 运行流式输出时回车做什么                  |
 | `stripCompact`                | `boolean`                                      | `true`         | 压缩过长的线程历史                        |
 | `stripCompactThresholdTokens` | `number`                                       | ——             | 触发压缩的 token 数                       |
-| `autoMemoryDistillation`      | `boolean`                                      | `true`         | 运行后蒸馏记忆                            |
+| `autoMemoryDistillation`      | `boolean`                                      | `true`         | 自动保存记忆                              |
 | `inputBufferEnabled`          | `boolean`                                      | `false`        | 发送前缓冲输入                            |
 | `recapEnabled`                | `boolean`                                      | `true`         | 恢复时回顾上下文                          |
 | `imageToTextModel`            | `object`                                       | ——             | `{ providerName, model }`；回落到工具模型 |
@@ -109,10 +109,10 @@ runMode = "auto"
 
 ## `[memory]`
 
-| 键           | 类型      | 默认   | 说明                   |
-| ------------ | --------- | ------ | ---------------------- |
-| `enabled`    | `boolean` | `true` | 记忆总开关             |
-| `autoRecall` | `boolean` | `true` | 把调取到的记忆带进运行 |
+| 键           | 类型      | 默认   | 说明         |
+| ------------ | --------- | ------ | ------------ |
+| `enabled`    | `boolean` | `true` | 记忆总开关   |
+| `autoRecall` | `boolean` | `true` | 自动使用记忆 |
 
 ## `[webSearch]`
 

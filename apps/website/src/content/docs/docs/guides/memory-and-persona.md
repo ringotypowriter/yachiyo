@@ -19,20 +19,22 @@ find those conversations again: what mattered, why it is worth revisiting, and
 any conditions or uncertainty. Notes can be revised or deleted without changing
 the original dialogue. Existing structured memories remain readable.
 
-Automatic recall brings a small amount of related context and source references
-into a run. Exact quotes, historical decisions, and claims about completed actions
+Using memories automatically brings a small amount of related context and source
+references into a reply. Exact quotes, historical decisions, and claims about completed actions
 still need the original evidence; a note is not proof.
 
-Two settings in **Settings → Sources → Memory**:
+Settings in **Settings → Sources → Memory**:
 
-- **Enable memory** — pulls recalled context into runs and allows explicit saves.
+- **Enable memory** — brings relevant memories into replies and allows explicit saves.
   On by default.
-- **Auto-distill after runs** — eligible conversations are reviewed in the background
-  for a few useful, source-linked notes. Turning this off stops background review;
-  `remember` and manual conversation saves remain available.
+- **Save memories automatically** — eligible conversations are reviewed in the
+  background for a few useful, source-linked notes. Turning this off stops background
+  review; asking Yachiyo to remember and manual conversation saves remain available.
+- **Use memories automatically** — brings related memories into each new reply.
+  Turning this off leaves memories available only when Yachiyo searches for them.
 
-The same pane lists every stored term grouped by topic, with a **Forget** action
-per row. Forgetting removes the stored note, not its source conversation.
+**Saved memories** lists every memory grouped by topic, with a **Forget** action
+per row. Forgetting removes the note, not its source conversation.
 
 ### What makes a good memory
 

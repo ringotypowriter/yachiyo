@@ -46,9 +46,9 @@ export const layout = {
       lockedOff: '隐私模式：已锁定（关）',
       on: '隐私模式：开',
       off: '隐私模式：关',
-      descLockedOn: '记忆召回与提炼已禁用 — 发送消息后无法更改',
+      descLockedOn: '此会话的记忆已关闭 — 发送消息后无法更改',
       descLockedOff: '发送消息后无法更改',
-      descOn: '记忆召回与提炼已禁用',
+      descOn: '此会话的记忆已关闭',
       descOff: '开启后此会话将不进入记忆'
     }
   },

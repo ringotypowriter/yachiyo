@@ -73,7 +73,7 @@ Default run mode: `auto`, `explore`, `plan`, `chat`, or `custom`. Defaults to
 | `activeRunEnterBehavior`      | `"enter-steers"` \| `"enter-queues-follow-up"` | `enter-steers` | What Enter does while a run is streaming                |
 | `stripCompact`                | `boolean`                                      | `true`         | Compact long thread history                             |
 | `stripCompactThresholdTokens` | `number`                                       | —              | Token count that triggers compaction                    |
-| `autoMemoryDistillation`      | `boolean`                                      | `true`         | Distill memory after runs                               |
+| `autoMemoryDistillation`      | `boolean`                                      | `true`         | Save memories automatically                             |
 | `inputBufferEnabled`          | `boolean`                                      | `false`        | Buffer typing before sending                            |
 | `recapEnabled`                | `boolean`                                      | `true`         | Recap context on resume                                 |
 | `imageToTextModel`            | `object`                                       | —              | `{ providerName, model }`; falls back to the tool model |
@@ -122,10 +122,10 @@ directly.
 
 ## `[memory]`
 
-| Key          | Type      | Default | Description                    |
-| ------------ | --------- | ------- | ------------------------------ |
-| `enabled`    | `boolean` | `true`  | Master switch for memory       |
-| `autoRecall` | `boolean` | `true`  | Pull recalled memory into runs |
+| Key          | Type      | Default | Description                |
+| ------------ | --------- | ------- | -------------------------- |
+| `enabled`    | `boolean` | `true`  | Master switch for memory   |
+| `autoRecall` | `boolean` | `true`  | Use memories automatically |
 
 ## `[webSearch]`
 

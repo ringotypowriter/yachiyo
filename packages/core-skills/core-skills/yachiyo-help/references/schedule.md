@@ -20,7 +20,7 @@ Setting both fields, or neither, is a validation error. Do not leave it ambiguou
 
 1. **Connectivity check** — if the machine is offline, the run is recorded as `skipped` and the schedule re-arms (recurring) or is disabled (one-off). No LLM call is made.
 2. **Overlap guard** — if a previous run of the same schedule is still active, the new fire is dropped. Runs of the same schedule never run in parallel.
-3. **Thread creation** — a new thread is created, titled `Schedule: <name>`, with the configured workspace. Scheduled runs are treated as first-party local threads: full memory recall, all tools available.
+3. **Thread creation** — a new thread is created, titled `Schedule: <name>`, with the configured workspace. Scheduled runs are treated as first-party local threads: full memory, all tools available.
 4. **Prompt delivery** — the configured `prompt` is sent as the first user message. The `reportScheduleResult` tool is injected into the run alongside the normal tool set.
 5. **Completion** — when the run ends, results and token counts are recorded and a system notification is shown.
 6. **Archival** — the thread is auto-archived after the run ends. The workspace directory is not touched.

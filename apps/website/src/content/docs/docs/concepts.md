@@ -137,7 +137,7 @@ There is no runtime, no manifest, and no registration step. See
 Two model slots, doing different jobs:
 
 - **Chat model** — answers you. Set per thread, switchable per message.
-- **Tool model** — does the background work: thread titles, memory distillation,
+- **Tool model** — does the background work: thread titles, saving memories,
   context handoff when a thread gets long, image-to-text descriptions, group-chat
   probes, translation.
 
@@ -150,8 +150,8 @@ frequent and unglamorous.
 
 Three separate things that are easy to confuse:
 
-- **Memory** — revisable, source-linked notes saved via `remember` and recalled
-  into later runs. Original conversations remain searchable independently of notes.
+- **Memory** — revisable, source-linked notes saved via `remember` and brought
+  into later replies. Original conversations remain searchable independently of notes.
   Stored locally, on by default.
 - **`SOUL.md`** — the assistant's persona, including an evolving trait log that
   builds up over time. Editable in the app or via

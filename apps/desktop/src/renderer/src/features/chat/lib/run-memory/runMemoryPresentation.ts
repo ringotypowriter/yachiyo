@@ -1,9 +1,7 @@
-import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import type { RunRecord, ToolCall } from '@renderer/app/types'
 
 export interface RunMemorySummary {
   entries: string[]
-  recallDecision?: RecallDecisionSnapshot
   runId: string
 }
 
@@ -70,100 +68,66 @@ function compareRunsNewestFirst(left: RunRecord, right: RunRecord): number {
   return right.id.localeCompare(left.id)
 }
 
-function normalizeNovelTerm(value: string): string {
-  return value.trim().replace(/\s+/gu, ' ')
-}
+export type RecalledMemory =
+  | { kind: 'note'; text: string }
+  | { kind: 'fact'; title: string; fields: Array<[string, string]> }
 
-type NovelTermScript = 'latin' | 'cjk' | 'mixed' | 'other'
+const NOTE_LINE = /^\[note [^\]]+\]\s?(.*)$/
+const FACT_LINE = /^\[[^\]]+\]\s+([^:]+):\s+(.+)$/
+const SOURCE_FIELD_KEYS = new Set(['source_threads', 'source_messages'])
 
-function tokenizeNovelTerm(value: string): string[] {
-  return value
-    .split(/\s+/u)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0)
-}
+/**
+ * Recalled entries are rendered for the model (`[note <id>] text` followed by a
+ * `Sources:` line, or legacy `[relation] key: field=value; ...`), and one entry
+ * may group several memories that share sources. Strip ids and source refs so
+ * only the remembered content is shown.
+ */
+export function parseRecalledMemories(entries: readonly string[]): RecalledMemory[] {
+  const memories: RecalledMemory[] = []
+  let openNote: { kind: 'note'; text: string } | null = null
 
-function detectNovelTermScript(token: string): NovelTermScript {
-  const hasLatinOrDigit = /[a-z0-9]/iu.test(token)
-  const hasCjk = /[\u3400-\u9fff]/u.test(token)
-
-  if (hasLatinOrDigit && hasCjk) {
-    return 'mixed'
-  }
-
-  if (hasLatinOrDigit) {
-    return 'latin'
-  }
-
-  if (hasCjk) {
-    return 'cjk'
-  }
-
-  return 'other'
-}
-
-function isStrongNovelToken(token: string, script: NovelTermScript): boolean {
-  switch (script) {
-    case 'latin':
-      return token.replace(/[^a-z0-9]/giu, '').length >= 4
-    case 'cjk':
-      return token.length >= 3
-    case 'mixed':
-      return token.length >= 4 && !/\s/u.test(token)
-    default:
-      return false
-  }
-}
-
-function shouldDisplayNovelTerm(term: string): boolean {
-  const normalized = normalizeNovelTerm(term)
-  const tokens = tokenizeNovelTerm(normalized)
-  if (tokens.length === 0) {
-    return false
-  }
-
-  if (tokens.length > 2) {
-    return false
-  }
-
-  const scripts = new Set(tokens.map(detectNovelTermScript))
-  if (scripts.has('other') || scripts.size !== 1) {
-    return false
-  }
-
-  const script = detectNovelTermScript(tokens[0]!)
-
-  if (tokens.length === 1) {
-    return isStrongNovelToken(tokens[0]!, script)
-  }
-
-  return tokens.every((token) => isStrongNovelToken(token, script))
-}
-
-export function compactNovelTermsForDisplay(terms: string[] | undefined): string[] {
-  if (!terms || terms.length === 0) {
-    return []
-  }
-
-  const seen = new Set<string>()
-  const compacted: string[] = []
-
-  for (const term of terms) {
-    const normalized = normalizeNovelTerm(term)
-    const dedupeKey = normalized.toLowerCase()
-    if (!shouldDisplayNovelTerm(normalized) || seen.has(dedupeKey)) {
-      continue
-    }
-
-    seen.add(dedupeKey)
-    compacted.push(normalized.length > 24 ? `${normalized.slice(0, 24).trimEnd()}...` : normalized)
-
-    if (compacted.length >= 3) {
-      break
+  for (const entry of entries) {
+    openNote = null
+    for (const line of entry.split('\n')) {
+      const noteMatch = NOTE_LINE.exec(line)
+      if (noteMatch) {
+        openNote = { kind: 'note', text: noteMatch[1]! }
+        memories.push(openNote)
+        continue
+      }
+      if (line.startsWith('Sources: ')) {
+        openNote = null
+        continue
+      }
+      const factMatch = FACT_LINE.exec(line)
+      if (factMatch) {
+        openNote = null
+        const fields = factMatch[2]!
+          .split(';')
+          .map((part): [string, string] | null => {
+            const eqIndex = part.indexOf('=')
+            if (eqIndex <= 0) return null
+            const key = part.slice(0, eqIndex).trim()
+            const value = part.slice(eqIndex + 1).trim()
+            return key && value && !SOURCE_FIELD_KEYS.has(key) ? [key, value] : null
+          })
+          .filter((field): field is [string, string] => field !== null)
+        memories.push({ kind: 'fact', title: factMatch[1]!.trim(), fields })
+        continue
+      }
+      if (openNote) {
+        openNote.text += `\n${line}`
+      } else if (line.trim()) {
+        openNote = { kind: 'note', text: line }
+        memories.push(openNote)
+      }
     }
   }
 
-  return compacted
+  for (const memory of memories) {
+    if (memory.kind === 'note') memory.text = memory.text.trim()
+  }
+  return memories.filter((memory) => memory.kind === 'fact' || memory.text.length > 0)
 }
 
 /**
@@ -231,7 +195,6 @@ export function findRunMemorySummaryForRequests(
 
   return {
     entries,
-    recallDecision: run.recallDecision,
     runId: run.id
   }
 }
