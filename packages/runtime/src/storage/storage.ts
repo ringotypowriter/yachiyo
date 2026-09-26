@@ -389,6 +389,7 @@ export type ThreadMessageTopology = Pick<
 export interface ThreadToolCallScope {
   messageIds: string[]
   activeRunId?: string
+  toolCallIds?: string[] // Also match these tool calls by id (primary-key lookup).
 }
 
 export interface YachiyoStorage {

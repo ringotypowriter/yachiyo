@@ -32,6 +32,7 @@ import {
   type StoredThreadRow,
   type YachiyoStorage
 } from './storage.ts'
+import { isLocalOrOwnerDmThread } from './threadVisibility.ts'
 import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
 import { applyThreadSnapshot, createStoredThreadRow } from './memoryStorage/threadRows.ts'
 import { getInMemoryUsageStats } from './memoryStorage/usageStats.ts'
@@ -99,12 +100,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     return channelUsers.get(thread.channelUserId)?.role === 'owner'
   }
 
-  const isBootstrapThread = (thread: StoredThreadRow): boolean => {
-    if ((thread.source === null || thread.source === 'local') && thread.channelUserId === null) {
-      return true
-    }
-    return isOwnerDmThread(thread)
-  }
+  const isBootstrapThread = (thread: StoredThreadRow): boolean =>
+    isLocalOrOwnerDmThread(
+      thread,
+      thread.channelUserId === null ? undefined : channelUsers.get(thread.channelUserId)?.role
+    )
   const isReviewSourceThread = (thread: StoredThreadRow): boolean =>
     thread.headMessageId !== null &&
     thread.createdFromScheduleId === null &&
@@ -862,6 +862,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     listThreadToolCalls(threadId, scope) {
       const ids = new Set(scope?.messageIds)
+      const toolIds = new Set(scope?.toolCallIds)
       return sortToolCalls(
         [...toolCalls.values()]
           .filter(
@@ -870,7 +871,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
               (!scope ||
                 (tool.requestMessageId !== null && ids.has(tool.requestMessageId)) ||
                 (tool.assistantMessageId !== null && ids.has(tool.assistantMessageId)) ||
-                (scope.activeRunId !== undefined && tool.runId === scope.activeRunId))
+                (scope.activeRunId !== undefined && tool.runId === scope.activeRunId) ||
+                toolIds.has(tool.id))
           )
           .map(toToolCallRecordWithRun)
       )

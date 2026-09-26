@@ -6,6 +6,7 @@ import {
   toThreadRecord,
   type YachiyoStorage
 } from '../storage.ts'
+import { isLocalOrOwnerDmThread } from '../threadVisibility.ts'
 import { channelUsersTable, threadFoldersTable, threadsTable } from './schema.ts'
 import type { BetterSqlite3Client, SqliteDb } from './sqliteRuntime.ts'
 
@@ -125,19 +126,12 @@ export function createSqliteBootstrapStorageMethods(input: {
         .from(threadsTable)
         .orderBy(desc(threadsTable.updatedAt))
         .all()
-      const localThreads = allThreads.filter((thread) => {
-        if (
-          (thread.source === null || thread.source === 'local') &&
-          thread.channelUserId === null
-        ) {
-          return true
-        }
-        return (
-          thread.channelGroupId === null &&
-          thread.channelUserId !== null &&
-          channelUserRoles.get(thread.channelUserId) === 'owner'
+      const localThreads = allThreads.filter((thread) =>
+        isLocalOrOwnerDmThread(
+          thread,
+          thread.channelUserId === null ? undefined : channelUserRoles.get(thread.channelUserId)
         )
-      })
+      )
       const localThreadRecords = localThreads.map((thread) => {
         const record = toThreadRecord(thread)
         const role =

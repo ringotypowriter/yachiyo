@@ -1,5 +1,6 @@
 // Synthetic fixture, real local RemoteService/Noise/WebSocket transport. Never reads user state.
-// Run: node --experimental-strip-types scripts/remote-stream-benchmark.ts [--legacy] [output.json]
+// Run: node --experimental-strip-types scripts/remote-stream-benchmark.ts [--legacy|--features] [output.json]
+// --features offers handshake-hello, event-batch and stream-deflate like a current phone.
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -12,10 +13,13 @@ import { plaintextSecretBox } from '../apps/desktop/src/main/remote/pairingStore
 import { decodeRemoteMessage } from '../apps/desktop/src/main/remote/messageCodec.ts'
 import { RemoteService } from '../apps/desktop/src/main/remote/remoteService.ts'
 import { RemoteTestClient } from '../apps/desktop/src/main/remote/testing/remoteTestClient.ts'
+import { createStreamInflateDecoder } from '../apps/desktop/src/main/remote/testing/streamInflate.ts'
+import { REMOTE_STREAM_DEFLATE_MESSAGE_TAG } from '../packages/shared/src/remote/wire.ts'
 import { NoiseTransport } from '../apps/desktop/src/main/remote/noise/transport.ts'
 import type { RemotePush } from '../packages/shared/src/remote/events.ts'
 import type { RemoteChatAccepted } from '../packages/shared/src/remote/methods.ts'
 import type { RemoteThreadSummary } from '../packages/shared/src/remote/projections.ts'
+import { REMOTE_FEATURES } from '../packages/shared/src/remote/wire.ts'
 import type WebSocket from 'ws'
 import type { Socket } from 'node:net'
 
@@ -35,11 +39,15 @@ type Row = {
 const captures: Array<{ stage: string; encoded: Buffer; ciphertext: Buffer }> = []
 const args = process.argv.slice(2)
 const legacy = args.includes('--legacy')
-const outputPaths = args.filter((arg) => arg !== '--legacy')
+const withFeatures = args.includes('--features')
+const outputPaths = args.filter((arg) => arg !== '--legacy' && arg !== '--features')
 assert(
-  outputPaths.length <= 1 && outputPaths.every((arg) => !arg.startsWith('--')),
-  'Usage: remote-stream-benchmark.ts [--legacy] [output.json]'
+  outputPaths.length <= 1 &&
+    outputPaths.every((arg) => !arg.startsWith('--')) &&
+    !(legacy && withFeatures),
+  'Usage: remote-stream-benchmark.ts [--legacy|--features] [output.json]'
 )
+const features = withFeatures ? Object.values(REMOTE_FEATURES) : undefined
 const outputPath = outputPaths[0] ?? join(tmpdir(), 'yachiyo-remote-stream-results.json')
 const encrypted = new Map<string, number>()
 const decrypted = new Map<string, number>()
@@ -130,7 +138,7 @@ try {
   client = (
     await RemoteTestClient.pair(
       (await service.createPairingUrl()).url,
-      legacy ? { compression: false } : {}
+      legacy ? { compression: false } : features ? { features } : {}
     )
   ).client
   assert.equal(client.compression, legacy ? undefined : 'gzip')
@@ -147,6 +155,7 @@ try {
     }
     baseline = now
   }
+  // With handshake-hello the pairing still needs one call to receive the grant.
   await client.call('remote.hello', {
     protocolVersion: 1,
     client: { app: 'yachiyo-node-test', version: '1.0.0' }
@@ -202,15 +211,22 @@ try {
   await checkpoint('snapshot')
   // Decode and comparative recompression only after all transport measurements finish.
   const rows: Row[] = []
+  // Stream-deflate segments continue one context, so they are decoded in capture order.
+  const inflate = createStreamInflateDecoder()
   for (const { stage, encoded, ciphertext } of captures) {
-    const plaintext = await decodeRemoteMessage(encoded, client.compression)
+    const plaintext =
+      encoded[0] === REMOTE_STREAM_DEFLATE_MESSAGE_TAG
+        ? inflate(encoded)
+        : await decodeRemoteMessage(encoded, client.compression)
     const message = JSON.parse(plaintext.toString('utf8'))
     if (message.kind === 'rpc:request') requestMethods.set(message.id, message.method)
     const type =
       message.kind === 'rpc:event'
         ? message.payload.type === 'event'
           ? message.payload.event.type
-          : message.payload.type
+          : message.payload.type === 'batch'
+            ? `batch(${message.payload.items.length})`
+            : message.payload.type
         : `${message.kind}:${message.method ?? requestMethods.get(message.id) ?? 'unknown'}`
     rows.push({
       stage,
@@ -218,7 +234,7 @@ try {
       type,
       plaintextBytes: plaintext.length,
       encodedBytes: encoded.length,
-      compressedMessages: Number(encoded[0] === 0x01),
+      compressedMessages: Number(encoded[0] === 0x01 || encoded[0] === 0x02),
       ciphertextBytes: ciphertext.length,
       gzipBytes: gzipSync(plaintext).length,
       deflateRawBytes: deflateRawSync(plaintext).length,
@@ -232,12 +248,19 @@ try {
     decrypted,
     'Each ciphertext must be counted once and successfully decrypted once'
   )
-  assert(rows.some((row) => row.type === 'message.delta' && row.stage === 'slowStream'))
+  assert(
+    rows.some(
+      (row) =>
+        (row.type === 'message.delta' || row.type.startsWith('batch(')) &&
+        row.stage === 'slowStream'
+    )
+  )
   assert(rows.every((row) => row.ciphertextBytes === row.encodedBytes + 16))
   const result = {
     generatedAt: new Date().toISOString(),
-    mode: legacy ? 'legacy' : 'negotiated',
+    mode: legacy ? 'legacy' : withFeatures ? 'features' : 'negotiated',
     negotiatedCompression: client.compression ?? null,
+    negotiatedFeatures: client.features,
     nodeVersion: process.version,
     fixture:
       'Synthetic scripted model content; real local loopback RemoteService + RemoteTestClient + Noise + WebSocket. NOT actual user phone traffic.',

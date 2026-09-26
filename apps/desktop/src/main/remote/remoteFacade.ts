@@ -14,7 +14,10 @@ import { REMOTE_PROTOCOL_VERSION } from '@yachiyo/shared/remote/protocolVersion'
 import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
 import type { RemoteHostOps } from '@yachiyo/runtime/app/host/remote/remoteHostOps'
 import type { YachiyoServer } from '@yachiyo/runtime/app/host/YachiyoServer'
-import { fitRemoteThreadBudget } from '@yachiyo/runtime/app/host/remote/remoteThreadBudget'
+import {
+  fitRemoteThreadBudget,
+  REMOTE_THREAD_DETAIL_BYTE_BUDGET
+} from '@yachiyo/runtime/app/host/remote/remoteThreadBudget'
 
 import type { AttachmentStaging } from './attachmentStaging.ts'
 import { RemoteError } from './remoteErrors.ts'
@@ -64,11 +67,17 @@ export interface RemoteFacadeOptions {
   epoch: () => string
   hub: () => RemoteEventHub
   audit: (line: string) => void
+  now?: () => number
 }
 
 export interface RemoteFacade {
   dispatch(context: RemoteCallContext, method: string, input: unknown): Promise<unknown>
+  /** The `remote.hello` output, also embedded in the handshake when negotiated. */
+  hello(): Promise<RemoteMethodOutput<'remote.hello'>>
 }
+
+/** Host info only changes with settings (invalidated) or sync setup (bounded by this age). */
+const HOST_INFO_MAX_AGE_MS = 60_000
 
 type Handler<M extends RemoteMethodName> = (
   input: RemoteMethodInput<M>,
@@ -107,6 +116,46 @@ function describeIssues(error: {
  */
 export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
   const { server, host, attachments } = options
+  const now = options.now ?? Date.now
+  // The phone says hello on every heartbeat; answer from a cache instead of a runtime RPC.
+  let hostInfo: {
+    value: Promise<Awaited<ReturnType<RemoteHostPort['host.remote.getHostInfo']>>>
+    at: number
+    settingsVersion: number
+  } | null = null
+
+  function currentHostInfo(): Promise<
+    Awaited<ReturnType<RemoteHostPort['host.remote.getHostInfo']>>
+  > {
+    const settingsVersion = options.hub().settingsVersion
+    if (
+      !hostInfo ||
+      hostInfo.settingsVersion !== settingsVersion ||
+      now() - hostInfo.at > HOST_INFO_MAX_AGE_MS
+    ) {
+      const value = host['host.remote.getHostInfo']()
+      const entry = { value, at: now(), settingsVersion }
+      hostInfo = entry
+      value.catch(() => {
+        if (hostInfo === entry) hostInfo = null
+      })
+    }
+    return hostInfo.value
+  }
+
+  async function hello(): Promise<RemoteMethodOutput<'remote.hello'>> {
+    const identity = options.identity()
+    const info = await currentHostInfo()
+    return {
+      protocolVersion: REMOTE_PROTOCOL_VERSION,
+      remoteDeviceId: identity.remoteDeviceId,
+      ...(info.syncDeviceId ? { syncDeviceId: info.syncDeviceId } : {}),
+      deviceName: identity.deviceName,
+      appVersion: identity.appVersion,
+      epoch: options.epoch(),
+      activeRunEnterBehavior: info.activeRunEnterBehavior
+    }
+  }
 
   async function summaryOf(threadId: string): Promise<RemoteThreadSummary> {
     const summary = await host['host.remote.getThreadSummary']({ threadId })
@@ -127,19 +176,7 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
   }
 
   const handlers: HandlerTable = {
-    'remote.hello': async () => {
-      const identity = options.identity()
-      const info = await host['host.remote.getHostInfo']()
-      return {
-        protocolVersion: REMOTE_PROTOCOL_VERSION,
-        remoteDeviceId: identity.remoteDeviceId,
-        ...(info.syncDeviceId ? { syncDeviceId: info.syncDeviceId } : {}),
-        deviceName: identity.deviceName,
-        appVersion: identity.appVersion,
-        epoch: options.epoch(),
-        activeRunEnterBehavior: info.activeRunEnterBehavior
-      }
-    },
+    'remote.hello': () => hello(),
     'threads.list': (input) => host['host.remote.listThreadSummaries'](input),
     'threads.load': async (input) => {
       // Snapshot before the host RPC awaits: events emitted while it is in flight must be
@@ -148,15 +185,22 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
       hub.flush()
       const streamSnapshotSeq = hub.headSeq
       const active = hub.snapshotThreadMessages(input.threadId)
-      const detail = await host['host.remote.loadThread'](input)
+      const { detail, byteLength } = await host['host.remote.loadThreadMeasured'](input)
       const snapshots =
         !input.beforeMessageId && detail.activeRunId ? (active.get(detail.activeRunId) ?? []) : []
       const existing = new Set(detail.messages.map((message) => message.id))
-      return fitRemoteThreadBudget({
+      const added = snapshots.filter((message) => !existing.has(message.id))
+      const merged = {
         ...detail,
         streamSnapshotSeq,
-        messages: [...detail.messages, ...snapshots.filter((message) => !existing.has(message.id))]
-      })
+        messages: added.length ? [...detail.messages, ...added] : detail.messages
+      }
+      // The host measured its detail, so only the live additions are serialized here; the
+      // connection serializes the response once. Re-fit only when they break the budget.
+      const extraBytes = added.length ? Buffer.byteLength(JSON.stringify(added), 'utf8') : 0
+      return byteLength + extraBytes + 64 <= REMOTE_THREAD_DETAIL_BYTE_BUDGET
+        ? merged
+        : fitRemoteThreadBudget(merged)
     },
     'threads.create': async (input) => {
       const thread = await server.createThread(input)
@@ -186,9 +230,8 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
     },
     'chat.startThread': async (input, context) => {
       const essential = input.essentialId
-        ? (await host['host.remote.listEssentials']()).essentials.find(
-            (entry) => entry.id === input.essentialId
-          )
+        ? ((await host['host.remote.getEssential']({ essentialId: input.essentialId })) ??
+          undefined)
         : undefined
       if (input.essentialId && !essential) {
         throw new RemoteError('RemoteNotFound', 'Essential not found.')
@@ -282,6 +325,7 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
   }
 
   return {
+    hello,
     async dispatch(context, method, rawInput) {
       if (!isRemoteMethodName(method)) {
         throw new RemoteError('RemoteMethodNotFound', `Unknown method ${method}.`)

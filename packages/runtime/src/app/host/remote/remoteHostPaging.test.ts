@@ -164,7 +164,7 @@ test('thread summaries paginate local threads without consuming cursor slots for
     first.threads.map((item) => item.id),
     ['local-new']
   )
-  assert.equal(first.nextCursor, '1')
+  assert.ok(first.nextCursor)
   const second = ops['host.remote.listThreadSummaries']({ cursor: first.nextCursor, limit: 1 })
   assert.deepEqual(
     second.threads.map((item) => item.id),
@@ -374,4 +374,158 @@ test('a single oversized message or nonpaged queue returns a validation error in
     message: /too large to load remotely/
   })
   assert.equal(queued[0].content, oversized)
+})
+
+function opsFor(
+  storage: ReturnType<typeof createInMemoryYachiyoStorage>
+): ReturnType<typeof createRemoteHostOps> {
+  const unused = (): never => {
+    throw new Error('Unexpected server call')
+  }
+  return createRemoteHostOps({
+    getStorage: () => storage,
+    getQueuedFollowUpMessages: () => [],
+    getConfig: unused,
+    getSyncStatus: unused,
+    listSubagents: unused,
+    listBackgroundTasks: unused,
+    searchThreadsAndMessages: unused
+  })
+}
+
+test('guest and group channel threads are never exposed; owner DMs are', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const channelUser = (id: string, role: 'owner' | 'guest'): void => {
+    storage.createChannelUser({
+      id,
+      platform: 'telegram',
+      externalUserId: id,
+      username: id,
+      label: id,
+      status: 'allowed',
+      role,
+      usageLimitKTokens: null,
+      workspacePath: '/tmp'
+    })
+  }
+  channelUser('owner-user', 'owner')
+  channelUser('guest-user', 'guest')
+  const create = (id: string, extra: Partial<ThreadRecord>): void => {
+    storage.createThread({
+      thread: { id, title: id, preview: 'hi', updatedAt: '2026-01-01', ...extra },
+      createdAt: '2026-01-01'
+    })
+  }
+  create('local', {})
+  create('owner-dm', { source: 'telegram', channelUserId: 'owner-user' })
+  create('guest-dm', { source: 'telegram', channelUserId: 'guest-user' })
+  create('group', { source: 'telegram', channelUserId: 'owner-user', channelGroupId: 'g' })
+  storage.createToolCall(tool('guest-dm', 'guest-tool', 'm', { outputSummary: 'secret' }))
+  const ops = opsFor(storage)
+
+  assert.deepEqual(
+    ops['host.remote.listThreadSummaries']({})
+      .threads.map((thread) => thread.id)
+      .sort(),
+    ['local', 'owner-dm']
+  )
+  for (const hidden of ['guest-dm', 'group']) {
+    assert.equal(ops['host.remote.getThreadSummary']({ threadId: hidden }), null)
+    assert.equal(ops['host.remote.getThreadVisibility']({ threadId: hidden }), false)
+    assert.throws(() => ops['host.remote.loadThread']({ threadId: hidden }), {
+      name: 'RemoteNotFound'
+    })
+  }
+  assert.throws(
+    () => ops['host.remote.getToolPreview']({ threadId: 'guest-dm', toolCallId: 'guest-tool' }),
+    { name: 'RemoteNotFound' }
+  )
+  assert.throws(
+    () => ops['host.remote.getImage']({ threadId: 'guest-dm', messageId: 'm', imageId: '0' }),
+    { name: 'RemoteNotFound' }
+  )
+  assert.ok(ops['host.remote.getThreadSummary']({ threadId: 'owner-dm' }))
+  assert.equal(ops['host.remote.getThreadVisibility']({ threadId: 'owner-dm' }), true)
+  assert.equal(ops['host.remote.getThreadVisibility']({ threadId: 'missing' }), null)
+})
+
+test('inbox paging snapshots the order once, so later pages skip nothing and repeat nothing', () => {
+  const storage = createInMemoryYachiyoStorage()
+  for (let index = 0; index < 5; index++) {
+    storage.createThread({
+      thread: {
+        id: `t${index}`,
+        title: `Thread ${index}`,
+        updatedAt: `2026-01-0${5 - index}`
+      },
+      createdAt: '2026-01-01'
+    })
+  }
+  const bootstrap = storage.bootstrap.bind(storage)
+  let bootstraps = 0
+  storage.bootstrap = () => {
+    bootstraps += 1
+    return bootstrap()
+  }
+  const ops = opsFor(storage)
+  const first = ops['host.remote.listThreadSummaries']({ limit: 2 })
+  assert.deepEqual(
+    first.threads.map((thread) => thread.id),
+    ['t0', 't1']
+  )
+  // The last thread moves to the top and another is archived while the phone pages.
+  const moved = storage.getThread('t4')!
+  storage.updateThread({ ...moved, title: 'Renamed', updatedAt: '2026-02-01' })
+  storage.archiveThread({ threadId: 't2', archivedAt: '2026-02-01', updatedAt: '2026-02-01' })
+  const second = ops['host.remote.listThreadSummaries']({ cursor: first.nextCursor, limit: 2 })
+  const third = ops['host.remote.listThreadSummaries']({ cursor: second.nextCursor, limit: 2 })
+  assert.deepEqual(
+    [...second.threads, ...third.threads].map((thread) => [thread.id, thread.title]),
+    [
+      ['t3', 'Thread 3'],
+      ['t4', 'Renamed']
+    ]
+  )
+  assert.equal(third.nextCursor, undefined)
+  assert.equal(bootstraps, 1, 'later pages read only their own threads')
+
+  // A legacy offset cursor still pages from a fresh snapshot.
+  const legacy = ops['host.remote.listThreadSummaries']({ cursor: '3', limit: 10 })
+  assert.deepEqual(
+    legacy.threads.map((thread) => thread.id),
+    ['t3'],
+    'fresh order: t4, t0, t1, t3'
+  )
+  assert.throws(() => ops['host.remote.listThreadSummaries']({ cursor: 'bogus' }), /cursor/)
+})
+
+test('omitToolPreviews marks previews for on-demand fetch by tool call id', () => {
+  const { storage, thread, ops } = fixture(4)
+  storage.createToolCall(tool(thread.id, 'with-output', 'm3', { outputSummary: 'x'.repeat(50) }))
+  storage.createToolCall(tool(thread.id, 'bare', 'm3'))
+  const load = (omitToolPreviews: boolean): RemoteThreadDetail =>
+    ops['host.remote.loadThread']({ threadId: thread.id, omitToolPreviews })
+
+  const full = load(false).toolCalls.find((call) => call.id === 'with-output')!
+  assert.equal(full.outputPreview, 'x'.repeat(50))
+  const light = load(true).toolCalls
+  const omitted = light.find((call) => call.id === 'with-output')!
+  assert.equal(omitted.outputPreview, undefined)
+  assert.equal(omitted.hasPreview, true)
+  assert.equal(light.find((call) => call.id === 'bare')!.hasPreview, undefined)
+
+  const readTools = storage.listThreadToolCalls.bind(storage)
+  storage.listThreadToolCalls = (id, scope) => {
+    assert.deepEqual(scope, { messageIds: [], toolCallIds: ['with-output'] })
+    return readTools(id, scope)
+  }
+  assert.deepEqual(
+    ops['host.remote.getToolPreview']({ threadId: thread.id, toolCallId: 'with-output' }),
+    { outputPreview: 'x'.repeat(50), truncated: false }
+  )
+  storage.listThreadToolCalls = readTools
+  assert.throws(
+    () => ops['host.remote.getToolPreview']({ threadId: thread.id, toolCallId: 'missing' }),
+    { name: 'RemoteNotFound' }
+  )
 })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -177,6 +177,36 @@ test('Essential listing versions local file content changed at the same path', a
     const after = (await ops['host.remote.listEssentials']()).essentials[0]!.iconVersion
     assert.ok(after)
     assert.notEqual(after, before)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('Essential icon versions are reused until the file path, mtime or size changes', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'essential-cache-'))
+  try {
+    const path = join(dir, 'icon.svg')
+    await writeFile(path, svg)
+    const mtime = new Date('2026-01-01T00:00:00.000Z')
+    await utimes(path, mtime, mtime)
+    const config = { essentials: [{ id: 'file', iconType: 'image', icon: path, order: 0 }] }
+    const ops = createRemoteHostOps({ getConfig: async () => config } as RemoteProjectionServer)
+    const first = (await ops['host.remote.listEssentials']()).essentials[0]!.iconVersion
+    assert.ok(first)
+
+    // Same size and mtime: served from the cache without decoding the file again.
+    await writeFile(path, svg.replace('red', 'tan'))
+    await utimes(path, mtime, mtime)
+    assert.equal((await ops['host.remote.listEssentials']()).essentials[0]!.iconVersion, first)
+    assert.equal(
+      (await ops['host.remote.getEssentialIcon']({ essentialId: 'file' })).iconVersion,
+      first
+    )
+
+    await utimes(path, mtime, new Date(mtime.getTime() + 5000))
+    const touched = (await ops['host.remote.listEssentials']()).essentials[0]!.iconVersion
+    assert.ok(touched)
+    assert.notEqual(touched, first)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

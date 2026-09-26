@@ -64,6 +64,26 @@ test('a phone can pair, stream, answer, disconnect, resume, and resync end to en
   })
 })
 
+test('a phone offering every feature runs the same scenario over batches and stream deflate', async () => {
+  await withService(async ({ service }) => {
+    const { url } = await service.createPairingUrl()
+    const log: string[] = []
+    await runRemoteScenario({
+      pairingUrl: url,
+      features: ['handshake-hello', 'event-batch', 'stream-deflate'],
+      log: (line) => log.push(line)
+    })
+    assert.ok(log.some((line) => line.startsWith('resumed from seq')))
+
+    const probe = await RemoteTestClient.pair((await service.createPairingUrl()).url, {
+      features: ['handshake-hello', 'event-batch', 'stream-deflate']
+    })
+    assert.deepEqual(probe.client.features, ['handshake-hello', 'event-batch', 'stream-deflate'])
+    assert.equal(probe.client.handshake?.hello?.deviceName, 'Test Mac')
+    await probe.client.close()
+  })
+})
+
 test('the pairing token works once and the mailbox secret is stored through the secret box', async () => {
   await withService(async ({ service, directory }) => {
     const { url } = await service.createPairingUrl()

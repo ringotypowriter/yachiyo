@@ -1,11 +1,12 @@
-import { crc32, gzip, inflateRaw } from 'node:zlib'
+import { constants, crc32, createDeflateRaw, gzip, inflateRaw } from 'node:zlib'
 
 import { REMOTE_MAX_MESSAGE_BYTES } from '@yachiyo/shared/remote/methods'
 import {
   REMOTE_COMPRESSION,
   REMOTE_COMPRESSED_MESSAGE_TAG,
   REMOTE_COMPRESSION_MIN_BYTES,
-  REMOTE_COMPRESSION_MIN_SAVING_BYTES
+  REMOTE_COMPRESSION_MIN_SAVING_BYTES,
+  REMOTE_STREAM_DEFLATE_MESSAGE_TAG
 } from '@yachiyo/shared/remote/wire'
 
 export type RemoteCompression = typeof REMOTE_COMPRESSION | undefined
@@ -36,6 +37,79 @@ export async function encodeRemoteMessage(
   if (plaintext.length - compressed.length - 1 < REMOTE_COMPRESSION_MIN_SAVING_BYTES)
     return plaintext
   return Buffer.concat([Buffer.from([REMOTE_COMPRESSED_MESSAGE_TAG]), compressed])
+}
+
+export interface StreamDeflateEncoder {
+  /** The tag plus the next Z_SYNC_FLUSH segment; call again only after the previous resolved. */
+  encode(plaintext: Buffer): Promise<Buffer>
+  close(): void
+}
+
+// Z_SYNC_FLUSH always ends a segment with an empty stored block: 00 00 ff ff.
+const SYNC_FLUSH_TRAILER = Buffer.from([0x00, 0x00, 0xff, 0xff])
+
+/**
+ * `stream-deflate` framing: one raw deflate stream (level 1) for the connection's lifetime,
+ * sync-flushed per message, so later messages reference earlier ones. Never feed it secrets:
+ * whatever enters the window can influence the size of every later message.
+ */
+export function createStreamDeflateEncoder(): StreamDeflateEncoder {
+  const stream = createDeflateRaw({ level: 1 })
+  let chunks: Buffer[] = []
+  let current: {
+    resolve: (value: Buffer) => void
+    reject: (error: Error) => void
+    flushed: boolean
+  } | null = null
+  let failure: Error | null = null
+
+  // The flush callback and the segment's last data event can arrive in either order; the
+  // segment is complete once both happened and the output ends with the sync-flush trailer.
+  const settle = (): void => {
+    if (!current?.flushed) return
+    const segment = Buffer.concat(chunks)
+    if (!segment.subarray(-SYNC_FLUSH_TRAILER.length).equals(SYNC_FLUSH_TRAILER)) return
+    chunks = []
+    const done = current
+    current = null
+    done.resolve(Buffer.concat([Buffer.from([REMOTE_STREAM_DEFLATE_MESSAGE_TAG]), segment]))
+  }
+  const fail = (error: Error): void => {
+    failure ??= error
+    const pending = current
+    current = null
+    pending?.reject(failure)
+  }
+  stream.on('data', (chunk: Buffer) => {
+    chunks.push(chunk)
+    settle()
+  })
+  stream.on('error', fail)
+
+  return {
+    encode(plaintext) {
+      try {
+        checkRaw(plaintext)
+      } catch (error) {
+        return Promise.reject(error as Error)
+      }
+      if (failure) return Promise.reject(failure)
+      if (current) return Promise.reject(new Error('Stream deflate encodes one message at a time.'))
+      return new Promise<Buffer>((resolve, reject) => {
+        current = { resolve, reject, flushed: false }
+        stream.write(plaintext)
+        stream.flush(constants.Z_SYNC_FLUSH, () => {
+          if (!current) return
+          current.flushed = true
+          settle()
+        })
+      })
+    },
+    close() {
+      fail(new Error('Stream deflate encoder closed.'))
+      stream.close()
+    }
+  }
 }
 
 /** Locate the deflate stream, accepting standard gzip optional headers but not reserved flags. */

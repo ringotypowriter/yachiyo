@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { realpath } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
@@ -34,10 +34,14 @@ function decodeDataImage(url: URL): Buffer {
   return bytes
 }
 
+export interface EssentialIcon {
+  mediaType: string
+  data: string
+  iconVersion: string
+}
+
 /** Only pass sources from saved Essentials settings, never a caller-supplied URL or path. */
-export async function readEssentialIcon(
-  source: string
-): Promise<{ mediaType: string; data: string; iconVersion: string }> {
+export async function readEssentialIcon(source: string): Promise<EssentialIcon> {
   let bytes: Buffer
   if (isAbsolute(source) || source.startsWith('file:')) {
     const path = source.startsWith('file:') ? fileURLToPath(source) : source
@@ -73,5 +77,50 @@ export async function readEssentialIcon(
     mediaType: 'image/png',
     data: png.toString('base64'),
     iconVersion: createHash('sha256').update(png).digest('hex')
+  }
+}
+
+/**
+ * Cheap identity of a local icon source: path + mtime + size for files, a digest of the URL for
+ * data URLs. HTTP sources have none, so they are never cached.
+ */
+export async function essentialIconSourceKey(source: string): Promise<string | undefined> {
+  if (isAbsolute(source) || source.startsWith('file:')) {
+    const path = await realpath(source.startsWith('file:') ? fileURLToPath(source) : source)
+    const info = await stat(path)
+    return `file:${path}:${info.mtimeMs}:${info.size}`
+  }
+  if (source.startsWith('data:')) {
+    return `data:${createHash('sha256').update(source).digest('hex')}`
+  }
+  return undefined
+}
+
+/**
+ * Normalizing an icon decodes and re-encodes it with sharp, so results are reused until the
+ * source identity changes. Failures are not cached.
+ */
+export function createEssentialIconCache(limit = 32): {
+  read(source: string): Promise<EssentialIcon>
+} {
+  const entries = new Map<string, Promise<EssentialIcon>>()
+  return {
+    async read(source) {
+      const key = await essentialIconSourceKey(source)
+      if (!key) return readEssentialIcon(source)
+      const cached = entries.get(key)
+      if (cached) {
+        entries.delete(key)
+        entries.set(key, cached)
+        return cached
+      }
+      const pending = readEssentialIcon(source)
+      entries.set(key, pending)
+      pending.catch(() => {
+        if (entries.get(key) === pending) entries.delete(key)
+      })
+      while (entries.size > limit) entries.delete(entries.keys().next().value!)
+      return pending
+    }
   }
 }

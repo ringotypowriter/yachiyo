@@ -17,6 +17,8 @@ import {
 import { RemoteError } from './remoteErrors.ts'
 
 const UNREFERENCED_TTL_MS = 30 * 60 * 1000
+/** Chunks a phone may pipeline per upload; they are still applied strictly in index order. */
+export const REMOTE_UPLOAD_MAX_IN_FLIGHT_CHUNKS = 4
 
 interface Upload {
   id: string
@@ -32,6 +34,8 @@ interface Upload {
   handle: FileHandle | null
   committed: boolean
   createdAt: number
+  /** Serializes chunk writes and the commit, so pipelined chunks land in arrival order. */
+  queue: Promise<void>
 }
 
 /** Same split as the desktop composer: any `image/*` is an image, everything else a file. */
@@ -67,7 +71,7 @@ export interface AttachmentStaging {
     filename: string
     mediaType: string
     size: number
-  }): Promise<{ uploadId: string; chunkSize: number }>
+  }): Promise<{ uploadId: string; chunkSize: number; maxInFlightChunks: number }>
   chunk(input: {
     pairingId: string
     uploadId: string
@@ -106,6 +110,21 @@ export function createAttachmentStaging(options: {
     return upload
   }
 
+  /** Runs `step` after every earlier chunk/commit of this upload has settled. */
+  function enqueue<T>(upload: Upload, step: () => Promise<T>): Promise<T> {
+    const result = upload.queue.then(() => {
+      if (uploads.get(upload.id) !== upload) {
+        throw new RemoteError('RemoteNotFound', 'Upload not found.')
+      }
+      return step()
+    })
+    upload.queue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
   async function discard(upload: Upload): Promise<void> {
     uploads.delete(upload.id)
     await upload.handle?.close().catch(() => undefined)
@@ -132,48 +151,57 @@ export function createAttachmentStaging(options: {
         path,
         handle: await open(path, 'w', 0o600),
         committed: false,
-        createdAt: now()
+        createdAt: now(),
+        queue: Promise.resolve()
       })
-      return { uploadId: id, chunkSize: REMOTE_ATTACHMENT_CHUNK_BYTES }
+      return {
+        uploadId: id,
+        chunkSize: REMOTE_ATTACHMENT_CHUNK_BYTES,
+        maxInFlightChunks: REMOTE_UPLOAD_MAX_IN_FLIGHT_CHUNKS
+      }
     },
 
     async chunk(input) {
       const upload = requireUpload(input.pairingId, input.uploadId)
-      if (upload.committed || !upload.handle) {
-        throw new RemoteError('RemoteValidationError', 'Upload is already committed.')
-      }
-      if (input.index !== upload.nextIndex) {
-        throw new RemoteError('RemoteValidationError', 'Upload chunk out of order.')
-      }
-      const bytes = Buffer.from(input.data, 'base64')
-      if (
-        bytes.length > REMOTE_ATTACHMENT_CHUNK_BYTES ||
-        upload.received + bytes.length > upload.size
-      ) {
-        await discard(upload)
-        throw new RemoteError('RemoteLimitExceeded', 'Upload exceeds its declared size.')
-      }
-      await upload.handle.write(bytes)
-      upload.hash.update(bytes)
-      upload.received += bytes.length
-      upload.nextIndex += 1
-      return { received: upload.received }
+      return enqueue(upload, async () => {
+        if (upload.committed || !upload.handle) {
+          throw new RemoteError('RemoteValidationError', 'Upload is already committed.')
+        }
+        if (input.index !== upload.nextIndex) {
+          throw new RemoteError('RemoteValidationError', 'Upload chunk out of order.')
+        }
+        const bytes = Buffer.from(input.data, 'base64')
+        if (
+          bytes.length > REMOTE_ATTACHMENT_CHUNK_BYTES ||
+          upload.received + bytes.length > upload.size
+        ) {
+          await discard(upload)
+          throw new RemoteError('RemoteLimitExceeded', 'Upload exceeds its declared size.')
+        }
+        await upload.handle.write(bytes)
+        upload.hash.update(bytes)
+        upload.received += bytes.length
+        upload.nextIndex += 1
+        return { received: upload.received }
+      })
     },
 
     async commit(input) {
       const upload = requireUpload(input.pairingId, input.uploadId)
-      if (upload.committed) {
+      return enqueue(upload, async () => {
+        if (upload.committed) {
+          return { attachmentId: upload.id, kind: upload.kind }
+        }
+        const digest = upload.hash.digest('hex')
+        if (upload.received !== upload.size || digest !== input.sha256) {
+          await discard(upload)
+          throw new RemoteError('RemoteValidationError', 'Upload is incomplete or corrupted.')
+        }
+        await upload.handle?.close()
+        upload.handle = null
+        upload.committed = true
         return { attachmentId: upload.id, kind: upload.kind }
-      }
-      const digest = upload.hash.digest('hex')
-      if (upload.received !== upload.size || digest !== input.sha256) {
-        await discard(upload)
-        throw new RemoteError('RemoteValidationError', 'Upload is incomplete or corrupted.')
-      }
-      await upload.handle?.close()
-      upload.handle = null
-      upload.committed = true
-      return { attachmentId: upload.id, kind: upload.kind }
+      })
     },
 
     async consume(pairingId, attachmentIds) {

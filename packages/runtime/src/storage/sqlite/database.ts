@@ -1340,7 +1340,10 @@ export function createSqliteYachiyoStorage(
                 ? or(
                     inArray(toolCallsTable.requestMessageId, scope.messageIds),
                     inArray(toolCallsTable.assistantMessageId, scope.messageIds),
-                    scope.activeRunId ? eq(toolCallsTable.runId, scope.activeRunId) : undefined
+                    scope.activeRunId ? eq(toolCallsTable.runId, scope.activeRunId) : undefined,
+                    scope.toolCallIds?.length
+                      ? inArray(toolCallsTable.id, scope.toolCallIds)
+                      : undefined
                   )
                 : undefined
             )

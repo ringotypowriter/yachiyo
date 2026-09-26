@@ -26,12 +26,16 @@ export async function startRemoteHttpServer(options: {
   onConnection(socket: WebSocket): void
   /** Keepalive period; a socket that misses one pong is terminated at the next tick. */
   pingIntervalMs?: number
+  now?: () => number
 }): Promise<RemoteHttpServer> {
+  const now = options.now ?? Date.now
+  const pingIntervalMs = options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS
   const server: Server = createServer((_request, response) => {
     response.writeHead(404).end()
   })
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   const alive = new WeakSet<WebSocket>()
+  const lastReceivedAt = new WeakMap<WebSocket, number>()
 
   server.on('upgrade', (request, socket, head) => {
     const path = (request.url ?? '').split('?')[0]
@@ -43,13 +47,21 @@ export async function startRemoteHttpServer(options: {
       // `noServer` sockets never emit the server's 'connection' event; liveness starts here.
       alive.add(ws)
       ws.on('pong', () => alive.add(ws))
+      ws.on('message', () => lastReceivedAt.set(ws, now()))
       options.onConnection(ws)
     })
   })
 
-  // Cloudflare drops idle WebSockets after about 100 s; pings keep the tunnel leg alive.
+  // Cloudflare drops idle WebSockets after about 100 s; pings keep the tunnel leg alive. A
+  // frame from the phone within the interval proves both the socket and the leg are live, so
+  // the ping (and the radio wake-up it costs the phone) is skipped.
   const pingTimer = setInterval(() => {
     for (const ws of wss.clients) {
+      const receivedAt = lastReceivedAt.get(ws)
+      if (receivedAt !== undefined && now() - receivedAt < pingIntervalMs) {
+        alive.add(ws)
+        continue
+      }
       if (!alive.has(ws)) {
         ws.terminate()
         continue
@@ -57,7 +69,7 @@ export async function startRemoteHttpServer(options: {
       alive.delete(ws)
       ws.ping()
     }
-  }, options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS)
+  }, pingIntervalMs)
   pingTimer.unref()
 
   await new Promise<void>((resolve, reject) => {

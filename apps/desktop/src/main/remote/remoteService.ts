@@ -8,6 +8,7 @@ import { REMOTE_PROTOCOL_VERSION } from '@yachiyo/shared/remote/protocolVersion'
 import { createAttachmentStaging, type AttachmentStaging } from './attachmentStaging.ts'
 import { REMOTE_CLOSE_CODES, RemoteConnection } from './remoteConnection.ts'
 import { RemoteEventHub } from './remoteEventHub.ts'
+import { createRemoteEventStateFile } from './remoteEventState.ts'
 import {
   createRemoteFacade,
   type RemoteFacade,
@@ -26,7 +27,7 @@ import {
 const UPLOAD_SWEEP_INTERVAL_MS = 5 * 60 * 1000
 
 export interface RemoteServiceOptions {
-  /** `<YACHIYO_HOME>/remote`; holds identity.bin and pairings.json. */
+  /** `<YACHIYO_HOME>/remote`; holds identity.bin, pairings.json and event-state.json. */
   directory: string
   uploadsDirectory: string
   secretBox: SecretBox
@@ -206,6 +207,12 @@ export class RemoteService {
         subscribe: this.options.subscribe,
         getThreadSummary: (threadId) =>
           this.options.host['host.remote.getThreadSummary']({ threadId }),
+        getThreadVisibility: (threadId) =>
+          this.options.host['host.remote.getThreadVisibility']({ threadId }),
+        persistence: createRemoteEventStateFile(
+          join(this.options.directory, 'event-state.json'),
+          this.options.log
+        ),
         onError: (error) => this.options.log(`[remote] event hub error: ${String(error)}`)
       })
       this.hub.start()

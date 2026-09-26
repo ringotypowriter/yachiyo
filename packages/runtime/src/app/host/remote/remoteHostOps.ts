@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { hasPendingPlanDocument, isLatestRunPlanMode } from '@yachiyo/shared/planMode'
 import {
@@ -30,20 +31,25 @@ import type {
   RemoteTask,
   RemoteThreadDetail,
   RemoteThreadSummary,
+  RemoteToolCall,
   RemoteWorkspace
 } from '@yachiyo/shared/remote/projections'
 import { buildMessageTreeMaps, collectMessagePathFromMaps } from '@yachiyo/shared/threadTree'
 
 import type { YachiyoServer } from '../YachiyoServer.ts'
 import { assertPageLimit } from '../../../storage/messagePageWindow.ts'
-import { fitRemoteThreadBudget } from './remoteThreadBudget.ts'
+import { isLocalOrOwnerDmThread } from '../../../storage/threadVisibility.ts'
+import { fitRemoteThreadBudgetMeasured } from './remoteThreadBudget.ts'
 import { resolveThreadWorkspacePath } from '../../../config/paths.ts'
 import { readRemoteWorkspaceFile } from './remoteWorkspaceFile.ts'
-import { readEssentialIcon } from './remoteEssentialIcon.ts'
+import { createEssentialIconCache } from './remoteEssentialIcon.ts'
 
 const THREAD_LIST_DEFAULT = 100
 const RECENT_WORKSPACE_LIMIT = 20
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024
+// A resync pages the whole inbox in a few seconds; sessions outliving that are abandoned.
+const PAGING_SESSION_LIMIT = 8
+const PAGING_SESSION_TTL_MS = 10 * 60 * 1000
 
 /** The slice of YachiyoServer the remote projections read. */
 export type RemoteProjectionServer = Pick<
@@ -68,17 +74,47 @@ export interface RemoteHostInfo {
 
 type ThreadListPage = { threads: RemoteThreadSummary[]; nextCursor?: string }
 
+type LoadThreadInput = {
+  threadId: string
+  limit?: number
+  beforeMessageId?: string
+  omitToolPreviews?: boolean
+}
+
+/**
+ * Whether a thread may reach the phone at all: the inbox trust rule shared with `bootstrap`
+ * (local, or an owner DM outside groups), minus read-only sync mirrors. Archiving is not part
+ * of it, so the answer is stable for the thread's lifetime.
+ */
+export function isRemoteVisibleThread(thread: ThreadRecord): boolean {
+  return !thread.syncOriginDeviceId && isLocalOrOwnerDmThread(thread, thread.channelUserRole)
+}
+
+/** Replaces inline previews with `hasPreview`; `tools.getPreview` serves them on demand. */
+export function omitToolPreviews(toolCall: RemoteToolCall): RemoteToolCall {
+  if (toolCall.inputPreview === undefined && toolCall.outputPreview === undefined) return toolCall
+  const rest = { ...toolCall, hasPreview: true }
+  delete rest.inputPreview
+  delete rest.outputPreview
+  return rest
+}
+
 export interface RemoteHostOps {
   'host.remote.listThreadSummaries'(input: { cursor?: string; limit?: number }): ThreadListPage
   'host.remote.getThreadSummary'(input: { threadId: string }): RemoteThreadSummary | null
-  'host.remote.loadThread'(input: {
-    threadId: string
-    limit?: number
-    beforeMessageId?: string
-  }): RemoteThreadDetail
+  /** Stable trust visibility; null when the thread no longer exists. */
+  'host.remote.getThreadVisibility'(input: { threadId: string }): boolean | null
+  'host.remote.loadThread'(input: LoadThreadInput): RemoteThreadDetail
+  /** `loadThread` plus the UTF-8 JSON size of the detail, so callers can extend it cheaply. */
+  'host.remote.loadThreadMeasured'(input: LoadThreadInput): {
+    detail: RemoteThreadDetail
+    byteLength: number
+  }
   'host.remote.listRecentWorkspaces'(): { workspaces: RemoteWorkspace[] }
   'host.remote.listSelectableModels'(): Promise<{ models: RemoteSelectableModel[] }>
   'host.remote.listEssentials'(): Promise<{ essentials: RemoteEssential[] }>
+  /** One essential without icon versioning, for starting a thread from it. */
+  'host.remote.getEssential'(input: { essentialId: string }): Promise<RemoteEssential | null>
   'host.remote.getEssentialIcon'(input: {
     essentialId: string
   }): Promise<{ mediaType: string; data: string; iconVersion: string }>
@@ -111,6 +147,10 @@ export interface RemoteHostOps {
 export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostOps {
   const storage = (): ReturnType<YachiyoServer['getStorage']> => server.getStorage()
   let syncDeviceIdPromise: Promise<string | undefined> | null = null
+  const essentialIcons = createEssentialIconCache()
+  // Inbox paging sessions: the visible thread order captured by the first page, so later
+  // pages neither re-run `bootstrap()` nor skip/duplicate threads that move meanwhile.
+  const pagingSessions = new Map<string, { threadIds: string[]; createdAt: number }>()
 
   function attentionFor(thread: ThreadRecord, latestRun: RunRecord | undefined): boolean {
     if (!latestRun) return false
@@ -145,40 +185,108 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
 
   function requireActiveThread(threadId: string): ThreadRecord {
     const thread = storage().getThread(threadId)
-    if (!thread || thread.archivedAt || thread.syncOriginDeviceId)
+    if (!thread || thread.archivedAt || !isRemoteVisibleThread(thread))
       throw new RemoteNotFoundError('Thread not found.')
     return thread
   }
 
-  function listThreadSummaries(input: { cursor?: string; limit?: number }): ThreadListPage {
+  /** The inbox as `bootstrap()` lists it; also runs its backfills, like the desktop does. */
+  function listInboxThreads(): Array<{ thread: ThreadRecord; latestRun?: RunRecord }> {
     const { threads, latestRunsByThread } = storage().bootstrap()
-    const localThreads = threads.filter(
-      (thread) =>
-        !thread.syncOriginDeviceId && visibleInInbox(thread, latestRunsByThread[thread.id])
-    )
-    const offset = input.cursor ? Number.parseInt(input.cursor, 10) : 0
-    if (!Number.isInteger(offset) || offset < 0) throw new Error('Invalid thread list cursor.')
-    const limit = input.limit ?? THREAD_LIST_DEFAULT
-    const page = localThreads.slice(offset, offset + limit)
-    const next = offset + page.length
-    return {
-      threads: page.map((thread) => summarize(thread, latestRunsByThread[thread.id])),
-      ...(next < localThreads.length ? { nextCursor: String(next) } : {})
+    return threads
+      .filter(
+        (thread) =>
+          isRemoteVisibleThread(thread) && visibleInInbox(thread, latestRunsByThread[thread.id])
+      )
+      .map((thread) => ({ thread, latestRun: latestRunsByThread[thread.id] }))
+  }
+
+  function openPagingSession(threadIds: string[]): string {
+    const now = Date.now()
+    for (const [id, session] of pagingSessions) {
+      if (now - session.createdAt > PAGING_SESSION_TTL_MS) pagingSessions.delete(id)
     }
+    while (pagingSessions.size >= PAGING_SESSION_LIMIT) {
+      pagingSessions.delete(pagingSessions.keys().next().value!)
+    }
+    const id = randomUUID()
+    pagingSessions.set(id, { threadIds, createdAt: now })
+    return id
+  }
+
+  function pageFrom(
+    threadIds: string[],
+    offset: number,
+    limit: number,
+    sessionId: string | null
+  ): { page: string[]; nextCursor?: string } {
+    const page = threadIds.slice(offset, offset + limit)
+    const next = offset + page.length
+    if (next >= threadIds.length) {
+      if (sessionId) pagingSessions.delete(sessionId)
+      return { page }
+    }
+    const id = sessionId ?? openPagingSession(threadIds)
+    return { page, nextCursor: `${id}:${next}` }
+  }
+
+  function listThreadSummaries(input: { cursor?: string; limit?: number }): ThreadListPage {
+    const limit = input.limit ?? THREAD_LIST_DEFAULT
+    const cursor = input.cursor ? /^(?:([0-9a-f-]{36}):)?(\d+)$/.exec(input.cursor) : null
+    if (input.cursor && !cursor) throw new Error('Invalid thread list cursor.')
+    const offset = cursor ? Number.parseInt(cursor[2]!, 10) : 0
+    if (!Number.isSafeInteger(offset)) throw new Error('Invalid thread list cursor.')
+    const sessionId = cursor?.[1] ?? null
+    const session = sessionId ? pagingSessions.get(sessionId) : undefined
+
+    if (!session) {
+      // First page, a legacy offset cursor, or an expired session: take a fresh snapshot.
+      const inbox = listInboxThreads()
+      const { page, nextCursor } = pageFrom(
+        inbox.map((entry) => entry.thread.id),
+        offset,
+        limit,
+        null
+      )
+      const byId = new Map(inbox.map((entry) => [entry.thread.id, entry]))
+      return {
+        threads: page.map((id) => summarize(byId.get(id)!.thread, byId.get(id)!.latestRun)),
+        ...(nextCursor ? { nextCursor } : {})
+      }
+    }
+
+    // Later pages read only their own threads, current as of this page. Threads archived or
+    // hidden since the snapshot are skipped; new ones reach the phone as live summaries.
+    const { page, nextCursor } = pageFrom(session.threadIds, offset, limit, sessionId)
+    const threads: RemoteThreadSummary[] = []
+    for (const id of page) {
+      const summary = getThreadSummary({ threadId: id })
+      if (summary) threads.push(summary)
+    }
+    return { threads, ...(nextCursor ? { nextCursor } : {}) }
   }
 
   function getThreadSummary(input: { threadId: string }): RemoteThreadSummary | null {
     const thread = storage().getThread(input.threadId)
-    if (!thread || thread.archivedAt || thread.syncOriginDeviceId) return null
+    if (!thread || thread.archivedAt || !isRemoteVisibleThread(thread)) return null
     const latestRun = latestRunOf(thread.id)
     return visibleInInbox(thread, latestRun) ? summarize(thread, latestRun) : null
   }
 
-  function loadThread(input: {
-    threadId: string
-    limit?: number
-    beforeMessageId?: string
-  }): RemoteThreadDetail {
+  function getThreadVisibility(input: { threadId: string }): boolean | null {
+    const thread =
+      storage().getThread(input.threadId) ?? storage().getArchivedThread(input.threadId)
+    return thread ? isRemoteVisibleThread(thread) : null
+  }
+
+  function loadThread(input: LoadThreadInput): RemoteThreadDetail {
+    return loadThreadMeasured(input).detail
+  }
+
+  function loadThreadMeasured(input: LoadThreadInput): {
+    detail: RemoteThreadDetail
+    byteLength: number
+  } {
     const thread = requireActiveThread(input.threadId)
     const limit = input.limit ?? REMOTE_THREAD_PAGE_DEFAULT
     assertPageLimit(limit)
@@ -249,7 +357,8 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
         toolCalls: storage().listThreadToolCalls(thread.id)
       })
 
-    return fitRemoteThreadBudget({
+    const projectedToolCalls = toolCalls.map(projectToolCall)
+    return fitRemoteThreadBudgetMeasured({
       thread: projectThreadSummary(thread, {
         ...(latestRun ? { latestRun } : {}),
         needsAttention:
@@ -257,7 +366,9 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
       }),
       messages: projected,
       hasMoreBefore: start > 0,
-      toolCalls: toolCalls.map(projectToolCall),
+      toolCalls: input.omitToolPreviews
+        ? projectedToolCalls.map(omitToolPreviews)
+        : projectedToolCalls,
       queuedFollowUps: queuedFollowUpMessages
         .map((message) => projectMessage(message))
         .filter((message): message is RemoteMessage => message !== null),
@@ -320,8 +431,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
         [...(config.essentials ?? [])]
           .sort((left, right) => left.order - right.order)
           .map(async (essential) => {
-            const workspaceName = workspaceNameOf(essential.workspacePath)
-            // Read content, not just the configured path: local files can change in place.
+            // Version content, not just the configured path: local files can change in place.
             // HTTP icons remain unversioned so network timeouts never block options metadata.
             // A broken image must not prevent loading the other new-thread options.
             const image =
@@ -330,30 +440,18 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
               (essential.icon.startsWith('data:') ||
                 essential.icon.startsWith('file:') ||
                 isAbsolute(essential.icon))
-                ? await readEssentialIcon(essential.icon).catch(() => undefined)
+                ? await essentialIcons.read(essential.icon).catch(() => undefined)
                 : undefined
-            return {
-              id: essential.id,
-              ...(essential.iconType === 'emoji' && essential.icon ? { icon: essential.icon } : {}),
-              ...(essential.iconType === 'image' && essential.icon ? { hasImageIcon: true } : {}),
-              ...(image ? { iconVersion: image.iconVersion } : {}),
-              ...(essential.label ? { label: essential.label } : {}),
-              ...(essential.workspacePath ? { workspacePath: essential.workspacePath } : {}),
-              ...(workspaceName ? { workspaceName } : {}),
-              privacyMode: Boolean(essential.privacyMode),
-              ...(essential.modelOverride
-                ? {
-                    modelOverride: {
-                      providerName: essential.modelOverride.providerName,
-                      model: essential.modelOverride.model
-                    }
-                  }
-                : {}),
-              order: essential.order
-            }
+            return projectEssential(essential, image?.iconVersion)
           })
       )
     }
+  }
+
+  async function getEssential(input: { essentialId: string }): Promise<RemoteEssential | null> {
+    const config = await server.getConfig()
+    const essential = config.essentials?.find((entry) => entry.id === input.essentialId)
+    return essential ? projectEssential(essential) : null
   }
 
   async function getAppearance(): Promise<RemoteAppearance> {
@@ -368,7 +466,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     if (!essential?.icon || essential.iconType !== 'image') {
       throw new RemoteNotFoundError('Essential image not found.')
     }
-    return readEssentialIcon(essential.icon)
+    return essentialIcons.read(essential.icon)
   }
 
   async function getFile(input: {
@@ -452,9 +550,10 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     truncated: boolean
   } {
     requireActiveThread(input.threadId)
-    const toolCall = storage()
-      .listThreadToolCalls(input.threadId)
-      .find((candidate) => candidate.id === input.toolCallId)
+    const [toolCall] = storage().listThreadToolCalls(input.threadId, {
+      messageIds: [],
+      toolCallIds: [input.toolCallId]
+    })
     if (!toolCall) throw new RemoteNotFoundError('Tool call not found.')
     const { inputPreview, outputPreview, truncated } = projectToolCall(toolCall)
     return {
@@ -486,10 +585,13 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
   return {
     'host.remote.listThreadSummaries': listThreadSummaries,
     'host.remote.getThreadSummary': getThreadSummary,
+    'host.remote.getThreadVisibility': getThreadVisibility,
     'host.remote.loadThread': loadThread,
+    'host.remote.loadThreadMeasured': loadThreadMeasured,
     'host.remote.listRecentWorkspaces': listRecentWorkspaces,
     'host.remote.listSelectableModels': listSelectableModels,
     'host.remote.listEssentials': listEssentials,
+    'host.remote.getEssential': getEssential,
     'host.remote.getEssentialIcon': getEssentialIcon,
     'host.remote.getFile': getFile,
     'host.remote.getAppearance': getAppearance,
@@ -498,6 +600,32 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     'host.remote.getImage': getImage,
     'host.remote.search': search,
     'host.remote.getToolPreview': getToolPreview
+  }
+}
+
+function projectEssential(
+  essential: NonNullable<SettingsConfig['essentials']>[number],
+  iconVersion?: string
+): RemoteEssential {
+  const workspaceName = workspaceNameOf(essential.workspacePath)
+  return {
+    id: essential.id,
+    ...(essential.iconType === 'emoji' && essential.icon ? { icon: essential.icon } : {}),
+    ...(essential.iconType === 'image' && essential.icon ? { hasImageIcon: true } : {}),
+    ...(iconVersion ? { iconVersion } : {}),
+    ...(essential.label ? { label: essential.label } : {}),
+    ...(essential.workspacePath ? { workspacePath: essential.workspacePath } : {}),
+    ...(workspaceName ? { workspaceName } : {}),
+    privacyMode: Boolean(essential.privacyMode),
+    ...(essential.modelOverride
+      ? {
+          modelOverride: {
+            providerName: essential.modelOverride.providerName,
+            model: essential.modelOverride.model
+          }
+        }
+      : {}),
+    order: essential.order
   }
 }
 

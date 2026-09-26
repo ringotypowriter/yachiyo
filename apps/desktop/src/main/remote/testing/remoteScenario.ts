@@ -20,12 +20,15 @@ function check(condition: unknown, message: string): asserts condition {
 export async function runRemoteScenario(input: {
   pairingUrl: string
   endpoint?: string
+  /** Protocol features to offer; omitted means a phone that predates feature negotiation. */
+  features?: readonly string[]
   log?: (line: string) => void
 }): Promise<void> {
   const log = input.log ?? (() => undefined)
 
   const paired = await RemoteTestClient.pair(input.pairingUrl, {
-    ...(input.endpoint ? { endpoint: input.endpoint } : {})
+    ...(input.endpoint ? { endpoint: input.endpoint } : {}),
+    ...(input.features ? { features: input.features } : {})
   })
   let client = paired.client
   const hello = await client.call<{ epoch: string; deviceName: string }>('remote.hello', {
@@ -90,17 +93,19 @@ export async function runRemoteScenario(input: {
 
   client = await RemoteTestClient.connect(paired.endpoint, {
     phoneKeyPair: paired.phoneKeyPair,
-    desktopKey: paired.desktopKey
+    desktopKey: paired.desktopKey,
+    ...(input.features ? { features: input.features } : {})
   })
   const resumed = await client.call<{ resumed: boolean; headSeq: number }>('events.subscribe', {
     threadIds: [thread.id],
     resumeFrom
   })
   check(resumed.resumed, 'resume within the buffer was refused')
+  // The replay is compacted (merged deltas sit at their last seq), so only its order is fixed.
   const replayed = await client.waitForPush(
-    (push) => push.type === 'event' && push.seq === resumeFrom.seq + 1
+    (push) => push.type === 'event' && push.seq > resumeFrom.seq
   )
-  check(replayed.type === 'event', 'the first missed event was not replayed')
+  check(replayed.type === 'event', 'the missed events were not replayed')
   await client.waitForPush(
     isEvent(
       (event) =>

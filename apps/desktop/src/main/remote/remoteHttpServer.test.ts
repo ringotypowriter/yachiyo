@@ -47,3 +47,25 @@ test('terminates a socket that stops answering pings', async (t) => {
 
   assert.equal(socket.readyState, WebSocket.CLOSED)
 })
+
+test('skips pings while the phone is sending frames, and pings again once it stops', async (t) => {
+  const server = await startServer(t)
+  const socket = connect(server, false)
+  t.after(() => socket.terminate())
+  await once(socket, 'open')
+  let pinged = false
+  socket.on('ping', () => {
+    pinged = true
+  })
+
+  // Frames every 10 ms keep the socket alive although it never answers a ping.
+  for (let frame = 0; frame < 15; frame += 1) {
+    socket.send(Buffer.from([frame]))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  assert.equal(pinged, false)
+  assert.equal(socket.readyState, WebSocket.OPEN)
+
+  await once(socket, 'close')
+  assert.equal(pinged, true)
+})

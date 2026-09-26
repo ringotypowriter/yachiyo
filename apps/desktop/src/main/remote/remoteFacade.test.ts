@@ -91,7 +91,12 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
 
   try {
     await fn({
-      call: (method, input) => facade.dispatch(context, method, input) as Promise<never>,
+      call: async (method, input) => {
+        const value = (await facade.dispatch(context, method, input)) as never
+        // The connection starts delivery once the subscribe response has been sent.
+        if (method === 'events.subscribe') subscription.startDelivery()
+        return value
+      },
       createFixtureThread: () => fake.server.createThread(),
       events,
       audit,
@@ -151,7 +156,7 @@ test('threads.load snapshots before async host load and leaves later completion 
       delta: 'before'
     })
 
-    const originalLoad = host['host.remote.loadThread']
+    const originalLoad = host['host.remote.loadThreadMeasured']
     let release!: () => void
     let entered!: () => void
     const waiting = new Promise<void>((resolve) => {
@@ -160,10 +165,11 @@ test('threads.load snapshots before async host load and leaves later completion 
     const started = new Promise<void>((resolve) => {
       entered = resolve
     })
-    host['host.remote.loadThread'] = async (input) => {
+    host['host.remote.loadThreadMeasured'] = async (input) => {
       entered()
       await waiting
-      return { ...(await originalLoad({ threadId: input.threadId })), activeRunId: 'r1' }
+      const loaded = await originalLoad({ threadId: input.threadId })
+      return { ...loaded, detail: { ...loaded.detail, activeRunId: 'r1' } }
     }
 
     const pending = call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
@@ -213,10 +219,10 @@ test('threads.load pages history when a live snapshot pushes the response over i
       messageId: 'm1',
       delta: 'a'.repeat(900_000)
     })
-    const originalLoad = host['host.remote.loadThread']
-    host['host.remote.loadThread'] = async (input) => {
-      const detail = await originalLoad(input)
-      return {
+    const originalLoad = host['host.remote.loadThreadMeasured']
+    host['host.remote.loadThreadMeasured'] = async (input) => {
+      const { detail } = await originalLoad(input)
+      const replaced = {
         ...detail,
         activeRunId: 'r1',
         messages: [
@@ -232,6 +238,8 @@ test('threads.load pages history when a live snapshot pushes the response over i
           }
         ]
       }
+      // The host measures what it returns; the facade trusts that size.
+      return { detail: replaced, byteLength: Buffer.byteLength(JSON.stringify(replaced)) }
     }
     const detail = await call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
     assert.deepEqual(
@@ -380,5 +388,24 @@ test('startThread applies the essential and sends the first message in one call'
     })
     const after = await call<{ threads: RemoteThreadSummary[] }>('threads.list', {})
     assert.equal(after.threads.length, 1, 'a failed start leaves no empty thread')
+  })
+})
+
+test('hello answers from cached host info until settings change', async () => {
+  await withFacade(async ({ call, host, emit }) => {
+    const original = host['host.remote.getHostInfo']
+    let calls = 0
+    host['host.remote.getHostInfo'] = async () => {
+      calls += 1
+      return original()
+    }
+    const hello = (): Promise<unknown> =>
+      call('remote.hello', { protocolVersion: 1, client: { app: 'test', version: '1' } })
+    await hello()
+    await hello()
+    assert.equal(calls, 1, 'a heartbeat hello costs no runtime call')
+    emit({ type: 'settings.updated', config: { general: {} } })
+    await hello()
+    assert.equal(calls, 2)
   })
 })

@@ -2,10 +2,13 @@ import WebSocket from 'ws'
 
 import type { RemotePush } from '@yachiyo/shared/remote/events'
 import { decodePairingUrl, type PairingGrant } from '@yachiyo/shared/remote/pairing'
+import type { HandshakeServerPayload } from '@yachiyo/shared/remote/methods'
 import {
   REMOTE_COMPRESSION,
+  REMOTE_FEATURES,
   REMOTE_HANDSHAKE_MODE,
-  REMOTE_NOISE_PROLOGUE
+  REMOTE_NOISE_PROLOGUE,
+  REMOTE_STREAM_DEFLATE_MESSAGE_TAG
 } from '@yachiyo/shared/remote/wire'
 import type { RpcMessage } from '@yachiyo/shared/rpc/rpcTransport'
 
@@ -17,6 +20,7 @@ import {
   encodeRemoteMessage,
   type RemoteCompression
 } from '../messageCodec.ts'
+import { createStreamInflateDecoder } from './streamInflate.ts'
 
 export class RemoteCallError extends Error {
   constructor(name: string, message: string) {
@@ -33,6 +37,8 @@ interface Pending {
 interface ClientOptions {
   deviceName?: string
   compression?: boolean
+  /** Offered protocol features; omitted means the legacy handshake payload. */
+  features?: readonly string[]
 }
 
 /**
@@ -48,6 +54,11 @@ export class RemoteTestClient {
   }> = []
   grant: PairingGrant | null = null
   closeCode: number | null = null
+  /** The authenticated message-2 payload when features were offered. */
+  handshake: HandshakeServerPayload | null = null
+  /** Batch pushes received; their items are also expanded into `pushes`. */
+  batchCount = 0
+  private readonly inflate = createStreamInflateDecoder()
   private readonly socket: WebSocket
   private readonly noise: NoiseTransport
   readonly compression: RemoteCompression
@@ -102,7 +113,8 @@ export class RemoteTestClient {
       desktopKey,
       psk: Buffer.from(payload.token, 'base64url'),
       deviceName: options.deviceName ?? 'Node test phone',
-      compression: options.compression ?? true
+      compression: options.compression ?? true,
+      ...(options.features ? { features: options.features } : {})
     })
     return { client, phoneKeyPair, desktopKey, endpoint }
   }
@@ -116,7 +128,8 @@ export class RemoteTestClient {
       phoneKeyPair: input.phoneKeyPair,
       desktopKey: input.desktopKey,
       deviceName: input.deviceName ?? 'Node test phone',
-      compression: input.compression ?? true
+      compression: input.compression ?? true,
+      ...(input.features ? { features: input.features } : {})
     })
   }
 
@@ -129,6 +142,7 @@ export class RemoteTestClient {
       psk?: Buffer
       deviceName: string
       compression: boolean
+      features?: readonly string[]
     }
   ): Promise<RemoteTestClient> {
     const socket = new WebSocket(endpoint)
@@ -152,7 +166,8 @@ export class RemoteTestClient {
         deviceName: input.deviceName,
         app: 'yachiyo-node-test',
         version: '1.0.0',
-        ...(input.compression ? { compression: [REMOTE_COMPRESSION] } : {})
+        ...(input.compression ? { compression: [REMOTE_COMPRESSION] } : {}),
+        ...(input.features ? { features: input.features } : {})
       })
     )
     const reply = new Promise<Buffer>((resolve, reject) => {
@@ -169,15 +184,37 @@ export class RemoteTestClient {
     )
     const response = handshake.readMessage(await reply)
     let compression: RemoteCompression
+    let selection: HandshakeServerPayload | null = null
     if (response.length) {
-      const selection = JSON.parse(response.toString('utf8'))
-      if (!input.compression || selection.compression !== REMOTE_COMPRESSION) {
-        socket.close(4400, 'unsupported compression')
-        throw new Error('Unsupported remote compression selection.')
+      selection = JSON.parse(response.toString('utf8')) as HandshakeServerPayload
+      if (selection.compression !== undefined || !input.features) {
+        if (!input.compression || selection.compression !== REMOTE_COMPRESSION) {
+          socket.close(4400, 'unsupported compression')
+          throw new Error('Unsupported remote compression selection.')
+        }
+        compression = REMOTE_COMPRESSION
       }
-      compression = REMOTE_COMPRESSION
     }
-    return new RemoteTestClient(socket, new NoiseTransport(handshake.split()), compression)
+    const client = new RemoteTestClient(socket, new NoiseTransport(handshake.split()), compression)
+    client.handshake = input.features ? selection : null
+    return client
+  }
+
+  get features(): readonly string[] {
+    return this.handshake?.features ?? []
+  }
+
+  get streamDeflate(): boolean {
+    return this.features.includes(REMOTE_FEATURES.streamDeflate)
+  }
+
+  /** Decodes one desktop-to-phone envelope exactly as the phone would. */
+  decodeIncoming(encoded: Buffer): Promise<Buffer> {
+    if (encoded[0] === REMOTE_STREAM_DEFLATE_MESSAGE_TAG) {
+      if (!this.streamDeflate) throw new Error('stream-deflate was not negotiated.')
+      return Promise.resolve(this.inflate(encoded))
+    }
+    return decodeRemoteMessage(encoded, this.compression)
   }
 
   call<T = unknown>(method: string, input: unknown = {}): Promise<T> {
@@ -238,7 +275,7 @@ export class RemoteTestClient {
 
   private async receive(frame: Buffer): Promise<void> {
     const encoded = this.noise.decrypt(frame)
-    const plaintext = await decodeRemoteMessage(encoded, this.compression)
+    const plaintext = await this.decodeIncoming(encoded)
     this.frames.push({
       direction: 'received',
       jsonBytes: plaintext.length,
@@ -259,6 +296,24 @@ export class RemoteTestClient {
       this.grant = payload
       return
     }
+    if (payload.type === 'batch') {
+      // Each item applies exactly like an `event` push with the batch epoch and timestamp.
+      this.batchCount += 1
+      for (const item of payload.items) {
+        this.record({
+          type: 'event',
+          epoch: payload.epoch,
+          seq: item.seq,
+          timestamp: payload.timestamp,
+          event: item.event
+        })
+      }
+      return
+    }
+    this.record(payload)
+  }
+
+  private record(payload: RemotePush): void {
     this.pushes.push(payload)
     for (const waiter of [...this.waiters]) {
       if (waiter.predicate(payload)) {
