@@ -99,9 +99,8 @@ export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
 ]
 
 export function getSettingsPanels(platform: string): readonly SettingsPanelDefinition[] {
-  // Remote access supervises cloudflared through launchd, so it is macOS only in v1.
   const panels =
-    platform === 'darwin'
+    platform === 'darwin' || platform === 'win32'
       ? SETTINGS_PANELS
       : SETTINGS_PANELS.filter((panel) => panel.id !== 'remote')
   if (resolvePlatformCapabilities(platform as NodeJS.Platform).activityTracking) {

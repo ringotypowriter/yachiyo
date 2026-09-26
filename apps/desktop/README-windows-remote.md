@@ -1,0 +1,9 @@
+# Windows Remote setup
+
+The Windows desktop app serves the same encrypted Remote protocol and iPhone pairing flow as macOS. Keep Yachiyo running: closing its last window exits the app and stops its managed tunnel. Windows does not publish iCloud address-recovery mailboxes, so a quick tunnel's address change requires a new pairing code. Use a named tunnel or stable external endpoint for ongoing access.
+
+1. Install `cloudflared` and make sure `cloudflared.exe` is on the app's `PATH` (for example, `winget install Cloudflare.cloudflared`, then restart Yachiyo). In **Settings → Remote**, enable Remote access and save.
+2. For a quick tunnel, run `yachiyo remote tunnel install --mode quick` while the app is running. The app launches and restarts `cloudflared` with HTTP/2; no administrator privilege or Windows service is needed. If your Cloudflare user config exists, use a named tunnel instead. For a named tunnel, first create the tunnel and DNS route with `cloudflared`, then run `yachiyo remote tunnel install --mode named --tunnel <name> --hostname <host>`.
+3. Wait until **Server address** shows a `wss://` URL, then generate a pairing code and scan it with Yachiyo on iPhone. Test the connection over cellular data; a displayed hostname alone does not prove that Cloudflare can reach the app.
+
+An externally managed HTTPS reverse proxy or tunnel is also supported without installing `cloudflared` in Yachiyo. Select **External endpoint**, enter its public HTTPS URL (or full WSS URL), and forward `/remote/v1` with WebSocket Upgrade to `http://127.0.0.1:47831`. Keep the local listener on loopback unless the proxy runs on a different host; in that case enable **Local network** and restrict inbound port `47831` to the proxy at the firewall. Do not expose unencrypted WebSocket to the internet.

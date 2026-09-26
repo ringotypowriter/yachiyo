@@ -20,12 +20,20 @@ export function remoteAddressLabel(status: RemoteStatusResult | null): string | 
   return endpoint?.url ?? null
 }
 
-export type RemoteStatusHint = 'cloudflared-stopped' | 'icloud-unavailable' | null
+export type RemoteStatusHint =
+  | 'cloudflared-stopped'
+  | 'icloud-unavailable'
+  | 'quick-address-changes'
+  | null
 
 /** At most one hint, most actionable first. */
-export function remoteStatusHint(status: RemoteStatusResult | null): RemoteStatusHint {
+export function remoteStatusHint(
+  status: RemoteStatusResult | null,
+  platform = 'darwin'
+): RemoteStatusHint {
   if (!status?.running) return null
   if (status.tunnel !== 'none' && !status.cloudflared.agentRunning) return 'cloudflared-stopped'
-  if (status.icloudDrive === 'unavailable') return 'icloud-unavailable'
+  if (platform === 'win32' && status.tunnel === 'quick') return 'quick-address-changes'
+  if (platform === 'darwin' && status.icloudDrive === 'unavailable') return 'icloud-unavailable'
   return null
 }

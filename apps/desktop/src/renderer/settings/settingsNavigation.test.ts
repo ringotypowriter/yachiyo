@@ -32,13 +32,11 @@ test('settings navigation groups related panes under fewer top-level panels', ()
   )
 })
 
-test('the remote panel is offered on macOS only', () => {
+test('the remote panel is offered on macOS and Windows', () => {
   assert.ok(getSettingsPanels('darwin').some((panel) => panel.id === 'remote'))
-  assert.equal(
-    getSettingsPanels('win32').some((panel) => panel.id === 'remote'),
-    false
-  )
-  assert.deepEqual(resolveSettingsRouteForPlatform('remote', 'win32'), { panel: 'general' })
+  assert.ok(getSettingsPanels('win32').some((panel) => panel.id === 'remote'))
+  assert.deepEqual(resolveSettingsRouteForPlatform('remote', 'win32'), { panel: 'remote' })
+  assert.deepEqual(resolveSettingsRouteForPlatform('remote', 'linux'), { panel: 'general' })
 })
 
 test('general panel exposes behavior and user interface tabs', () => {

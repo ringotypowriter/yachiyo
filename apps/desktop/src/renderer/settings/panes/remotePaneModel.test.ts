@@ -53,6 +53,18 @@ test('a stopped cloudflared outranks missing iCloud Drive; nothing shows while o
   )
   assert.equal(remoteStatusHint(status({ icloudDrive: 'unavailable' })), 'icloud-unavailable')
   assert.equal(
+    remoteStatusHint(status({ icloudDrive: 'unavailable' }), 'win32'),
+    'quick-address-changes'
+  )
+  assert.equal(
+    remoteStatusHint(status({ tunnel: 'named', icloudDrive: 'unavailable' }), 'win32'),
+    null
+  )
+  assert.equal(
+    remoteStatusHint(status({ icloudDrive: 'unavailable' }), 'darwin'),
+    'icloud-unavailable'
+  )
+  assert.equal(
     remoteStatusHint(
       status({ tunnel: 'none', cloudflared: { ...status().cloudflared, agentRunning: false } })
     ),

@@ -87,15 +87,20 @@ export async function handleRemoteCommand(
           ? { mode: 'quick' }
           : { mode: 'named', tunnelName: request.tunnelName, hostname: request.hostname }
       await deps.tunnel.install(install, { port: remote.port, metricsPort: remote.metricsPort })
-      await deps.saveConfig({
-        ...config,
-        remote: {
-          ...remote,
-          enabled: true,
-          tunnel: request.mode,
-          namedHostname: request.mode === 'named' ? request.hostname : remote.namedHostname
-        }
-      })
+      try {
+        await deps.saveConfig({
+          ...config,
+          remote: {
+            ...remote,
+            enabled: true,
+            tunnel: request.mode,
+            namedHostname: request.mode === 'named' ? request.hostname : remote.namedHostname
+          }
+        })
+      } catch (error) {
+        await deps.tunnel.uninstall()
+        throw error
+      }
       return status(deps)
     }
     case 'tunnel-uninstall': {

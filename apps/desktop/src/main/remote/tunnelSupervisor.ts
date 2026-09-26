@@ -324,7 +324,7 @@ export class TunnelSupervisor {
     }
   }
 
-  private setHostname(hostname: string | null): void {
+  protected setHostname(hostname: string | null): void {
     if (hostname === this.hostname) return
     this.hostname = hostname
     this.onChange?.(this.endpoint())

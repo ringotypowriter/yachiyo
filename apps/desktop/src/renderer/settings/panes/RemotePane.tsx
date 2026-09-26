@@ -206,7 +206,7 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
     { value: 'none', label: t('settings.remote.tunnelNone') }
   ]
   const address = remoteAddressLabel(status)
-  const hint = remoteStatusHint(status)
+  const hint = remoteStatusHint(status, window.api.process.platform)
   const canPair = Boolean(status?.running && status.endpoints.length > 0)
 
   return (
@@ -308,7 +308,9 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
               ? t('settings.remote.cloudflaredStopped')
               : hint === 'icloud-unavailable'
                 ? t('settings.remote.icloudUnavailable')
-                : undefined)
+                : hint === 'quick-address-changes'
+                  ? t('settings.remote.quickAddressChanges')
+                  : undefined)
           }
           control={
             status?.running && address ? (

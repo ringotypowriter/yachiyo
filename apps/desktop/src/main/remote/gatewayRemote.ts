@@ -24,6 +24,7 @@ import { RemoteController } from './remoteController.ts'
 import type { RemoteHostPort, RemoteServerPort } from './remoteFacade.ts'
 import { defaultRemoteDirectories, RemoteService } from './remoteService.ts'
 import { defaultTunnelPaths, TunnelSupervisor } from './tunnelSupervisor.ts'
+import { WindowsTunnelSupervisor } from './windowsTunnelSupervisor.ts'
 
 const safeStorageSecretBox: SecretBox = {
   encrypt: (plaintext) => safeStorage.encryptString(plaintext.toString('base64')),
@@ -70,7 +71,7 @@ export function registerRemoteIpc(binding: GatewayRemoteBinding): void {
 }
 
 function deviceName(): string {
-  return hostname().replace(/\.local$/i, '') || 'Mac'
+  return hostname().replace(/\.local$/i, '') || 'Yachiyo desktop'
 }
 
 /**
@@ -101,17 +102,20 @@ export function createGatewayRemoteBinding(deps: {
     }
   )
   const directories = defaultRemoteDirectories(yachiyoHome)
-  const icloudRoot = defaultICloudDriveRoot()
+  const icloudRoot = process.platform === 'darwin' ? defaultICloudDriveRoot() : null
   let tunnel: TunnelSupervisor | null = null
   let controller: RemoteController<RemoteService> | null = null
   let offlineStore: PairingStore | null = null
 
   const getTunnel = (): TunnelSupervisor =>
-    (tunnel ??= new TunnelSupervisor({
-      paths: defaultTunnelPaths(yachiyoHome),
-      uid: process.getuid?.() ?? 501,
-      log: (line) => console.log(line)
-    }))
+    (tunnel ??=
+      process.platform === 'win32'
+        ? new WindowsTunnelSupervisor({ yachiyoHome, log: (line) => console.log(line) })
+        : new TunnelSupervisor({
+            paths: defaultTunnelPaths(yachiyoHome),
+            uid: process.getuid?.() ?? 501,
+            log: (line) => console.log(line)
+          }))
 
   const getController = (): RemoteController<RemoteService> =>
     (controller ??= new RemoteController<RemoteService>({
@@ -167,13 +171,15 @@ export function createGatewayRemoteBinding(deps: {
     const store = pairingStore()
     const known = (await store.list()).some((pairing) => pairing.pairingId === pairingId)
     if (!known) return false
-    const secret = await store.mailboxSecret(pairingId)
-    const identity = await store.loadIdentity()
-    await new MailboxWriter({
-      root: icloudRoot,
-      store,
-      remoteDeviceId: identity.remoteDeviceId
-    }).remove(secret, pairingId)
+    if (icloudRoot) {
+      const secret = await store.mailboxSecret(pairingId)
+      const identity = await store.loadIdentity()
+      await new MailboxWriter({
+        root: icloudRoot,
+        store,
+        remoteDeviceId: identity.remoteDeviceId
+      }).remove(secret, pairingId)
+    }
     return store.revoke(pairingId)
   }
 
@@ -214,7 +220,8 @@ export function createGatewayRemoteBinding(deps: {
           const imagePath = await storePairingQrImage({ png, expiresAt: pairing.expiresAt })
           return { imagePath, expiresAt: pairing.expiresAt }
         },
-        icloudDrive: () => detectICloudDrive(icloudRoot)
+        icloudDrive: () =>
+          icloudRoot ? detectICloudDrive(icloudRoot) : Promise.resolve('unavailable')
       }),
     createPairingUrl: () => {
       const service = controller?.service

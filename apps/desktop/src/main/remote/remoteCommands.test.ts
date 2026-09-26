@@ -88,6 +88,22 @@ test('installing a tunnel enables remote with that mode; uninstall falls back to
   assert.equal(saved.at(-1)?.remote?.enabled, true)
 })
 
+test('a failed settings save stops a newly installed tunnel', async () => {
+  const { deps } = createDeps()
+  let uninstalled = false
+  deps.saveConfig = async () => {
+    throw new Error('disk full')
+  }
+  deps.tunnel.uninstall = async () => {
+    uninstalled = true
+  }
+  await assert.rejects(
+    handleRemoteCommand({ action: 'tunnel-install', mode: 'quick' }, deps),
+    /disk full/
+  )
+  assert.equal(uninstalled, true)
+})
+
 test('pairings list hides keys and revoke reports whether a pairing was removed', async () => {
   const { deps } = createDeps()
   assert.deepEqual(await handleRemoteCommand({ action: 'pairings-list' }, deps), [
