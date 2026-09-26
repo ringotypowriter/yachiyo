@@ -107,6 +107,17 @@ test('resolveUpdateFeed probes latest.yml for Windows NSIS updates', async () =>
   assert.deepEqual(calls, ['https://dl.example.com/stable/latest.yml'])
 })
 
+test('resolveUpdateFeed probes the Linux manifest instead of the macOS manifest', async () => {
+  const calls: string[] = []
+  await resolveUpdateFeed({
+    mirrorBase: 'https://dl.example.com',
+    channel: 'stable',
+    platform: 'linux',
+    fetchFn: okFetch(calls)
+  })
+  assert.deepEqual(calls, ['https://dl.example.com/stable/latest-linux.yml'])
+})
+
 test('resolveUpdateFeed falls back to github on non-ok response', async () => {
   const feed = await resolveUpdateFeed({
     mirrorBase: 'https://dl.example.com',

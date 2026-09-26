@@ -43,6 +43,28 @@
       "sha256": "b2816e506390a89941c63c9187d58a3cc10e9a55f2ef0685f9ea0eccaf7c98c8",
       "archiveEntry": "fd-v10.4.2-x86_64-pc-windows-msvc/fd.exe",
       "outputName": "fd.exe"
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "targetTriple": "x86_64-unknown-linux-musl",
+      "name": "rg",
+      "version": "15.1.0",
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599",
+      "archiveEntry": "ripgrep-15.1.0-x86_64-unknown-linux-musl/rg",
+      "outputName": "rg"
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "targetTriple": "x86_64-unknown-linux-gnu",
+      "name": "fd",
+      "version": "10.4.2",
+      "url": "https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "def59805cd14b5651b68990855f426ad087f3b96881296d963910431ba3143c8",
+      "archiveEntry": "fd-v10.4.2-x86_64-unknown-linux-gnu/fd",
+      "outputName": "fd"
     }
   ]
 }

@@ -974,6 +974,7 @@ test('remote settings round-trip through parse → normalize → stringify → p
     port: 48001,
     metricsPort: 48002,
     namedHostname: 'yachiyo.example.com',
+    publicEndpoint: 'https://vm.example.com',
     lanEndpoint: true,
     keepAwakeOnPower: false
   }

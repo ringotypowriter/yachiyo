@@ -43,6 +43,27 @@ export function firstLanAddress(): string | null {
   return null
 }
 
+function externalEndpoint(value: string): RemoteEndpoint | null {
+  try {
+    const url = new URL(value)
+    if (
+      !['https:', 'wss:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.pathname !== '/' && url.pathname !== REMOTE_WS_PATH)
+    ) {
+      return null
+    }
+    url.protocol = 'wss:'
+    url.pathname = REMOTE_WS_PATH
+    return { kind: 'tunnel', url: url.href }
+  } catch {
+    return null
+  }
+}
+
 /**
  * Reconciles the remote service with the `remote` settings. With `enabled = false` nothing is
  * constructed: no listener, no event subscription, no power blocker. Changes are applied one
@@ -80,7 +101,10 @@ export class RemoteController<TService extends ManagedRemoteService> {
 
   endpoints(config: RemoteConfig, port: number | null): RemoteEndpoint[] {
     const endpoints: RemoteEndpoint[] = []
-    const tunnel = this.deps.tunnel.endpoint(config)
+    const tunnel =
+      config.tunnel === 'none'
+        ? externalEndpoint(config.publicEndpoint)
+        : this.deps.tunnel.endpoint(config)
     if (tunnel) endpoints.push(tunnel)
     if (config.lanEndpoint && port !== null) {
       const address = (this.deps.lanAddress ?? firstLanAddress)()
@@ -115,7 +139,14 @@ export class RemoteController<TService extends ManagedRemoteService> {
       this.current = { service, key, config }
       this.deps.log(`[remote] service listening on port ${service.port}`)
     } else {
+      const oldEndpoints = this.endpoints(this.current.config, this.current.service.port)
       this.current.config = config
+      if (
+        JSON.stringify(oldEndpoints) !==
+        JSON.stringify(this.endpoints(config, this.current.service.port))
+      ) {
+        await this.current.service.publishEndpoints()
+      }
     }
     this.deps.keepAwake.setWanted(config.keepAwakeOnPower)
     // A new quick-tunnel hostname reaches phones through the mailbox.

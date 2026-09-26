@@ -124,7 +124,10 @@ function resolveWindowsEnvironment(
 
 export function resolveShellRuntime(options: ResolveShellRuntimeOptions): ShellRuntime {
   if (options.platform !== 'win32') {
-    const executable = options.loginShellExecutable ?? options.env.SHELL?.trim() ?? '/bin/zsh'
+    const executable =
+      options.loginShellExecutable ??
+      options.env.SHELL?.trim() ??
+      (options.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
     const environment = options.readLoginShellEnvironment
       ? options.readLoginShellEnvironment()
       : readLoginShellEnvSync(options.env, executable)
@@ -199,7 +202,8 @@ export function resolveHostShellRuntime(
       options.cliBinDir ??
       (platform === 'win32' ? win32.join(yachiyoDataDir, 'bin') : join(yachiyoDataDir, 'bin')),
     env,
-    loginShellExecutable: options.loginShellExecutable ?? '/bin/zsh',
+    loginShellExecutable:
+      options.loginShellExecutable ?? (platform === 'darwin' ? '/bin/zsh' : undefined),
     readLoginShellEnvironment: options.readLoginShellEnvironment,
     pathExists: options.pathExists
   })

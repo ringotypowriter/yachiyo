@@ -120,6 +120,36 @@ test('endpoints list the tunnel first and add LAN only when enabled', async () =
   ])
 })
 
+test('external HTTPS ingress is advertised as a secure endpoint without a managed tunnel', async () => {
+  const { controller, created } = createController()
+  await controller.apply(enabled({ tunnel: 'none', publicEndpoint: 'https://vm.example.com' }))
+  assert.deepEqual(created[0]!.params.listen, { host: '127.0.0.1', port: 47831 })
+  assert.deepEqual(created[0]!.params.endpoints(), [
+    { kind: 'tunnel', url: 'wss://vm.example.com/remote/v1' }
+  ])
+
+  await controller.apply(enabled({ tunnel: 'none', publicEndpoint: 'wss://192.0.2.4/remote/v1' }))
+  assert.equal(created.length, 1)
+  assert.deepEqual(created[0]!.params.endpoints(), [
+    { kind: 'tunnel', url: 'wss://192.0.2.4/remote/v1' }
+  ])
+  assert.equal(created[0]!.published, 1)
+})
+
+test('an insecure or malformed public endpoint is never sent in a pairing QR', async () => {
+  const { controller, created } = createController()
+  for (const publicEndpoint of [
+    'http://vm.example.com',
+    'ws://vm.example.com',
+    'wss://vm.example.com/other',
+    'wss://user:pass@vm.example.com',
+    'wss://vm.example.com/remote/v1?token=secret'
+  ]) {
+    await controller.apply(enabled({ tunnel: 'none', publicEndpoint }))
+    assert.deepEqual(created[0]!.params.endpoints(), [])
+  }
+})
+
 test('a tunnel endpoint change republishes mailboxes; disabling stops monitoring', async () => {
   const { controller, created, monitors } = createController()
   await controller.apply(enabled())

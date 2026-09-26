@@ -253,6 +253,24 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
             }
           />
         ) : null}
+        {remote.tunnel === 'none' ? (
+          <SettingItem
+            label={t('settings.remote.publicEndpoint')}
+            description={t('settings.remote.publicEndpointDescription')}
+            control={
+              <input
+                value={remote.publicEndpoint}
+                placeholder="https://vm.example.com"
+                spellCheck={false}
+                className="h-8 w-56 rounded-lg px-3 text-sm outline-none"
+                style={inputStyle()}
+                onChange={(event) =>
+                  onChange(withRemote(draft, { publicEndpoint: event.target.value.trim() }))
+                }
+              />
+            }
+          />
+        ) : null}
         <SettingItem
           label={t('settings.remote.lanEndpoint')}
           description={t('settings.remote.lanEndpointDescription')}

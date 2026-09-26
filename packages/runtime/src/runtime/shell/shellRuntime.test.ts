@@ -36,6 +36,39 @@ test('macOS ShellRuntime preserves the login-shell command contract', () => {
   assert.deepEqual(runtime.spawnOptions, { detached: true, windowsHide: false })
 })
 
+test('Linux host ShellRuntime uses the configured shell rather than macOS zsh', () => {
+  const runtime = resolveHostShellRuntime({
+    platform: 'linux',
+    arch: 'x64',
+    mode: 'packaged',
+    homeDir: '/home/yuki',
+    resourcesPath: '/opt/Yachiyo/resources',
+    env: { SHELL: '/bin/bash', PATH: '/usr/bin:/bin' },
+    readLoginShellEnvironment: () => ({ PATH: '/usr/local/bin:/usr/bin:/bin' })
+  })
+
+  assert.equal(runtime.kind, 'login-shell')
+  assert.equal(runtime.executable, '/bin/bash')
+  assert.deepEqual(runtime.args('printf ok'), ['-lc', 'printf ok'])
+  assert.equal(runtime.environment.PATH, '/usr/local/bin:/usr/bin:/bin')
+})
+
+test('Linux ShellRuntime falls back to Bash without SHELL', () => {
+  const runtime = resolveShellRuntime({
+    platform: 'linux',
+    arch: 'x64',
+    mode: 'development',
+    projectRoot: '/workspace/yachiyo',
+    resourcesPath: '/workspace/yachiyo/apps/desktop/resources',
+    homeDir: '/home/yuki',
+    cliBinDir: '/home/yuki/.yachiyo/bin',
+    env: { PATH: '/usr/bin:/bin' },
+    readLoginShellEnvironment: () => ({ PATH: '/usr/bin:/bin' })
+  })
+
+  assert.equal(runtime.executable, '/bin/bash')
+})
+
 test('packaged Windows ShellRuntime resolves only the private PortableGit Bash', () => {
   const expectedBash = win32.join(WINDOWS_RESOURCES, 'bin', 'bash', 'usr', 'bin', 'bash.exe')
   const observedPaths: string[] = []

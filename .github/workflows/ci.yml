@@ -102,3 +102,45 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test Linux platform and Remote behavior
+        run: |
+          node --experimental-strip-types --test packages/runtime/src/runtime/shell/shellRuntime.test.ts scripts/download-bundled-binaries.test.ts apps/desktop/src/main/electron/updateFeed.test.ts
+          pnpm run test:remote
+
+      - name: Build Linux desktop and native helpers
+        run: pnpm --filter @yachiyo/desktop run build:linux
+
+      - name: Smoke-test packaged Linux helpers
+        run: |
+          bin=apps/desktop/dist/linux-unpacked/resources/bin
+          test -x "$bin/rg" && "$bin/rg" --version
+          test -x "$bin/fd" && "$bin/fd" --version
+          test -x "$bin/sync-core"
+          test -x "$bin/process-host"
+
+      - name: Test native runtime with Linux Electron
+        run: pnpm run test:server:native
+
+      - name: Preserve Linux test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: yachiyo-linux-x64
+          path: |
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+          if-no-files-found: error

@@ -39,6 +39,25 @@ test('macOS bundled asset mapping remains available', () => {
   )
 })
 
+test('Linux x64 bundles pinned ripgrep and fd executables', () => {
+  const assets = resolveBundledBinaryAssets('linux', 'x64')
+  assert.deepEqual(
+    assets.map((asset: { name: string; outputName: string }) => ({
+      name: asset.name,
+      outputName: asset.outputName
+    })),
+    [
+      { name: 'rg', outputName: 'rg' },
+      { name: 'fd', outputName: 'fd' }
+    ]
+  )
+  for (const asset of assets) {
+    assert.match(asset.url, /^https:\/\/github\.com\//u)
+    assert.match(asset.sha256, /^[a-f0-9]{64}$/u)
+    assert.match(asset.archiveEntry, /\/(rg|fd)$/u)
+  }
+})
+
 test('bundled binary hash mismatch preserves the installed binary and cleans temporary output', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-binary-hash-'))
   const outputDir = join(root, 'output')

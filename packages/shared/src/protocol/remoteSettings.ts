@@ -1,4 +1,4 @@
-/** How the remote service is reached from outside the Mac. */
+/** How the remote service is reached from outside the desktop. */
 export type RemoteTunnelMode = 'quick' | 'named' | 'none'
 
 export interface RemoteConfig {
@@ -10,6 +10,8 @@ export interface RemoteConfig {
   metricsPort: number
   /** Public hostname of a named tunnel; unused for quick tunnels. */
   namedHostname: string
+  /** HTTPS or WSS ingress managed outside the app; used when tunnel is none. */
+  publicEndpoint: string
   /** Also listen on the LAN and advertise a `lan` endpoint. */
   lanEndpoint: boolean
   /** Hold a power-save blocker while remote is enabled and on AC power. */
@@ -22,6 +24,7 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
   port: 47831,
   metricsPort: 47832,
   namedHostname: '',
+  publicEndpoint: '',
   lanEndpoint: false,
   keepAwakeOnPower: true
 }

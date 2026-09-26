@@ -318,6 +318,7 @@ export function normalizeRemoteConfig(
     port: normalizePort(input['port'], fallback.port),
     metricsPort: normalizePort(input['metricsPort'], fallback.metricsPort),
     namedHostname: normalizeString(input['namedHostname'], fallback.namedHostname),
+    publicEndpoint: normalizeString(input['publicEndpoint'], fallback.publicEndpoint),
     lanEndpoint:
       typeof input['lanEndpoint'] === 'boolean' ? input['lanEndpoint'] : fallback.lanEndpoint,
     keepAwakeOnPower:

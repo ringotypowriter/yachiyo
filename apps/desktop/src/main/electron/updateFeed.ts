@@ -32,7 +32,12 @@ export async function resolveUpdateFeed(options: {
 
   const url = mirrorFeedUrl(mirrorBase, channel)
   try {
-    const manifest = platform === 'win32' ? 'latest.yml' : 'latest-mac.yml'
+    const manifest =
+      platform === 'win32'
+        ? 'latest.yml'
+        : platform === 'linux'
+          ? 'latest-linux.yml'
+          : 'latest-mac.yml'
     const resp = await fetchFn(`${url}/${manifest}`, { signal: AbortSignal.timeout(timeoutMs) })
     return resp.ok ? { source: 'mirror', url } : { source: 'github' }
   } catch {

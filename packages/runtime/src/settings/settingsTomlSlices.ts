@@ -465,6 +465,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           port: remote.port,
           metricsPort: remote.metricsPort,
           namedHostname: remote.namedHostname,
+          publicEndpoint: remote.publicEndpoint,
           lanEndpoint: remote.lanEndpoint,
           keepAwakeOnPower: remote.keepAwakeOnPower
         }
