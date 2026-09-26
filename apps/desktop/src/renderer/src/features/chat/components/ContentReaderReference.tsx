@@ -8,14 +8,18 @@ export function ContentReaderReference({
 }: {
   threadId: string | null
 }): React.JSX.Element | null {
-  const target = useContentReaderStore((state) => (state.referenceEnabled ? state.target : null))
+  const target = useContentReaderStore((state) =>
+    threadId ? (state.references[threadId] ?? null) : null
+  )
   const clear = useContentReaderStore((state) => state.clearReference)
   const editing = useAppStore((state) => state.editingMessage)
   if (editing || !readerReference(target, threadId) || !target) return null
   const label =
     target.kind === 'diff'
       ? `Reviewing: ${target.relativePath ?? 'File Changes'}`
-      : `Viewing: ${target.path?.split(/[\\/]/).pop() ?? 'Image'}`
+      : target.kind === 'web'
+        ? `Viewing: ${target.title || target.url || target.session}`
+        : `Viewing: ${target.path?.split(/[\\/]/).pop() ?? 'Image'}`
   return (
     <div className="content-reader-reference">
       <span title={readerReference(target, threadId) ?? undefined}>{label}</span>

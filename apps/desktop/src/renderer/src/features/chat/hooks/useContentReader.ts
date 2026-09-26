@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 
 export interface ReaderActions {
+  openWeb: (url: string) => Promise<void>
   openFile: (path: string) => boolean
   openImage: (src: string, alt?: string, path?: string) => void
   openDiff: (input: { runId: string; threadId: string; workspacePath: string }) => void

@@ -698,9 +698,12 @@ export function Composer({
           sourceThreadId: activeThreadId,
           content: appendReaderReference(
             trimmed,
-            useContentReaderStore.getState().referenceEnabled
-              ? readerReference(useContentReaderStore.getState().target, activeThreadId)
-              : null
+            readerReference(
+              activeThreadId
+                ? (useContentReaderStore.getState().references[activeThreadId] ?? null)
+                : null,
+              activeThreadId
+            )
           ),
           images: readyImages,
           attachments: readyAttachments,

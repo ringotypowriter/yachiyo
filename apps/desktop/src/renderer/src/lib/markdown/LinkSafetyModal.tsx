@@ -1,4 +1,6 @@
-import { Copy, ExternalLink } from 'lucide-react'
+import { Copy, ExternalLink, Eye } from 'lucide-react'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme, alpha } from '@renderer/theme/theme'
 import { AppDialog } from '@renderer/components/AppDialog'
 import type { LinkSafetyModalProps } from 'streamdown'
@@ -9,6 +11,8 @@ export function LinkSafetyModal({
   onConfirm,
   url
 }: LinkSafetyModalProps): React.ReactNode {
+  const reader = useContentReader()
+  const dialog = useAppDialog()
   if (!isOpen) return null
 
   return (
@@ -16,6 +20,15 @@ export function LinkSafetyModal({
       title="Open external link?"
       width={340}
       actions={[
+        ...(reader && /^https?:\/\//i.test(url)
+          ? [
+              {
+                key: 'preview',
+                label: 'Preview in Yachiyo',
+                icon: <Eye size={14} strokeWidth={1.5} />
+              }
+            ]
+          : []),
         {
           key: 'copy',
           label: 'Copy link',
@@ -31,6 +44,15 @@ export function LinkSafetyModal({
         { key: 'cancel', label: 'Cancel' }
       ]}
       onAction={(key) => {
+        if (key === 'preview' && reader) {
+          onClose()
+          void reader.openWeb(url).catch((error: unknown) =>
+            dialog.alert({
+              title: error instanceof Error ? error.message : 'Unable to preview web page.'
+            })
+          )
+          return
+        }
         if (key === 'copy') {
           navigator.clipboard.writeText(url)
           onClose()

@@ -15,6 +15,15 @@ test('opening a document covers but does not unmount the conversation or compose
     window,
     document: window.document,
     HTMLElement: window.HTMLElement,
+    ResizeObserver: class {
+      observe(): void {
+        return
+      }
+      disconnect(): void {
+        return
+      }
+    },
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
     IS_REACT_ACT_ENVIRONMENT: true,
     requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0),
     cancelAnimationFrame: (id: ReturnType<typeof setTimeout>) => clearTimeout(id)
@@ -23,9 +32,23 @@ test('opening a document covers but does not unmount the conversation or compose
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true })
   }
+  let nativePage = {
+    threadId: 'a',
+    session: 'native-preview',
+    url: 'https://example.com/a',
+    title: 'Page A'
+  }
+  const externalUrls: string[] = []
   Object.assign(window, {
+    open: (url: string) => {
+      externalUrls.push(url)
+    },
     api: {
       yachiyo: {
+        listBrowserAutomationSessions: async () => [nativePage],
+        showBrowserAutomationSession: async () => nativePage,
+        setBrowserAutomationSessionBounds: async () => nativePage,
+        hideBrowserAutomationSession: async () => {},
         readFilePreview: async () => ({
           kind: 'text',
           path: '/work/report.txt',
@@ -61,23 +84,20 @@ test('opening a document covers but does not unmount the conversation or compose
       'Original conversation'
     )
   }
-  try {
-    await act(async () => {
-      root.render(
-        React.createElement(
-          AppDialogContext.Provider,
-          {
-            value: { alert: async () => {}, confirm: async () => false, prompt: async () => null }
-          },
-          React.createElement(
-            ContentReaderStage,
-            { threadId: 'a' },
-            React.createElement(Conversation)
-          ),
-          React.createElement('textarea', { 'data-composer': true, defaultValue: 'Keep my draft' })
-        )
+  const renderStage = (threadId: string): void => {
+    root.render(
+      React.createElement(
+        AppDialogContext.Provider,
+        {
+          value: { alert: async () => {}, confirm: async () => false, prompt: async () => null }
+        },
+        React.createElement(ContentReaderStage, { threadId }, React.createElement(Conversation)),
+        React.createElement('textarea', { 'data-composer': true, defaultValue: 'Keep my draft' })
       )
-    })
+    )
+  }
+  try {
+    await act(async () => renderStage('a'))
     const timeline = document.querySelector<HTMLElement>('[data-timeline-scroll]')!
     const composer = document.querySelector<HTMLTextAreaElement>('[data-composer]')!
     composer.value = 'Keep my draft'
@@ -137,6 +157,72 @@ test('opening a document covers but does not unmount the conversation or compose
     assert.equal(selectedTarget?.kind === 'diff' ? selectedTarget.relativePath : null, 'reader.ts')
     assert.equal(picker.hasAttribute('open'), false)
     assert.equal(unmounts, 0)
+    const image = document.querySelector('[data-image]') as HTMLElement
+    const diff = document.querySelector('.content-reader-diff')!
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          '.content-reader:not([hidden]) [aria-label="Ask Yachiyo"]'
+        )!
+        .click()
+    })
+    assert.equal(useContentReaderStore.getState().conversations.a.activeId, 'chat')
+    assert.deepEqual(useContentReaderStore.getState().references.a, selectedTarget)
+    assert.equal(composer.value, 'Keep my draft')
+    await act(async () => {
+      const imageTab = useContentReaderStore
+        .getState()
+        .conversations.a.tabs.find((tab) => tab.target.kind === 'image')!
+      useContentReaderStore.getState().select('a', imageTab.id)
+    })
+    assert.equal(document.querySelector('[data-image]'), image)
+    assert.match(image.style.transform, /scale\(1\.15\)/)
+    assert.ok(diff.closest('section')?.hasAttribute('inert'))
+    await act(async () => useContentReaderStore.getState().select('a', 'chat'))
+    assert.ok(image.closest('section')?.hasAttribute('inert'))
+    assert.equal(document.querySelectorAll('[role="tab"]')[0].textContent, 'Chat')
+    assert.equal(composer.value, 'Keep my draft')
+    assert.equal(unmounts, 0)
+    await act(async () => renderStage('b'))
+    assert.equal(document.querySelector('[data-image]'), image)
+    assert.ok(image.closest('section')?.hasAttribute('inert'))
+    assert.equal(document.querySelectorAll('[role="tab"]').length, 1)
+    await act(async () => renderStage('a'))
+    await act(async () => {
+      const imageTab = useContentReaderStore
+        .getState()
+        .conversations.a.tabs.find((tab) => tab.target.kind === 'image')!
+      useContentReaderStore.getState().select('a', imageTab.id)
+    })
+    assert.equal(document.querySelector('[data-image]'), image)
+    assert.match(image.style.transform, /scale\(1\.15\)/)
+    assert.equal(composer.value, 'Keep my draft')
+    await act(async () => useContentReaderStore.getState().open({ kind: 'web', ...nativePage }))
+    const webId = useContentReaderStore.getState().conversations.a.activeId
+    nativePage = { ...nativePage, url: 'https://example.com/b', title: 'Page B' }
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>('.content-reader:not([hidden]) [aria-label="Open in browser"]')!
+        .click()
+    })
+    assert.deepEqual(externalUrls, ['https://example.com/b'])
+    assert.equal(useContentReaderStore.getState().conversations.a.activeId, webId)
+    assert.match(
+      document.querySelector('.content-reader:not([hidden]) .content-reader-title')!.textContent!,
+      /Page B/
+    )
+    nativePage = { ...nativePage, url: 'https://example.com/c', title: 'Page C' }
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          '.content-reader:not([hidden]) [aria-label="Ask Yachiyo"]'
+        )!
+        .click()
+    })
+    const webReference = useContentReaderStore.getState().references.a
+    assert.equal(webReference.kind === 'web' && webReference.url, 'https://example.com/c')
+    assert.equal(useContentReaderStore.getState().conversations.a.activeId, 'chat')
+    assert.equal(composer.value, 'Keep my draft')
   } finally {
     await act(async () => root.unmount())
     for (const [key, descriptor] of originals) {

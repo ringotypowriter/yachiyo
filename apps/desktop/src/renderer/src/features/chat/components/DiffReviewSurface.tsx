@@ -16,6 +16,7 @@ import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { buildDiffFileOpenRequest } from './diffFileOpenRequest'
 import { ToolCodeBlock } from './ToolCodeBlock'
 import { useContentReaderStore } from '../state/useContentReaderStore'
+import { FilePreviewButton } from '@renderer/lib/markdown/FilePreviewButton'
 import type { FileChangeForReview, FileChangeStatus } from '@yachiyo/shared/fileSnapshot'
 
 interface DiffReviewSurfaceProps {
@@ -224,6 +225,11 @@ export function DiffReviewSurface({
                 </div>
               </details>
               <div className="content-reader-diff__actions">
+                {selected.status !== 'deleted' ? (
+                  <FilePreviewButton
+                    path={`${workspacePath.replace(/[\\/]$/, '')}/${selected.relativePath}`}
+                  />
+                ) : null}
                 {selected.status !== 'deleted' &&
                 buildDiffFileOpenRequest({
                   workspacePath,

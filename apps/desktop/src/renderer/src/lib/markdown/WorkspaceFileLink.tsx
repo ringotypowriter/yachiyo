@@ -1,5 +1,8 @@
 import { useCallback } from 'react'
 import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
+import { useAppStore } from '@renderer/app/store/useAppStore'
+import { resolveTimelineFileOpenTarget } from './linkableCodeFileAction'
+import { FilePreviewButton } from './FilePreviewButton'
 
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
@@ -28,6 +31,8 @@ export function WorkspaceFileLink({
 }): React.JSX.Element {
   const dialog = useAppDialog()
   const reader = useContentReader()
+  const editorApp = useAppStore((state) => state.config?.workspace?.editorApp)
+  const markdownApp = useAppStore((state) => state.config?.workspace?.markdownApp)
   const resolvedLink = resolveWorkspaceFileLink(node, fileLinks)
   const handleOpen = useCallback(
     async (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
@@ -39,7 +44,18 @@ export function WorkspaceFileLink({
         if (event.altKey) {
           await window.api.yachiyo.revealFile(input)
         } else {
-          if (!reader?.openFile(input.path)) await window.api.yachiyo.openFile(input)
+          const target = resolveTimelineFileOpenTarget({
+            filePath: input.path,
+            editorApp,
+            markdownApp
+          })
+          if (target.mode !== 'configured' && reader?.openFile(input.path)) return
+          await window.api.yachiyo.openFile({
+            ...input,
+            ...(target.mode === 'configured'
+              ? { appSelection: target.appSelection, appKind: target.appKind }
+              : {})
+          })
         }
       } catch (error) {
         await dialog.alert({
@@ -47,7 +63,7 @@ export function WorkspaceFileLink({
         })
       }
     },
-    [dialog, resolvedLink, workspaceScope, reader]
+    [dialog, resolvedLink, workspaceScope, reader, editorApp, markdownApp]
   )
 
   if (!resolvedLink) {
@@ -55,17 +71,20 @@ export function WorkspaceFileLink({
   }
 
   return (
-    <span
-      {...rest}
-      role="link"
-      tabIndex={0}
-      onClick={handleOpen}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') void handleOpen(event)
-      }}
-      style={{ ...rest.style, ...LINK_STYLE }}
-    >
-      {children}
-    </span>
+    <>
+      <span
+        {...rest}
+        role="link"
+        tabIndex={0}
+        onClick={handleOpen}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') void handleOpen(event)
+        }}
+        style={{ ...rest.style, ...LINK_STYLE }}
+      >
+        {children}
+      </span>
+      <FilePreviewButton path={resolvedLink.path} />
+    </>
   )
 }

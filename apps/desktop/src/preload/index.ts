@@ -10,6 +10,7 @@ import type {
 import type {
   AnswerToolQuestionInput,
   BrowserAutomationSessionRecord,
+  OpenBrowserPreviewInput,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -386,6 +387,8 @@ const api = {
       input: ShowBrowserAutomationSessionInput
     ): Promise<BrowserAutomationSessionRecord> =>
       ipcRenderer.invoke('yachiyo:show-browser-automation-session', input),
+    openBrowserPreview: (input: OpenBrowserPreviewInput): Promise<BrowserAutomationSessionRecord> =>
+      ipcRenderer.invoke('yachiyo:open-browser-preview', input),
     hideBrowserAutomationSession: (input: HideBrowserAutomationSessionInput): Promise<void> =>
       ipcRenderer.invoke('yachiyo:hide-browser-automation-session', input),
     setBrowserAutomationSessionBounds: (

@@ -17,6 +17,10 @@ export function ContentReaderProvider({
     if (!threadId) return null
     const open = useContentReaderStore.getState().open
     return {
+      openWeb: (url) =>
+        useContentReaderStore
+          .getState()
+          .openWeb(threadId, url, window.api.yachiyo.openBrowserPreview),
       openFile: (path) => {
         const kind = getFilePreviewKind(path)
         if (!kind) return false

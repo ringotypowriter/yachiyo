@@ -11,6 +11,7 @@ import type {
   AnswerToolQuestionInput,
   BootstrapPayload,
   BrowserAutomationSessionRecord,
+  OpenBrowserPreviewInput,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -301,6 +302,9 @@ declare global {
         ) => Promise<BrowserAutomationSessionRecord[]>
         showBrowserAutomationSession: (
           input: ShowBrowserAutomationSessionInput
+        ) => Promise<BrowserAutomationSessionRecord>
+        openBrowserPreview: (
+          input: OpenBrowserPreviewInput
         ) => Promise<BrowserAutomationSessionRecord>
         hideBrowserAutomationSession: (input: HideBrowserAutomationSessionInput) => Promise<void>
         setBrowserAutomationSessionBounds: (

@@ -8,6 +8,9 @@ import { useT } from '@yachiyo/i18n/react'
 import { canRetryUserMessage } from '../lib/messages/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
+import { useAppStore } from '@renderer/app/store/useAppStore'
+import { resolveTimelineFileOpenTarget } from '@renderer/lib/markdown/linkableCodeFileAction'
+import { FilePreviewButton } from '@renderer/lib/markdown/FilePreviewButton'
 
 function UserMessageImages({ message }: { message: Message }): React.JSX.Element | null {
   const reader = useContentReader()
@@ -61,6 +64,8 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
 
 function UserMessageFiles({ message }: { message: Message }): React.JSX.Element | null {
   const reader = useContentReader()
+  const editorApp = useAppStore((state) => state.config?.workspace?.editorApp)
+  const markdownApp = useAppStore((state) => state.config?.workspace?.markdownApp)
   if (!message.attachments || message.attachments.length === 0) {
     return null
   }
@@ -68,18 +73,31 @@ function UserMessageFiles({ message }: { message: Message }): React.JSX.Element 
   return (
     <div className="user-message-files">
       {message.attachments.map((attachment, index) => (
-        <button
-          type="button"
-          key={`${attachment.filename}-${index}`}
-          className="user-message-file-chip"
-          onClick={() => {
-            if (!reader?.openFile(attachment.workspacePath))
-              void window.api.yachiyo.openFile({ path: attachment.workspacePath })
-          }}
-        >
-          <FileText size={13} strokeWidth={1.5} className="user-message-file-chip__icon" />
-          <span className="user-message-file-chip__name">{attachment.filename}</span>
-        </button>
+        <span key={`${attachment.filename}-${index}`} className="inline-flex items-center">
+          <button
+            type="button"
+            className="user-message-file-chip"
+            onClick={() => {
+              const path = attachment.workspacePath
+              const target = resolveTimelineFileOpenTarget({
+                filePath: path,
+                editorApp,
+                markdownApp
+              })
+              if (target.mode !== 'configured' && reader?.openFile(path)) return
+              void window.api.yachiyo.openFile({
+                path,
+                ...(target.mode === 'configured'
+                  ? { appSelection: target.appSelection, appKind: target.appKind }
+                  : {})
+              })
+            }}
+          >
+            <FileText size={13} strokeWidth={1.5} className="user-message-file-chip__icon" />
+            <span className="user-message-file-chip__name">{attachment.filename}</span>
+          </button>
+          <FilePreviewButton path={attachment.workspacePath} />
+        </span>
       ))}
     </div>
   )

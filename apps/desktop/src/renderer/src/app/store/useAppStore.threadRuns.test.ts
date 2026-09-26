@@ -16,6 +16,7 @@ const READY_SETTINGS = {
 }
 
 function resetStore(): void {
+  useContentReaderStore.setState(useContentReaderStore.getInitialState(), true)
   useAppStore.setState({
     activeArchivedThreadId: null,
     activeEssentialId: null,
@@ -1082,7 +1083,7 @@ test('createBranch switches to a blank draft in the destination thread', async (
 })
 
 for (const mode of ['normal', 'steer', 'follow-up'] as const) {
-  test('sendMessage preserves the selected diff reference for ' + mode, async () => {
+  test('Ask Yachiyo preserves the draft and its selected diff reference for ' + mode, async () => {
     resetStore()
     const thread = { id: 'reader-' + mode, title: 'Review', updatedAt: TIMESTAMP }
     let sent = ''
@@ -1119,6 +1120,11 @@ for (const mode of ['normal', 'steer', 'follow-up'] as const) {
         workspacePath: '/work',
         relativePath: 'settings.ts'
       })
+      const reader = useContentReaderStore.getState()
+      reader.ask(thread.id, reader.conversations[thread.id].activeId)
+      assert.equal(useContentReaderStore.getState().target, null)
+      assert.equal(useAppStore.getState().composerDrafts[thread.id].text, 'Keep the timeout')
+      assert.equal(sent, '')
       assert.equal(await useAppStore.getState().sendMessage(mode), true)
       assert.match(sent, /reviewed-run/)
       assert.match(sent, /settings.ts/)

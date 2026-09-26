@@ -82,9 +82,12 @@ export function createSendMessageActions(input: {
         const reader = useContentReaderStore.getState()
         trimmed = appendReaderReference(
           trimmed,
-          reader.referenceEnabled
-            ? readerReference(reader.target, currentState.activeThreadId)
-            : null
+          readerReference(
+            currentState.activeThreadId
+              ? (reader.references[currentState.activeThreadId] ?? null)
+              : null,
+            currentState.activeThreadId
+          )
         )
       }
 

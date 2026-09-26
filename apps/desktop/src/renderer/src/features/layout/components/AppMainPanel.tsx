@@ -25,10 +25,6 @@ import { Composer } from '@renderer/features/chat/components/Composer'
 import { ContentReaderProvider } from '@renderer/features/chat/components/ContentReaderContext'
 import { ContentReaderStage } from '@renderer/features/chat/components/ContentReaderStage'
 import { useContentReaderStore } from '@renderer/features/chat/state/useContentReaderStore'
-import {
-  TimelineSurfaceHeader,
-  type MessageTimelineSurface
-} from '@renderer/features/chat/components/TimelineSurfaceHeader'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { WelcomeSparks } from '@renderer/features/layout/components/WelcomeSparks'
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
@@ -43,7 +39,7 @@ import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
 import { resolveWelcomeState } from '@renderer/features/layout/lib/welcomeState'
 import { deriveBrowserActivity } from '@renderer/features/chat/lib/browser-activity/browserActivity'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
-import { Lock, MessageSquare, Trash2 } from 'lucide-react'
+import { Globe, Lock, MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 
 import { useAppDialog } from '@renderer/components/AppDialogContext'
@@ -51,8 +47,8 @@ import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
 import avatarUrl from '../../../../../../resources/branding.jpeg'
 import type {
-  BrowserAutomationActivityBubbleState,
-  BrowserAutomationSessionRecord
+  BrowserAutomationSessionRecord,
+  BrowserAutomationActivityBubbleState
 } from '@yachiyo/shared/protocol'
 import { isMemoryConfigured } from '@yachiyo/shared/protocol'
 import { isLatestRunPlanMode } from '@yachiyo/shared/planMode'
@@ -218,9 +214,6 @@ export function AppMainPanel({
   const readerOpen = useContentReaderStore(
     (state) => state.target !== null && state.target.threadId === activeThreadId
   )
-  const [activeTimelineSurface, setActiveTimelineSurface] =
-    useState<MessageTimelineSurface>('timeline')
-  const [selectedBrowserSession, setSelectedBrowserSession] = useState<string | null>(null)
   const [isBrowserSessionMenuOpen, setIsBrowserSessionMenuOpen] = useState(false)
   const [runtimeBrowserSessions, setRuntimeBrowserSessions] = useState<
     BrowserAutomationSessionRecord[]
@@ -297,7 +290,7 @@ export function AppMainPanel({
     [config?.essentials, candidateEssentialSourceId]
   )
   const { variant: welcomeVariant, essentialSourceId } = resolveWelcomeState({
-    activeSurface: activeTimelineSurface,
+    activeSurface: 'timeline',
     activeThreadId,
     activeThreadMessagesLoaded,
     messageCount,
@@ -310,8 +303,6 @@ export function AppMainPanel({
   const shouldShowFindBar = findOpen && !showWelcomeState
 
   useEffect(() => {
-    setActiveTimelineSurface('timeline')
-    setSelectedBrowserSession(null)
     setIsBrowserSessionMenuOpen(false)
     setRuntimeBrowserSessions([])
   }, [activeThreadId])
@@ -340,47 +331,46 @@ export function AppMainPanel({
     }
   }, [activeThreadId, threadToolCalls])
 
-  useEffect(() => {
-    if (browserActivity.sessions.length === 0) {
-      if (selectedBrowserSession !== null) setSelectedBrowserSession(null)
-      return
-    }
-
-    const selectedStillOpen = browserActivity.sessions.some(
-      (session) => session.session === selectedBrowserSession
-    )
-    if (!selectedStillOpen && browserActivity.defaultSession !== selectedBrowserSession) {
-      setSelectedBrowserSession(browserActivity.defaultSession)
-    }
-  }, [browserActivity.defaultSession, browserActivity.sessions, selectedBrowserSession])
-
-  useEffect(() => {
-    if (browserActivity.sessions.length === 0 && activeTimelineSurface !== 'timeline') {
-      setActiveTimelineSurface('timeline')
-    }
-  }, [activeTimelineSurface, browserActivity.sessions.length])
-
   const headerSurfaceSwitcher =
-    browserActivity.sessions.length > 0 && !readerOpen ? (
-      <TimelineSurfaceHeader
-        activeSurface={activeTimelineSurface}
-        browserSessions={browserActivity.sessions}
-        selectedBrowserSession={selectedBrowserSession ?? browserActivity.defaultSession}
-        browserSessionMenuOpen={isBrowserSessionMenuOpen}
-        onActiveSurfaceChange={setActiveTimelineSurface}
-        onBrowserSessionMenuOpenChange={setIsBrowserSessionMenuOpen}
-      />
+    browserActivity.sessions.length > 0 ? (
+      <details
+        key={activeThreadId}
+        className="content-reader-web-picker"
+        onToggle={(event) => setIsBrowserSessionMenuOpen(event.currentTarget.open)}
+      >
+        <summary title="Preview web page in Yachiyo">
+          <Globe size={14} />
+          Preview web page
+        </summary>
+        <div>
+          {browserActivity.sessions.map((session) => (
+            <button
+              key={session.session}
+              type="button"
+              onClick={(event) => {
+                if (!activeThreadId) return
+                useContentReaderStore.getState().open({
+                  kind: 'web',
+                  threadId: activeThreadId,
+                  session: session.session,
+                  url: session.url ?? undefined,
+                  title: session.title ?? undefined
+                })
+                event.currentTarget.closest('details')?.removeAttribute('open')
+              }}
+            >
+              {session.title || session.url || session.session}
+            </button>
+          ))}
+        </div>
+      </details>
     ) : null
 
   const browserActivityBubble = useMemo(
-    () =>
-      activeTimelineSurface === 'browser'
-        ? toBrowserActivityBubbleState(browserActivity.latestStep)
-        : null,
-    // locale isn't read directly here, but toBrowserActivityBubbleState() calls
-    // the i18n t() function internally, so the memo must recompute on switch.
+    () => toBrowserActivityBubbleState(browserActivity.latestStep),
+    // The helper reads the current locale through t().
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeTimelineSurface, browserActivity.latestStep, locale]
+    [browserActivity.latestStep, locale]
   )
 
   const findMatches = useMemo(
@@ -965,7 +955,11 @@ export function AppMainPanel({
               className="work-chat-shell__timeline-row"
               transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             >
-              <ContentReaderStage key={activeThreadId ?? 'empty-reader'} threadId={activeThreadId}>
+              <ContentReaderStage
+                threadId={activeThreadId}
+                browserSuspended={isBrowserSessionMenuOpen}
+                browserActivityBubble={browserActivityBubble}
+              >
                 <AnimatePresence initial={false} mode="popLayout">
                   {showWelcomeState ? (
                     <motion.div
@@ -1026,14 +1020,9 @@ export function AppMainPanel({
                           key={activeThreadId ?? 'empty'}
                           threadId={activeThreadId}
                           recapText={recapText}
-                          activeSurface={activeTimelineSurface}
+                          activeSurface="timeline"
                           browserSessions={browserActivity.sessions}
-                          selectedBrowserSession={selectedBrowserSession}
-                          browserActivityBubble={browserActivityBubble}
-                          browserViewSuspended={isBrowserSessionMenuOpen || readerOpen}
-                          browserSessionPickerOpen={isBrowserSessionMenuOpen}
-                          onSelectedBrowserSessionChange={setSelectedBrowserSession}
-                          onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
+                          selectedBrowserSession={null}
                         />
                       </Suspense>
                     </motion.div>
@@ -1055,9 +1044,12 @@ export function AppMainPanel({
                 </AnimatePresence>
               </ContentReaderStage>
             </motion.div>
-            <RunStatusStrip />
+            {!readerOpen && <RunStatusStrip />}
             <motion.div
               layout
+              style={readerOpen ? { display: 'none' } : undefined}
+              inert={readerOpen || undefined}
+              aria-hidden={readerOpen || undefined}
               className={`work-composer-slot ${
                 showWelcomeState ? 'work-composer-slot--welcome' : 'work-composer-slot--normal'
               }`}
@@ -1135,7 +1127,7 @@ export function AppMainPanel({
         isSaving={threadIsSaving}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         isStarred={!!activeThread?.starredAt}
-        hideThreadActions={activeTimelineSurface === 'browser'}
+        hideThreadActions={readerOpen}
         centerAccessory={headerSurfaceSwitcher}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}

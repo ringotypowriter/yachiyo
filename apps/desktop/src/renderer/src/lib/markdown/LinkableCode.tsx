@@ -8,6 +8,7 @@ import { splitAutolinkCandidate } from './autolinkTextBoundary'
 import { toInlineCodeFileReferenceCandidate } from '@yachiyo/shared/inlineCodeFileReferences'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
+import { FilePreviewButton } from './FilePreviewButton'
 const LINK_STYLE = { textDecoration: 'underline', textUnderlineOffset: 2 }
 
 /**
@@ -61,8 +62,8 @@ export function LinkableCode({
         if (action === 'reveal') {
           await window.api.yachiyo.revealFile({ path: filePath })
         } else {
-          if (reader?.openFile(filePath)) return
           const target = resolveTimelineFileOpenTarget({ filePath, editorApp, markdownApp })
+          if (target.mode !== 'configured' && reader?.openFile(filePath)) return
           if (target.mode === 'unavailable') {
             const openSettings = await dialog.confirm({
               title: 'Workspace editor not configured.',
@@ -97,19 +98,24 @@ export function LinkableCode({
   }, [url])
 
   if (filePath) {
+    const target = resolveTimelineFileOpenTarget({ filePath, editorApp, markdownApp })
     return (
-      <code
-        {...rest}
-        role="link"
-        tabIndex={0}
-        onClick={handleFileClick}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') handleFileClick(e)
-        }}
-        style={LINK_STYLE}
-      >
-        {children}
-      </code>
+      <>
+        <code
+          {...rest}
+          title={target.mode === 'configured' ? `Open in ${target.appSelection}` : rest.title}
+          role="link"
+          tabIndex={0}
+          onClick={handleFileClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleFileClick(e)
+          }}
+          style={LINK_STYLE}
+        >
+          {children}
+        </code>
+        <FilePreviewButton path={filePath} />
+      </>
     )
   }
 

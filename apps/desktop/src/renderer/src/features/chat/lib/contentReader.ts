@@ -3,6 +3,7 @@ export type ReaderTarget = ReaderScope &
   (
     | { kind: 'image'; src: string; alt?: string; path?: string }
     | { kind: 'file'; path: string }
+    | { kind: 'web'; session: string; url?: string; title?: string }
     | { kind: 'diff'; runId: string; workspacePath: string; relativePath?: string }
   )
 
@@ -11,6 +12,8 @@ export function readerReference(
   threadId: string | null
 ): string | null {
   if (!target || target.threadId !== threadId) return null
+  if (target.kind === 'web')
+    return target.url ? `[Viewing web page: ${JSON.stringify(target.url)}]` : null
   if (target.kind === 'diff') {
     return `[Reviewing file changes: run ${JSON.stringify(target.runId)}, workspace ${JSON.stringify(target.workspacePath)}${target.relativePath ? `, file ${JSON.stringify(target.relativePath)}` : ''}]`
   }

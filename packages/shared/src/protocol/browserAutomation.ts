@@ -52,6 +52,11 @@ export interface ListBrowserAutomationSessionsInput {
   threadId: string
 }
 
+export interface OpenBrowserPreviewInput {
+  threadId: string
+  url: string
+}
+
 export interface ShowBrowserAutomationSessionInput {
   threadId: string
   session: string
