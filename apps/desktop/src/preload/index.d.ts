@@ -116,6 +116,7 @@ declare global {
       onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
       onNavigateToThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void
+      setTitleBarOverlay: (appearance: { symbolColor: string; height: number }) => void
       appUpdate: {
         getStatus: () => Promise<{ state: string; version?: string; error?: string }>
         check: () => void

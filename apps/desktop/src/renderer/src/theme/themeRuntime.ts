@@ -74,7 +74,11 @@ export function applyStoredThemePreference(): void {
 
 export function applyPlatformUi(platform: NodeJS.Platform): void {
   const capabilities = resolvePlatformCapabilities(platform)
-  document.documentElement.style.setProperty('--yachiyo-font-ui', capabilities.uiFontFamily)
+  const root = document.documentElement
+  root.style.setProperty('--yachiyo-font-ui', capabilities.uiFontFamily)
+  // Without macOS vibrancy the translucent chrome would composite over the
+  // native window's default white background, so paint an opaque app base.
+  root.dataset['yachiyoWindowMaterial'] = capabilities.trafficLights ? 'vibrancy' : 'opaque'
 }
 
 export function subscribeToSystemThemeChanges(onChange: () => void): () => void {

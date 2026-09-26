@@ -119,6 +119,8 @@ const api = {
     return () => ipcRenderer.off('navigate-to-thread', handler)
   },
   setVibrancy: (enabled: boolean) => ipcRenderer.send('set-vibrancy', enabled),
+  setTitleBarOverlay: (appearance: { symbolColor: string; height: number }) =>
+    ipcRenderer.send('set-title-bar-overlay', appearance),
   appUpdate: {
     getStatus: (): Promise<{ state: string; version?: string; error?: string }> =>
       ipcRenderer.invoke('app-update:get-status'),

@@ -49,6 +49,10 @@ body {
   -webkit-user-select: none;
 }
 
+:root[data-yachiyo-window-material='opaque'] body {
+  background: rgb(var(--yachiyo-rgb-app));
+}
+
 :focus {
   outline: none;
 }

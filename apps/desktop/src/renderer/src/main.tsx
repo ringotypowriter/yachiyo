@@ -8,9 +8,14 @@ import { bootstrapAppSession } from './app/bootstrap'
 import { AppDialogProvider } from './components/AppDialogProvider'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { applyPlatformUi, applyStoredThemePreference } from './theme/themeRuntime'
+import { syncTitleBarOverlay } from './features/layout/lib/titleBarOverlay'
+import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 
 applyStoredThemePreference()
 applyPlatformUi(window.api.process.platform)
+if (resolvePlatformCapabilities(window.api.process.platform).titleBarOverlay) {
+  syncTitleBarOverlay(window.api.setTitleBarOverlay)
+}
 bootstrapAppSession()
 
 createRoot(document.getElementById('root')!).render(

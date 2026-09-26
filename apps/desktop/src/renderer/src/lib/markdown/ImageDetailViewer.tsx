@@ -14,6 +14,7 @@ import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { extractLocalPath } from './imageUrl'
 import type { PreviewReadingState } from '@renderer/features/chat/lib/previewRetention'
+import { resolveAppTabFrameTitleBarInsets } from '@renderer/features/layout/lib/appTabs'
 
 interface ImageDetailViewerProps {
   src: string
@@ -40,7 +41,9 @@ const overlayStyle: React.CSSProperties = {
 const toolbarStyle: React.CSSProperties = {
   position: 'absolute',
   top: 12,
-  right: 12,
+  // Portaled outside the zoomed #root, so window pixels apply directly; keep
+  // clear of the native caption buttons, which always paint above web content.
+  right: 12 + resolveAppTabFrameTitleBarInsets(window.api.process.platform).right,
   display: 'flex',
   gap: 4,
   padding: 4,

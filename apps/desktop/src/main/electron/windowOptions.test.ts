@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildAuxiliaryWindowOptions, buildMainWindowOptions } from './windowOptions.ts'
+import {
+  buildAuxiliaryWindowOptions,
+  buildMainWindowOptions,
+  parseTitleBarOverlayUpdate
+} from './windowOptions.ts'
 
 test('macOS main window preserves hiddenInset, traffic lights, and vibrancy', () => {
   const options = buildMainWindowOptions('darwin')
@@ -29,4 +33,16 @@ test('Windows auxiliary windows are opaque, closable, and absent from the taskba
   assert.equal(options.skipTaskbar, true)
   assert.ok(options.backgroundColor)
   assert.notEqual(options.closable, false)
+})
+
+test('caption overlay updates keep a transparent band and reject malformed input', () => {
+  assert.deepEqual(parseTitleBarOverlayUpdate({ symbolColor: '#2d2d2b', height: 55 }), {
+    color: '#00000000',
+    symbolColor: '#2d2d2b',
+    height: 55
+  })
+  assert.equal(parseTitleBarOverlayUpdate(null), null)
+  assert.equal(parseTitleBarOverlayUpdate({ symbolColor: 'red', height: 48 }), null)
+  assert.equal(parseTitleBarOverlayUpdate({ symbolColor: '#2d2d2b', height: 47.5 }), null)
+  assert.equal(parseTitleBarOverlayUpdate({ symbolColor: '#2d2d2b', height: 4000 }), null)
 })

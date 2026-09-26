@@ -28,7 +28,12 @@ import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
 import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
 import { createElectronProviderCredentialVault } from './security/providerCredentials'
-import { buildAuxiliaryWindowOptions, buildMainWindowOptions } from './electron/windowOptions'
+import {
+  buildAuxiliaryWindowOptions,
+  buildMainWindowOptions,
+  parseTitleBarOverlayUpdate
+} from './electron/windowOptions'
+import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 import {
   loadMainWindowSize,
   MAIN_WINDOW_SIZE_LIMITS,
@@ -336,6 +341,18 @@ app.whenReady().then(async () => {
       win.setVibrancy(null)
       win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1d2125' : '#f5f4f0')
     }
+  })
+  ipcMain.on('set-title-bar-overlay', (event, input: unknown) => {
+    if (!resolvePlatformCapabilities(process.platform).titleBarOverlay) return
+    // Only the main window is created with a caption overlay.
+    if (!mainWindowRef || mainWindowRef.isDestroyed()) return
+    if (event.sender !== mainWindowRef.webContents) return
+    const overlay = parseTitleBarOverlayUpdate(input)
+    if (!overlay) {
+      console.warn('[title-bar-overlay] rejected malformed update', input)
+      return
+    }
+    mainWindowRef.setTitleBarOverlay(overlay)
   })
   // Start the renderer before synchronous shell/config setup. Chromium can parse
   // and paint in parallel while the main process prepares the runtime.

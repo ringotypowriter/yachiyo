@@ -38,6 +38,9 @@ export function AppTabFrame({
   const showSidebarTopControls = shouldShowAppTabFrameSidebarTopControls(isSidebarOpen)
   const topChromeColumn = resolveAppTabFrameTopChromeColumn(isSidebarOpen)
   const titleBarInsets = resolveAppTabFrameTitleBarInsets(window.api.process.platform)
+  // Caption controls are sized in window pixels, but this frame lives under the
+  // #root UI zoom, so undo it to reserve exactly the native band.
+  const captionInset = `calc(${titleBarInsets.right}px / var(--yachiyo-ui-zoom, 1))`
 
   return (
     <div
@@ -56,7 +59,7 @@ export function AppTabFrame({
           gridRow: '1',
           background: chromeBackground,
           borderBottom: `1px solid ${theme.border.panel}`,
-          paddingRight: titleBarInsets.right
+          paddingRight: captionInset
         }}
       >
         <div className="h-full shrink-0" style={{ width: titleBarInsets.left }} />
@@ -73,7 +76,7 @@ export function AppTabFrame({
             gridColumn: topChromeColumn,
             gridRow: '1',
             marginLeft: titleBarInsets.left,
-            marginRight: titleBarInsets.right,
+            marginRight: captionInset,
             minWidth: 0
           }}
         >
@@ -124,7 +127,7 @@ export function AppTabFrame({
               style={{
                 height: APP_TOP_BAR_HEIGHT - APP_CONTENT_CARD_TOP_INSET,
                 borderBottom: `1px solid ${theme.border.panel}`,
-                paddingRight: titleBarInsets.right,
+                paddingRight: captionInset,
                 position: 'relative'
               }}
             >
