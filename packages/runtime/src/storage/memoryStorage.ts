@@ -1425,6 +1425,10 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       // Sync conflicts live only in the sqlite store; nothing to delete in memory.
     },
 
+    isSyncSettingsSnapshotSuperseded() {
+      return false
+    },
+
     rememberSyncSettingsBaseHash() {
       // The sync-core baseline lives only in the sqlite store's sync_meta table.
     },

@@ -22,6 +22,8 @@ const META_SETTINGS_HASH: &str = "settings_export_hash";
 /// export or last adopt). Declared as an op's `baseHash` so a peer that hasn't
 /// locally edited since can fast-forward instead of recording a phantom conflict.
 const META_SETTINGS_BASE_HASH: &str = "settings_base_hash";
+const META_SETTINGS_BASE_TEXT: &str = "settings_base_text";
+const META_SETTINGS_CLOCK: &str = "settings_causal_clock";
 const META_OPS_V2_HISTORY: &str = "ops_v2_history";
 const META_ARCHIVE_TOMBSTONES: &str = "archive_export_tombstones";
 const OPS_DIR_V1: &str = "ops";
@@ -759,6 +761,64 @@ fn read_manifest(sync_dir: &Path, device_id: &str) -> Option<Manifest> {
     serde_json::from_str(&text).ok()
 }
 
+fn settings_base_text(
+    conn: &Connection,
+    sync_dir: &Path,
+    base_hash: &str,
+) -> Result<Option<String>, SyncError> {
+    if base_hash.is_empty() {
+        return Ok(None);
+    }
+    if let Some(text) = get_meta(conn, META_SETTINGS_BASE_TEXT)? {
+        if hash_text(&text) == base_hash {
+            return Ok(Some(text));
+        }
+    }
+    // An upgraded profile already has the baseline hash but not its text. Recover
+    // it from the published snapshots rather than guessing a common ancestor.
+    for path in op_files(sync_dir)?.into_iter().rev() {
+        let mut found = None;
+        let result = for_each_op_in_file(&path, |op| {
+            if op.kind == "settings.snapshot" {
+                if let Some(text) = op.payload.get("text").and_then(Value::as_str) {
+                    if hash_text(text) == base_hash {
+                        found = Some(text.to_string());
+                    }
+                }
+            }
+            Ok(())
+        });
+        match result {
+            Ok(()) if found.is_some() => return Ok(found),
+            Ok(()) | Err(SyncError::Io(_)) | Err(SyncError::Json(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(None)
+}
+
+fn settings_clock(conn: &Connection) -> Result<BTreeMap<String, i64>, SyncError> {
+    match get_meta(conn, META_SETTINGS_CLOCK)? {
+        Some(text) => Ok(serde_json::from_str(&text)?),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
+fn accept_settings_snapshot(conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
+    let mut clock = settings_clock(conn)?;
+    if let Some(ancestors) = op.payload.get("causalClock").and_then(Value::as_object) {
+        for (device, seq) in ancestors {
+            if let Some(seq) = seq.as_i64() {
+                let entry = clock.entry(device.clone()).or_default();
+                *entry = (*entry).max(seq);
+            }
+        }
+    }
+    let entry = clock.entry(op.device_id.clone()).or_default();
+    *entry = (*entry).max(op.seq);
+    set_meta(conn, META_SETTINGS_CLOCK, &serde_json::to_string(&clock)?)
+}
+
 pub fn export_ops(
     home: &Path,
     sync_dir_override: Option<&Path>,
@@ -829,8 +889,8 @@ pub fn export_ops(
                 Some(hash) => hash,
                 None => get_meta(&conn, META_SETTINGS_HASH)?.unwrap_or_default(),
             };
-            let payload =
-                json!({ "text": text, "baseHash": base_hash, "contentHash": hash_text(text) });
+            let base_text = settings_base_text(&conn, &sync_dir, &base_hash)?;
+            let payload = json!({ "text": text, "baseHash": base_hash, "baseText": base_text, "contentHash": hash_text(text), "causalClock": settings_clock(&conn)?, "originSeq": seq });
             ops_v1.write_op(&make_op(
                 &device_id,
                 seq,
@@ -927,6 +987,12 @@ pub fn export_ops(
                 // The settings we just published are the new agreed baseline peers
                 // will fast-forward to.
                 set_meta(&conn, META_SETTINGS_BASE_HASH, hash)?;
+                if let Some(text) = &settings_text {
+                    set_meta(&conn, META_SETTINGS_BASE_TEXT, text)?;
+                }
+                let mut clock = settings_clock(&conn)?;
+                clock.insert(device_id.clone(), seq);
+                set_meta(&conn, META_SETTINGS_CLOCK, &serde_json::to_string(&clock)?)?;
             }
         }
         if custom_skills_disclosure {
@@ -1987,6 +2053,12 @@ fn delete_imported_child_row(
 }
 
 fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
+    if settings_clock(conn)?
+        .get(&op.device_id)
+        .is_some_and(|seq| *seq >= op.seq)
+    {
+        return Ok(());
+    }
     let remote_text = op
         .payload
         .get("text")
@@ -2009,6 +2081,7 @@ fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), Syn
     // this, a re-exported but byte-identical snapshot would record a phantom
     // conflict on every import.
     if path.exists() && local_hash == remote_hash {
+        accept_settings_snapshot(conn, op)?;
         return Ok(());
     }
     if !path.exists() || local_hash == base_hash {
@@ -2019,6 +2092,8 @@ fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), Syn
         // We now agree on the remote content; record it so our own next export
         // declares it as the baseline instead of re-conflicting.
         set_meta(conn, META_SETTINGS_BASE_HASH, remote_hash)?;
+        set_meta(conn, META_SETTINGS_BASE_TEXT, remote_text)?;
+        accept_settings_snapshot(conn, op)?;
         return Ok(());
     }
     conn.execute(
@@ -5512,6 +5587,97 @@ mod tests {
     }
 
     #[test]
+    fn settings_edit_publishes_the_previous_snapshot_as_merge_base() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("[general]\nchatFontSize = 16\nchatPanelOpacity = 0.5\n");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home.path());
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        let baseline = fs::read_to_string(home.path().join(SETTINGS_FILE)).unwrap();
+
+        fs::write(
+            home.path().join(SETTINGS_FILE),
+            "[general]\nchatFontSize = 18\nchatPanelOpacity = 0.5\n",
+        )
+        .unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        let edit = read_ops_file(sync.path(), &device, 2)
+            .into_iter()
+            .find(|op| op.kind == "settings.snapshot")
+            .unwrap();
+        assert_eq!(edit.payload["baseHash"], hash_text(&baseline));
+        assert_eq!(edit.payload["baseText"], baseline);
+    }
+
+    #[test]
+    fn delayed_ancestor_snapshot_cannot_undo_a_revert() {
+        let home = setup_home("[general]\nchatFontSize = 16\nchatPanelOpacity = 0.36\n");
+        let conn = open_db(home.path()).unwrap();
+        let newer = make_op(
+            "relay",
+            3,
+            "settings.snapshot",
+            "settings",
+            "config.toml",
+            json!({
+                "text": "[general]\nchatFontSize = 16\nchatPanelOpacity = 0.36\n",
+                "baseHash": hash_text("[general]\nchatFontSize = 18\nchatPanelOpacity = 0.5\n"),
+                "contentHash": hash_text("[general]\nchatFontSize = 16\nchatPanelOpacity = 0.36\n"),
+                "causalClock": { "source": 2 },
+            }),
+        )
+        .unwrap();
+        apply_settings(home.path(), &conn, &newer).unwrap();
+        let stale = make_op(
+            "source",
+            2,
+            "settings.snapshot",
+            "settings",
+            "config.toml",
+            json!({
+                "text": "[general]\nchatFontSize = 18\nchatPanelOpacity = 0.5\n",
+                "baseHash": hash_text("[general]\nchatFontSize = 16\nchatPanelOpacity = 0.5\n"),
+                "contentHash": hash_text("[general]\nchatFontSize = 18\nchatPanelOpacity = 0.5\n"),
+                "causalClock": {},
+            }),
+        )
+        .unwrap();
+        apply_settings(home.path(), &conn, &stale).unwrap();
+        assert_eq!(
+            fs::read_to_string(home.path().join(SETTINGS_FILE)).unwrap(),
+            "[general]\nchatFontSize = 16\nchatPanelOpacity = 0.36\n"
+        );
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM sync_conflicts", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn relayed_settings_snapshot_carries_its_ancestors_clock() {
+        let sync = tempfile::tempdir().unwrap();
+        let source = setup_home("config-v1");
+        let relay = setup_home("config-v1");
+        init_sync(source.path(), Some(sync.path()), "source").unwrap();
+        init_sync(relay.path(), Some(sync.path()), "relay").unwrap();
+        let source_id = device_id_of(source.path());
+        export_ops(source.path(), Some(sync.path())).unwrap();
+        fs::write(source.path().join(SETTINGS_FILE), "config-v2").unwrap();
+        export_ops(source.path(), Some(sync.path())).unwrap();
+        import_ops(relay.path(), Some(sync.path())).unwrap();
+
+        fs::write(relay.path().join(SETTINGS_FILE), "config-v3").unwrap();
+        export_ops(relay.path(), Some(sync.path())).unwrap();
+        let edit = read_ops_file(sync.path(), &device_id_of(relay.path()), 1)
+            .into_iter()
+            .find(|op| op.kind == "settings.snapshot")
+            .unwrap();
+        assert_eq!(edit.payload["causalClock"][source_id], 2);
+    }
+
+    #[test]
     fn upgraded_profile_seeds_base_from_export_hash() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("config-v1");
@@ -5531,12 +5697,22 @@ mod tests {
                 [META_SETTINGS_BASE_HASH],
             )
             .unwrap();
+            conn.execute(
+                "DELETE FROM sync_meta WHERE key = ?1",
+                [META_SETTINGS_BASE_TEXT],
+            )
+            .unwrap();
         }
 
         // The first post-upgrade edit must still declare a usable baseHash so an
         // unedited peer fast-forwards instead of recording a phantom conflict.
         fs::write(home_a.path().join(SETTINGS_FILE), "config-v2").unwrap();
         export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let edit = read_ops_file(sync.path(), &device_id_of(home_a.path()), 2)
+            .into_iter()
+            .find(|op| op.kind == "settings.snapshot")
+            .unwrap();
+        assert_eq!(edit.payload["baseText"], "config-v1");
         import_ops(home_b.path(), Some(sync.path())).unwrap();
 
         assert_eq!(

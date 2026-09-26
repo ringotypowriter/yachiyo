@@ -1002,6 +1002,14 @@ export class YachiyoServer {
    */
   private reconcileSyncConflicts(): void {
     for (const conflict of this.storage.listSyncConflicts()) {
+      const snapshot = this.parseConflictSnapshot(conflict)
+      if (
+        snapshot &&
+        this.storage.isSyncSettingsSnapshotSuperseded(snapshot.deviceId, snapshot.seq)
+      ) {
+        this.storage.deleteSyncConflict(conflict.id)
+        continue
+      }
       const remembered = this.storage.findRememberedSettingsResolution({
         entityType: conflict.entityType,
         localHash: conflict.localHash,
@@ -1012,7 +1020,7 @@ export class YachiyoServer {
         const remote = this.parseConflictRemoteSettings(conflict)
         if (remote) {
           this.configDomain.applySyncedConfig(remote)
-          this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
+          this.rememberAcceptedSettingsSnapshot(conflict)
         }
         this.storage.deleteSyncConflict(conflict.id)
         continue
@@ -1029,16 +1037,48 @@ export class YachiyoServer {
       const remote = this.parseConflictRemoteSettings(conflict)
       if (!remote) continue
       const local = this.configDomain.getConfig()
-      const fields = diffSettingsForResolution(local, remote)
+      const base = this.parseConflictBaseSettings(conflict)
+      let autoSelections: Record<string, 'remote'> = {}
+      if (base) {
+        const localEdits = new Set(
+          diffSettingsForResolution(base, local).map((field) => field.path)
+        )
+        const remoteEdits = diffSettingsForResolution(base, remote)
+        const differing = new Set(
+          diffSettingsForResolution(local, remote).map((field) => field.path)
+        )
+        const overlapping = remoteEdits.some(
+          (field) => localEdits.has(field.path) && differing.has(field.path)
+        )
+        autoSelections = Object.fromEntries(
+          remoteEdits
+            .filter(({ path }) => !localEdits.has(path) || !differing.has(path))
+            .map(({ path }) => [path, 'remote' as const])
+        )
+        if (!overlapping) {
+          if (Object.keys(autoSelections).length > 0) {
+            this.configDomain.applySyncedConfig(mergeSettings(local, remote, autoSelections))
+          }
+          this.rememberAcceptedSettingsSnapshot(conflict)
+          this.storage.deleteSyncConflict(conflict.id)
+          continue
+        }
+      }
+      const fields = this.settingsConflictFields(conflict, this.configDomain.getConfig(), remote)
       const { rememberedSelections, unresolvedFields } = partitionRememberedSettingsFields(
         fields,
         this.storage.listRememberedSettingsFieldResolutions()
       )
       if (unresolvedFields.length > 0) continue
-      if (Object.values(rememberedSelections).includes('remote')) {
-        this.configDomain.applySyncedConfig(mergeSettings(local, remote, rememberedSelections))
+      if (
+        Object.keys(autoSelections).length > 0 ||
+        Object.values(rememberedSelections).includes('remote')
+      ) {
+        this.configDomain.applySyncedConfig(
+          mergeSettings(local, remote, { ...autoSelections, ...rememberedSelections })
+        )
       }
-      this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
+      this.rememberAcceptedSettingsSnapshot(conflict)
       this.storage.deleteSyncConflict(conflict.id)
     }
   }
@@ -1056,7 +1096,7 @@ export class YachiyoServer {
     const remote = this.parseConflictRemoteSettings(conflict)
     if (!remote) return conflict
     const { unresolvedFields } = partitionRememberedSettingsFields(
-      diffSettingsForResolution(this.configDomain.getConfig(), remote),
+      this.settingsConflictFields(conflict, this.configDomain.getConfig(), remote),
       this.storage.listRememberedSettingsFieldResolutions()
     )
     return {
@@ -1081,6 +1121,72 @@ export class YachiyoServer {
     } catch {
       return null
     }
+  }
+
+  private parseConflictBaseSettings(conflict: SyncConflictRecord): SettingsConfig | null {
+    try {
+      const payload = JSON.parse(conflict.payloadJson) as { baseText?: unknown; baseHash?: unknown }
+      if (
+        typeof payload.baseText !== 'string' ||
+        typeof payload.baseHash !== 'string' ||
+        !this.parseConflictSnapshot(conflict)
+      )
+        return null
+      const hash = `sha256:${createHash('sha256').update(payload.baseText).digest('hex')}`
+      if (hash !== payload.baseHash) return null
+      return normalizeSettingsConfig(parseSettingsToml(payload.baseText))
+    } catch {
+      return null
+    }
+  }
+
+  private parseConflictSnapshot(
+    conflict: SyncConflictRecord
+  ): { deviceId: string; seq: number; causalClock: Record<string, number> } | null {
+    try {
+      const payload = JSON.parse(conflict.payloadJson) as {
+        originSeq?: unknown
+        causalClock?: unknown
+      }
+      if (
+        !Number.isSafeInteger(payload.originSeq) ||
+        (payload.originSeq as number) < 1 ||
+        typeof payload.causalClock !== 'object' ||
+        payload.causalClock === null ||
+        Array.isArray(payload.causalClock) ||
+        !Object.values(payload.causalClock).every(
+          (seq) => Number.isSafeInteger(seq) && (seq as number) >= 0
+        )
+      )
+        return null
+      return {
+        deviceId: conflict.deviceId,
+        seq: payload.originSeq as number,
+        causalClock: payload.causalClock as Record<string, number>
+      }
+    } catch {
+      return null
+    }
+  }
+
+  private rememberAcceptedSettingsSnapshot(conflict: SyncConflictRecord): void {
+    this.storage.rememberSyncSettingsBaseHash(
+      conflict.remoteHash,
+      this.parseConflictSnapshot(conflict) ?? undefined
+    )
+  }
+
+  private settingsConflictFields(
+    conflict: SyncConflictRecord,
+    local: SettingsConfig,
+    remote: SettingsConfig
+  ): ReturnType<typeof diffSettingsForResolution> {
+    const fields = diffSettingsForResolution(local, remote)
+    const base = this.parseConflictBaseSettings(conflict)
+    if (!base) return fields
+    const localEdits = new Set(diffSettingsForResolution(base, local).map(({ path }) => path))
+    const remoteEdits = new Set(diffSettingsForResolution(base, remote).map(({ path }) => path))
+    return fields.filter(({ path }) => localEdits.has(path) && remoteEdits.has(path))
   }
 
   async resolveSyncConflict(input: ResolveSyncConflictInput): Promise<ListSyncConflictsResult> {
@@ -1112,7 +1218,7 @@ export class YachiyoServer {
 
     const remote = this.parseConflictRemoteSettings(conflict)
     const local = this.configDomain.getConfig()
-    const fields = remote ? diffSettingsForResolution(local, remote) : []
+    const fields = remote ? this.settingsConflictFields(conflict, local, remote) : []
     const { rememberedSelections } = partitionRememberedSettingsFields(
       fields,
       this.storage.listRememberedSettingsFieldResolutions()
@@ -1124,12 +1230,19 @@ export class YachiyoServer {
           ? Object.fromEntries(fields.map((field) => [field.path, 'local' as const]))
           : { ...rememberedSelections, ...input.fieldSelections }
 
-    if (input.resolution === 'use_remote' || input.resolution === 'merge') {
+    const base = remote && this.parseConflictBaseSettings(conflict)
+    if (remote && base) {
+      const localEdits = new Set(diffSettingsForResolution(base, local).map(({ path }) => path))
+      for (const { path } of diffSettingsForResolution(base, remote)) {
+        if (!localEdits.has(path)) fieldSelections[path] = 'remote'
+      }
+    }
+    if (input.resolution === 'use_remote' || input.resolution === 'merge' || base) {
       if (!remote) {
         throw new Error('Synced settings payload is invalid.')
       }
       const nextConfig =
-        input.resolution === 'merge'
+        base || input.resolution === 'merge'
           ? normalizeSettingsConfig(mergeSettings(local, remote, fieldSelections))
           : remote
       this.configDomain.applySyncedConfig(nextConfig)
@@ -1144,7 +1257,7 @@ export class YachiyoServer {
           choice: fieldSelections[field.path] ?? 'local'
         }))
       )
-      this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
+      this.rememberAcceptedSettingsSnapshot(conflict)
     }
 
     this.storage.resolveSyncConflict({

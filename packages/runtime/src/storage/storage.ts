@@ -589,13 +589,17 @@ export interface YachiyoStorage {
   rememberSettingsFieldResolutions(resolutions: SettingsFieldResolutionMemory[]): void
   /** Remove a conflict row outright (used to drop auto-handled duplicates). */
   deleteSyncConflict(conflictId: string): void
+  isSyncSettingsSnapshotSuperseded(deviceId: string, seq: number): boolean
   /**
    * Advance sync-core's agreed settings baseline after the app adopts a remote
    * settings version (resolving a conflict with `use_remote`). Without this the
    * next export would declare the stale pre-conflict base and re-conflict peers
    * that are already on the adopted version. No-op when sync isn't initialised.
    */
-  rememberSyncSettingsBaseHash(hash: string): void
+  rememberSyncSettingsBaseHash(
+    hash: string,
+    snapshot?: { deviceId: string; seq: number; causalClock: Record<string, number> }
+  ): void
 }
 
 export function toThreadRecord(

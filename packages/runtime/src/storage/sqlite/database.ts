@@ -7,6 +7,7 @@ import { createSqliteActivitySourceStorageMethods } from './activitySourceStorag
 import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
 import { createSqliteRemoteHistoryStorageMethods } from './remoteHistoryStorage.ts'
+import { acceptSettingsCausalClock, readSettingsCausalClock } from './settingsCausalClockStorage.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
 import { assertPageLimit } from '../messagePageWindow.ts'
 import { buildThreadMessagePageQuery } from './threadMessagePageQuery.ts'
@@ -300,10 +301,16 @@ export function createSqliteYachiyoStorage(
       db.delete(syncConflictsTable).where(eq(syncConflictsTable.id, conflictId)).run()
     },
 
-    rememberSyncSettingsBaseHash(hash) {
+    isSyncSettingsSnapshotSuperseded(deviceId, seq) {
+      if (!hasSyncMeta()) return false
+      return (readSettingsCausalClock(client)[deviceId] ?? 0) >= seq
+    },
+
+    rememberSyncSettingsBaseHash(hash, snapshot) {
       // `sync_meta` is owned and created by the native sync-core binary; skip the
       // write until sync has been initialised so we never touch a missing table.
       if (!hasSyncMeta()) return
+      if (snapshot) acceptSettingsCausalClock(client, snapshot)
       client
         .prepare(
           "INSERT INTO sync_meta (key, value) VALUES ('settings_base_hash', ?) " +
