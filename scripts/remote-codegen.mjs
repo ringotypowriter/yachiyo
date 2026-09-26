@@ -1,13 +1,17 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
 // Regenerates remote protocol artifacts shared with the iOS client: the JSON Schema built from
 // the zod definitions and the deterministic Noise/mailbox cross-language fixtures.
 // `--check` fails when a committed file is stale (used by CI).
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { gzipSync } from 'node:zlib'
+import { constants, createDeflateRaw, gzipSync } from 'node:zlib'
 
 import { buildRemoteProtocolJsonSchema } from '../packages/shared/src/remote/jsonSchema.ts'
-import { REMOTE_COMPRESSED_MESSAGE_TAG } from '../packages/shared/src/remote/wire.ts'
+import {
+  REMOTE_COMPRESSED_MESSAGE_TAG,
+  REMOTE_STREAM_DEFLATE_MESSAGE_TAG
+} from '../packages/shared/src/remote/wire.ts'
 import {
   buildMailboxFixture,
   buildNoiseSessionFixtures
@@ -24,6 +28,47 @@ const compressionRaw = JSON.stringify({
   value: { content: 'Compression preserves UTF-8: 你好 🌸 café.\n'.repeat(40) }
 })
 
+// Consecutive stream events through ONE raw deflate context, each ended with Z_SYNC_FLUSH, so
+// the phone's decoder is tested against the exact framing the desktop sends.
+const streamDeflateRaw = [0, 1, 2, 3].map((index) =>
+  JSON.stringify({
+    kind: 'rpc:event',
+    payload: {
+      type: 'event',
+      epoch: 'fixture-epoch',
+      seq: index + 1,
+      timestamp: '2026-09-25T00:00:00.000Z',
+      event: {
+        type: 'message.delta',
+        threadId: '11111111-1111-4111-8111-111111111111',
+        runId: '22222222-2222-4222-8222-222222222222',
+        messageId: '33333333-3333-4333-8333-333333333333',
+        delta: ['Hello', ', 世界 🌸', ' streaming', ' deltas.'][index]
+      }
+    }
+  })
+)
+
+async function streamDeflateSegments(messages) {
+  const deflate = createDeflateRaw({ level: 1 })
+  const segments = []
+  for (const message of messages) {
+    const chunks = []
+    const onData = (chunk) => chunks.push(chunk)
+    deflate.on('data', onData)
+    deflate.write(Buffer.from(message, 'utf8'))
+    await new Promise((done) => deflate.flush(constants.Z_SYNC_FLUSH, done))
+    deflate.off('data', onData)
+    segments.push(
+      Buffer.concat([Buffer.from([REMOTE_STREAM_DEFLATE_MESSAGE_TAG]), ...chunks]).toString(
+        'base64'
+      )
+    )
+  }
+  deflate.close()
+  return segments
+}
+
 const outputs = [
   ['generated/remote-protocol.schema.json', buildRemoteProtocolJsonSchema()],
   ['fixtures/noise-sessions.json', buildNoiseSessionFixtures()],
@@ -37,6 +82,10 @@ const outputs = [
         gzipSync(Buffer.from(compressionRaw), { level: 1 })
       ]).toString('base64')
     }
+  ],
+  [
+    'fixtures/remote-stream-deflate.json',
+    { raw: streamDeflateRaw, encodedBase64: await streamDeflateSegments(streamDeflateRaw) }
   ]
 ]
 

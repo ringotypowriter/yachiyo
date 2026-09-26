@@ -1,0 +1,14 @@
+{
+  "raw": [
+    "{\"kind\":\"rpc:event\",\"payload\":{\"type\":\"event\",\"epoch\":\"fixture-epoch\",\"seq\":1,\"timestamp\":\"2026-09-25T00:00:00.000Z\",\"event\":{\"type\":\"message.delta\",\"threadId\":\"11111111-1111-4111-8111-111111111111\",\"runId\":\"22222222-2222-4222-8222-222222222222\",\"messageId\":\"33333333-3333-4333-8333-333333333333\",\"delta\":\"Hello\"}}}",
+    "{\"kind\":\"rpc:event\",\"payload\":{\"type\":\"event\",\"epoch\":\"fixture-epoch\",\"seq\":2,\"timestamp\":\"2026-09-25T00:00:00.000Z\",\"event\":{\"type\":\"message.delta\",\"threadId\":\"11111111-1111-4111-8111-111111111111\",\"runId\":\"22222222-2222-4222-8222-222222222222\",\"messageId\":\"33333333-3333-4333-8333-333333333333\",\"delta\":\", 世界 🌸\"}}}",
+    "{\"kind\":\"rpc:event\",\"payload\":{\"type\":\"event\",\"epoch\":\"fixture-epoch\",\"seq\":3,\"timestamp\":\"2026-09-25T00:00:00.000Z\",\"event\":{\"type\":\"message.delta\",\"threadId\":\"11111111-1111-4111-8111-111111111111\",\"runId\":\"22222222-2222-4222-8222-222222222222\",\"messageId\":\"33333333-3333-4333-8333-333333333333\",\"delta\":\" streaming\"}}}",
+    "{\"kind\":\"rpc:event\",\"payload\":{\"type\":\"event\",\"epoch\":\"fixture-epoch\",\"seq\":4,\"timestamp\":\"2026-09-25T00:00:00.000Z\",\"event\":{\"type\":\"message.delta\",\"threadId\":\"11111111-1111-4111-8111-111111111111\",\"runId\":\"22222222-2222-4222-8222-222222222222\",\"messageId\":\"33333333-3333-4333-8333-333333333333\",\"delta\":\" deltas.\"}}}"
+  ],
+  "encodedBase64": [
+    "AkSOyw6CMBBF/+WuO6QiGpwv0L0rdw2MSuRRoRiN4d/NQImT5pz0tp3OF4+qLcHofcHykjbAwLtP3bkS/EX4eAFjPRHfFXcwrtU7jL3QsjcY5AneGISqkSG4xoOR2nRP9kDp7mwtzyux1l5gYrt/+0aGwd0kKaUODgbh3osrTzrXJhapKVPkijVXw6Af2/l6GovUlClyxZqrYRA/nJ9sY5GaMkWuWHM1DJbZGEep6w7TNP0AAAD//w==",
+    "AqqmYtAZjYig01F4smPa86k9Ch/m9+wABSEAAAD//w==",
+    "AqJmEBqPiCBUKC4pSk3MzcxLB4UfAAAA//8=",
+    "AqJm+JmMjPADZ+NiPVDoAQAAAP//"
+  ]
+}
