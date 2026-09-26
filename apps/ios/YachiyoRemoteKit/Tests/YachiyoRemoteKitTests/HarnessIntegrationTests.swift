@@ -30,7 +30,7 @@ final class HarnessIntegrationTests: XCTestCase {
         _ = tracker.accept(try await client.call("events.subscribe", tracker.subscribeInput(threadIds: [thread.id])))
         var question: RemoteToolCall?
         for await push in client.pushes {
-            guard case let .apply(event) = tracker.observe(push) else { continue }
+            guard case let .apply(event, _)? = tracker.observe(push).first else { continue }
             if event.type == .toolUpdated, event.toolCall?.status == .waitingForUser {
                 question = event.toolCall
                 break
@@ -54,7 +54,7 @@ final class HarnessIntegrationTests: XCTestCase {
         XCTAssertFalse(resumed, "resume within the buffer should not need a resync")
         var completed = false
         for await push in reconnected.pushes {
-            guard case let .apply(event) = resumedTracker.observe(push) else { continue }
+            guard case let .apply(event, _)? = resumedTracker.observe(push).first else { continue }
             if event.type == .runStatus, event.runId == accepted.runId, event.status == .completed {
                 completed = true
                 break

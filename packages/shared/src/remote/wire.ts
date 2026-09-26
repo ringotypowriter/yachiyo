@@ -15,6 +15,30 @@ export const REMOTE_COMPRESSION_MIN_BYTES = 1024
 export const REMOTE_COMPRESSION_MIN_SAVING_BYTES = 32
 
 /**
+ * Desktop-to-phone framing selected with the `stream-deflate` feature: the tag followed by the
+ * next segment of ONE raw deflate stream (window bits -15) kept for the connection's lifetime and
+ * ended with Z_SYNC_FLUSH per message. The shared window is what makes small, repetitive stream
+ * events cheap. Phone-to-desktop messages keep the per-message gzip tag.
+ */
+export const REMOTE_STREAM_DEFLATE_MESSAGE_TAG = 0x02
+
+/**
+ * Optional protocol features. The phone offers them in the handshake payload (`features`);
+ * the desktop answers with the subset it enables in the authenticated message-2 payload and
+ * must not send anything beyond `{ compression }` to a phone that offered none.
+ */
+export const REMOTE_FEATURES = {
+  /** Message 2 carries the `remote.hello` output, so the phone skips that round trip. */
+  handshakeHello: 'handshake-hello',
+  /** Events are pushed as `batch` pushes, one per hub flush. */
+  eventBatch: 'event-batch',
+  /** Desktop-to-phone messages use `REMOTE_STREAM_DEFLATE_MESSAGE_TAG`. */
+  streamDeflate: 'stream-deflate'
+} as const
+
+export type RemoteFeature = (typeof REMOTE_FEATURES)[keyof typeof REMOTE_FEATURES]
+
+/**
  * First byte of the client's first WebSocket frame, followed by Noise message 1. The server
  * answers with Noise message 2; every later frame is one transport ciphertext.
  */

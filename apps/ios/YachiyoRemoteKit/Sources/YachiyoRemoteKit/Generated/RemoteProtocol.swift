@@ -50,6 +50,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
     public let remoteFilesGetInput: RemoteFilesGetInput?
     public let remoteFilesGetOutput: RemoteFilesGetOutput?
     public let remoteHandshakeClientPayload: RemoteHandshakeClientPayload?
+    public let remoteHandshakeServerPayload: RemoteHandshakeServerPayload?
     public let remoteHelloInput: RemoteHelloInput?
     public let remoteHelloOutput: RemoteHelloOutput?
     public let remoteImageRef: RemoteImageRef?
@@ -67,6 +68,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
     public let remotePlanReadInput: RemotePlanReadInput?
     public let remotePlanReadOutput: RemotePlanReadOutput?
     public let remotePush: RemotePush?
+    public let remotePushBatchItem: RemotePushBatchItem?
     public let remoteReasoningSelection: RemoteReasoningSelection?
     public let remoteRunAnswerToolQuestionInput: RemoteRunAnswerToolQuestionInput?
     public let remoteRunCancelInput: RemoteRunCancelInput?
@@ -94,6 +96,8 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
     public let remoteTodoItem: RemoteTodoItem?
     public let remoteToolCall: RemoteToolCall?
     public let remoteToolQuestion: RemoteToolQuestion?
+    public let remoteToolsGetPreviewInput: RemoteToolsGetPreviewInput?
+    public let remoteToolsGetPreviewOutput: RemoteToolsGetPreviewOutput?
     public let remoteWorkspace: RemoteWorkspace?
     public let remoteWorkspacesListRecentInput: RemoteWorkspacesListRecentInput?
     public let remoteWorkspacesListRecentOutput: RemoteWorkspacesListRecentOutput?
@@ -133,6 +137,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         case remoteFilesGetInput = "RemoteFilesGetInput"
         case remoteFilesGetOutput = "RemoteFilesGetOutput"
         case remoteHandshakeClientPayload = "RemoteHandshakeClientPayload"
+        case remoteHandshakeServerPayload = "RemoteHandshakeServerPayload"
         case remoteHelloInput = "RemoteHelloInput"
         case remoteHelloOutput = "RemoteHelloOutput"
         case remoteImageRef = "RemoteImageRef"
@@ -150,6 +155,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         case remotePlanReadInput = "RemotePlanReadInput"
         case remotePlanReadOutput = "RemotePlanReadOutput"
         case remotePush = "RemotePush"
+        case remotePushBatchItem = "RemotePushBatchItem"
         case remoteReasoningSelection = "RemoteReasoningSelection"
         case remoteRunAnswerToolQuestionInput = "RemoteRunAnswerToolQuestionInput"
         case remoteRunCancelInput = "RemoteRunCancelInput"
@@ -177,12 +183,14 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         case remoteTodoItem = "RemoteTodoItem"
         case remoteToolCall = "RemoteToolCall"
         case remoteToolQuestion = "RemoteToolQuestion"
+        case remoteToolsGetPreviewInput = "RemoteToolsGetPreviewInput"
+        case remoteToolsGetPreviewOutput = "RemoteToolsGetPreviewOutput"
         case remoteWorkspace = "RemoteWorkspace"
         case remoteWorkspacesListRecentInput = "RemoteWorkspacesListRecentInput"
         case remoteWorkspacesListRecentOutput = "RemoteWorkspacesListRecentOutput"
     }
 
-    public init(remoteActiveRunEnterBehavior: RemoteActiveRunEnterBehavior?, remoteAppearance: RemoteAppearance?, remoteAppearanceGetInput: RemoteAppearanceGetInput?, remoteAttachmentsBeginInput: RemoteAttachmentsBeginInput?, remoteAttachmentsBeginOutput: RemoteAttachmentsBeginOutput?, remoteAttachmentsChunkInput: RemoteAttachmentsChunkInput?, remoteAttachmentsChunkOutput: RemoteAttachmentsChunkOutput?, remoteAttachmentsCommitInput: RemoteAttachmentsCommitInput?, remoteAttachmentsCommitOutput: RemoteAttachmentsCommitOutput?, remoteBranchCreateInput: RemoteBranchCreateInput?, remoteBranchCreateOutput: RemoteBranchCreateOutput?, remoteBranchSelectInput: RemoteBranchSelectInput?, remoteChatAccepted: RemoteChatAccepted?, remoteChatEditInput: RemoteChatEditInput?, remoteChatRemoveFollowUpInput: RemoteChatRemoveFollowUpInput?, remoteChatRetryInput: RemoteChatRetryInput?, remoteChatRetryOutput: RemoteChatRetryOutput?, remoteChatSendInput: RemoteChatSendInput?, remoteChatStartThreadInput: RemoteChatStartThreadInput?, remoteChatStartThreadOutput: RemoteChatStartThreadOutput?, remoteChatWithdrawSteerInput: RemoteChatWithdrawSteerInput?, remoteEndpoint: RemoteEndpoint?, remoteEssential: RemoteEssential?, remoteEssentialsGetIconInput: RemoteEssentialsGetIconInput?, remoteEssentialsGetIconOutput: RemoteEssentialsGetIconOutput?, remoteEssentialsListInput: RemoteEssentialsListInput?, remoteEssentialsListOutput: RemoteEssentialsListOutput?, remoteEvent: RemoteEvent?, remoteEventsSubscribeInput: RemoteEventsSubscribeInput?, remoteEventsSubscribeOutput: RemoteEventsSubscribeOutput?, remoteFileRef: RemoteFileRef?, remoteFilesGetInput: RemoteFilesGetInput?, remoteFilesGetOutput: RemoteFilesGetOutput?, remoteHandshakeClientPayload: RemoteHandshakeClientPayload?, remoteHelloInput: RemoteHelloInput?, remoteHelloOutput: RemoteHelloOutput?, remoteImageRef: RemoteImageRef?, remoteImagesGetInput: RemoteImagesGetInput?, remoteImagesGetOutput: RemoteImagesGetOutput?, remoteMailboxPlaintext: RemoteMailboxPlaintext?, remoteMessage: RemoteMessage?, remoteModelOverride: RemoteModelOverride?, remoteModelsListSelectableInput: RemoteModelsListSelectableInput?, remoteModelsListSelectableOutput: RemoteModelsListSelectableOutput?, remoteOk: RemoteOk?, remotePairingGrant: RemotePairingGrant?, remotePairingPayload: RemotePairingPayload?, remotePlanAcceptInput: RemotePlanAcceptInput?, remotePlanReadInput: RemotePlanReadInput?, remotePlanReadOutput: RemotePlanReadOutput?, remotePush: RemotePush?, remoteReasoningSelection: RemoteReasoningSelection?, remoteRunAnswerToolQuestionInput: RemoteRunAnswerToolQuestionInput?, remoteRunCancelInput: RemoteRunCancelInput?, remoteRunMode: RemoteRunMode?, remoteRunStatus: RemoteRunStatus?, remoteSearchResult: RemoteSearchResult?, remoteSelectableModel: RemoteSelectableModel?, remoteTask: RemoteTask?, remoteTasksListInput: RemoteTasksListInput?, remoteTasksListOutput: RemoteTasksListOutput?, remoteThemeAppearance: RemoteThemeAppearance?, remoteThemeId: RemoteThemeId?, remoteThreadCapabilities: RemoteThreadCapabilities?, remoteThreadDetail: RemoteThreadDetail?, remoteThreadsArchiveInput: RemoteThreadsArchiveInput?, remoteThreadsCreateInput: RemoteThreadsCreateInput?, remoteThreadsCreateOutput: RemoteThreadsCreateOutput?, remoteThreadsListInput: RemoteThreadsListInput?, remoteThreadsListOutput: RemoteThreadsListOutput?, remoteThreadsLoadInput: RemoteThreadsLoadInput?, remoteThreadsSearchInput: RemoteThreadsSearchInput?, remoteThreadsSearchOutput: RemoteThreadsSearchOutput?, remoteThreadsStarInput: RemoteThreadsStarInput?, remoteThreadSummary: RemoteThreadSummary?, remoteTodoItem: RemoteTodoItem?, remoteToolCall: RemoteToolCall?, remoteToolQuestion: RemoteToolQuestion?, remoteWorkspace: RemoteWorkspace?, remoteWorkspacesListRecentInput: RemoteWorkspacesListRecentInput?, remoteWorkspacesListRecentOutput: RemoteWorkspacesListRecentOutput?) {
+    public init(remoteActiveRunEnterBehavior: RemoteActiveRunEnterBehavior?, remoteAppearance: RemoteAppearance?, remoteAppearanceGetInput: RemoteAppearanceGetInput?, remoteAttachmentsBeginInput: RemoteAttachmentsBeginInput?, remoteAttachmentsBeginOutput: RemoteAttachmentsBeginOutput?, remoteAttachmentsChunkInput: RemoteAttachmentsChunkInput?, remoteAttachmentsChunkOutput: RemoteAttachmentsChunkOutput?, remoteAttachmentsCommitInput: RemoteAttachmentsCommitInput?, remoteAttachmentsCommitOutput: RemoteAttachmentsCommitOutput?, remoteBranchCreateInput: RemoteBranchCreateInput?, remoteBranchCreateOutput: RemoteBranchCreateOutput?, remoteBranchSelectInput: RemoteBranchSelectInput?, remoteChatAccepted: RemoteChatAccepted?, remoteChatEditInput: RemoteChatEditInput?, remoteChatRemoveFollowUpInput: RemoteChatRemoveFollowUpInput?, remoteChatRetryInput: RemoteChatRetryInput?, remoteChatRetryOutput: RemoteChatRetryOutput?, remoteChatSendInput: RemoteChatSendInput?, remoteChatStartThreadInput: RemoteChatStartThreadInput?, remoteChatStartThreadOutput: RemoteChatStartThreadOutput?, remoteChatWithdrawSteerInput: RemoteChatWithdrawSteerInput?, remoteEndpoint: RemoteEndpoint?, remoteEssential: RemoteEssential?, remoteEssentialsGetIconInput: RemoteEssentialsGetIconInput?, remoteEssentialsGetIconOutput: RemoteEssentialsGetIconOutput?, remoteEssentialsListInput: RemoteEssentialsListInput?, remoteEssentialsListOutput: RemoteEssentialsListOutput?, remoteEvent: RemoteEvent?, remoteEventsSubscribeInput: RemoteEventsSubscribeInput?, remoteEventsSubscribeOutput: RemoteEventsSubscribeOutput?, remoteFileRef: RemoteFileRef?, remoteFilesGetInput: RemoteFilesGetInput?, remoteFilesGetOutput: RemoteFilesGetOutput?, remoteHandshakeClientPayload: RemoteHandshakeClientPayload?, remoteHandshakeServerPayload: RemoteHandshakeServerPayload?, remoteHelloInput: RemoteHelloInput?, remoteHelloOutput: RemoteHelloOutput?, remoteImageRef: RemoteImageRef?, remoteImagesGetInput: RemoteImagesGetInput?, remoteImagesGetOutput: RemoteImagesGetOutput?, remoteMailboxPlaintext: RemoteMailboxPlaintext?, remoteMessage: RemoteMessage?, remoteModelOverride: RemoteModelOverride?, remoteModelsListSelectableInput: RemoteModelsListSelectableInput?, remoteModelsListSelectableOutput: RemoteModelsListSelectableOutput?, remoteOk: RemoteOk?, remotePairingGrant: RemotePairingGrant?, remotePairingPayload: RemotePairingPayload?, remotePlanAcceptInput: RemotePlanAcceptInput?, remotePlanReadInput: RemotePlanReadInput?, remotePlanReadOutput: RemotePlanReadOutput?, remotePush: RemotePush?, remotePushBatchItem: RemotePushBatchItem?, remoteReasoningSelection: RemoteReasoningSelection?, remoteRunAnswerToolQuestionInput: RemoteRunAnswerToolQuestionInput?, remoteRunCancelInput: RemoteRunCancelInput?, remoteRunMode: RemoteRunMode?, remoteRunStatus: RemoteRunStatus?, remoteSearchResult: RemoteSearchResult?, remoteSelectableModel: RemoteSelectableModel?, remoteTask: RemoteTask?, remoteTasksListInput: RemoteTasksListInput?, remoteTasksListOutput: RemoteTasksListOutput?, remoteThemeAppearance: RemoteThemeAppearance?, remoteThemeId: RemoteThemeId?, remoteThreadCapabilities: RemoteThreadCapabilities?, remoteThreadDetail: RemoteThreadDetail?, remoteThreadsArchiveInput: RemoteThreadsArchiveInput?, remoteThreadsCreateInput: RemoteThreadsCreateInput?, remoteThreadsCreateOutput: RemoteThreadsCreateOutput?, remoteThreadsListInput: RemoteThreadsListInput?, remoteThreadsListOutput: RemoteThreadsListOutput?, remoteThreadsLoadInput: RemoteThreadsLoadInput?, remoteThreadsSearchInput: RemoteThreadsSearchInput?, remoteThreadsSearchOutput: RemoteThreadsSearchOutput?, remoteThreadsStarInput: RemoteThreadsStarInput?, remoteThreadSummary: RemoteThreadSummary?, remoteTodoItem: RemoteTodoItem?, remoteToolCall: RemoteToolCall?, remoteToolQuestion: RemoteToolQuestion?, remoteToolsGetPreviewInput: RemoteToolsGetPreviewInput?, remoteToolsGetPreviewOutput: RemoteToolsGetPreviewOutput?, remoteWorkspace: RemoteWorkspace?, remoteWorkspacesListRecentInput: RemoteWorkspacesListRecentInput?, remoteWorkspacesListRecentOutput: RemoteWorkspacesListRecentOutput?) {
         self.remoteActiveRunEnterBehavior = remoteActiveRunEnterBehavior
         self.remoteAppearance = remoteAppearance
         self.remoteAppearanceGetInput = remoteAppearanceGetInput
@@ -217,6 +225,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         self.remoteFilesGetInput = remoteFilesGetInput
         self.remoteFilesGetOutput = remoteFilesGetOutput
         self.remoteHandshakeClientPayload = remoteHandshakeClientPayload
+        self.remoteHandshakeServerPayload = remoteHandshakeServerPayload
         self.remoteHelloInput = remoteHelloInput
         self.remoteHelloOutput = remoteHelloOutput
         self.remoteImageRef = remoteImageRef
@@ -234,6 +243,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         self.remotePlanReadInput = remotePlanReadInput
         self.remotePlanReadOutput = remotePlanReadOutput
         self.remotePush = remotePush
+        self.remotePushBatchItem = remotePushBatchItem
         self.remoteReasoningSelection = remoteReasoningSelection
         self.remoteRunAnswerToolQuestionInput = remoteRunAnswerToolQuestionInput
         self.remoteRunCancelInput = remoteRunCancelInput
@@ -261,6 +271,8 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         self.remoteTodoItem = remoteTodoItem
         self.remoteToolCall = remoteToolCall
         self.remoteToolQuestion = remoteToolQuestion
+        self.remoteToolsGetPreviewInput = remoteToolsGetPreviewInput
+        self.remoteToolsGetPreviewOutput = remoteToolsGetPreviewOutput
         self.remoteWorkspace = remoteWorkspace
         self.remoteWorkspacesListRecentInput = remoteWorkspacesListRecentInput
         self.remoteWorkspacesListRecentOutput = remoteWorkspacesListRecentOutput
@@ -347,10 +359,12 @@ public struct RemoteAttachmentsBeginInput: Codable, Equatable, Sendable {
 // MARK: - RemoteAttachmentsBeginOutput
 public struct RemoteAttachmentsBeginOutput: Codable, Equatable, Sendable {
     public let chunkSize: Int
+    public let maxInFlightChunks: Int?
     public let uploadId: String
 
-    public init(chunkSize: Int, uploadId: String) {
+    public init(chunkSize: Int, maxInFlightChunks: Int?, uploadId: String) {
         self.chunkSize = chunkSize
+        self.maxInFlightChunks = maxInFlightChunks
         self.uploadId = uploadId
     }
 }
@@ -1078,6 +1092,7 @@ public struct RemoteToolCall: Codable, Equatable, Sendable {
     public let assistantMessageId: String?
     public let error: String?
     public let finishedAt: String?
+    public let hasPreview: Bool?
     public let id: String
     public let inputPreview, outputPreview: String?
     public let question: RemoteToolQuestion?
@@ -1087,10 +1102,11 @@ public struct RemoteToolCall: Codable, Equatable, Sendable {
     public let title, toolName: String
     public let truncated: Bool
 
-    public init(assistantMessageId: String?, error: String?, finishedAt: String?, id: String, inputPreview: String?, outputPreview: String?, question: RemoteToolQuestion?, requestMessageId: String?, runId: String?, startedAt: String, status: RemoteToolCallStatus, title: String, toolName: String, truncated: Bool) {
+    public init(assistantMessageId: String?, error: String?, finishedAt: String?, hasPreview: Bool?, id: String, inputPreview: String?, outputPreview: String?, question: RemoteToolQuestion?, requestMessageId: String?, runId: String?, startedAt: String, status: RemoteToolCallStatus, title: String, toolName: String, truncated: Bool) {
         self.assistantMessageId = assistantMessageId
         self.error = error
         self.finishedAt = finishedAt
+        self.hasPreview = hasPreview
         self.id = id
         self.inputPreview = inputPreview
         self.outputPreview = outputPreview
@@ -1247,13 +1263,60 @@ public struct RemoteHandshakeClientPayload: Codable, Equatable, Sendable {
     public let app: String
     public let compression: [String]?
     public let deviceName: String
+    public let features: [String]?
     public let version: String
 
-    public init(app: String, compression: [String]?, deviceName: String, version: String) {
+    public init(app: String, compression: [String]?, deviceName: String, features: [String]?, version: String) {
         self.app = app
         self.compression = compression
         self.deviceName = deviceName
+        self.features = features
         self.version = version
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - RemoteHandshakeServerPayload
+public struct RemoteHandshakeServerPayload: Codable, Equatable, Sendable {
+    public let compression: String?
+    public let features: [String]?
+    public let hello: RemoteHelloOutput?
+
+    public init(compression: String?, features: [String]?, hello: RemoteHelloOutput?) {
+        self.compression = compression
+        self.features = features
+        self.hello = hello
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - RemoteHelloOutput
+public struct RemoteHelloOutput: Codable, Equatable, Sendable {
+    public let activeRunEnterBehavior: RemoteActiveRunEnterBehavior
+    public let appVersion, deviceName: String
+    public let epoch: String
+    public let protocolVersion: Double
+    public let remoteDeviceId: String
+    public let syncDeviceId: String?
+
+    public init(activeRunEnterBehavior: RemoteActiveRunEnterBehavior, appVersion: String, deviceName: String, epoch: String, protocolVersion: Double, remoteDeviceId: String, syncDeviceId: String?) {
+        self.activeRunEnterBehavior = activeRunEnterBehavior
+        self.appVersion = appVersion
+        self.deviceName = deviceName
+        self.epoch = epoch
+        self.protocolVersion = protocolVersion
+        self.remoteDeviceId = remoteDeviceId
+        self.syncDeviceId = syncDeviceId
     }
 }
 
@@ -1288,32 +1351,6 @@ public struct Client: Codable, Equatable, Sendable {
     public init(app: String, version: String) {
         self.app = app
         self.version = version
-    }
-}
-
-//
-// Hashable or Equatable:
-// The compiler will not be able to synthesize the implementation of Hashable or Equatable
-// for types that require the use of JSONAny, nor will the implementation of Hashable be
-// synthesized for types that have collections (such as arrays or dictionaries).
-
-// MARK: - RemoteHelloOutput
-public struct RemoteHelloOutput: Codable, Equatable, Sendable {
-    public let activeRunEnterBehavior: RemoteActiveRunEnterBehavior
-    public let appVersion, deviceName: String
-    public let epoch: String
-    public let protocolVersion: Double
-    public let remoteDeviceId: String
-    public let syncDeviceId: String?
-
-    public init(activeRunEnterBehavior: RemoteActiveRunEnterBehavior, appVersion: String, deviceName: String, epoch: String, protocolVersion: Double, remoteDeviceId: String, syncDeviceId: String?) {
-        self.activeRunEnterBehavior = activeRunEnterBehavior
-        self.appVersion = appVersion
-        self.deviceName = deviceName
-        self.epoch = epoch
-        self.protocolVersion = protocolVersion
-        self.remoteDeviceId = remoteDeviceId
-        self.syncDeviceId = syncDeviceId
     }
 }
 
@@ -1557,18 +1594,37 @@ public enum Decision: String, Codable, Equatable, Sendable {
 public struct RemotePush: Codable, Equatable, Sendable {
     public let epoch: String
     public let event: RemoteEvent?
-    public let seq: Int
+    public let seq: Int?
     public let timestamp: String?
     public let type: RemotePushType
+    public let items: [RemotePushBatchItem]?
     public let reason: RemotePushReason?
 
-    public init(epoch: String, event: RemoteEvent?, seq: Int, timestamp: String?, type: RemotePushType, reason: RemotePushReason?) {
+    public init(epoch: String, event: RemoteEvent?, seq: Int?, timestamp: String?, type: RemotePushType, items: [RemotePushBatchItem]?, reason: RemotePushReason?) {
         self.epoch = epoch
         self.event = event
         self.seq = seq
         self.timestamp = timestamp
         self.type = type
+        self.items = items
         self.reason = reason
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - RemotePushBatchItem
+public struct RemotePushBatchItem: Codable, Equatable, Sendable {
+    public let event: RemoteEvent
+    public let seq: Int
+
+    public init(event: RemoteEvent, seq: Int) {
+        self.event = event
+        self.seq = seq
     }
 }
 
@@ -1579,6 +1635,7 @@ public enum RemotePushReason: String, Codable, Equatable, Sendable {
 }
 
 public enum RemotePushType: String, Codable, Equatable, Sendable {
+    case batch = "batch"
     case event = "event"
     case resync = "resync"
 }
@@ -1848,11 +1905,13 @@ public struct RemoteThreadsListOutput: Codable, Equatable, Sendable {
 public struct RemoteThreadsLoadInput: Codable, Equatable, Sendable {
     public let beforeMessageId: String?
     public let limit: Int?
+    public let omitToolPreviews: Bool?
     public let threadId: String
 
-    public init(beforeMessageId: String?, limit: Int?, threadId: String) {
+    public init(beforeMessageId: String?, limit: Int?, omitToolPreviews: Bool?, threadId: String) {
         self.beforeMessageId = beforeMessageId
         self.limit = limit
+        self.omitToolPreviews = omitToolPreviews
         self.threadId = threadId
     }
 }
@@ -1908,6 +1967,40 @@ public struct RemoteThreadsStarInput: Codable, Equatable, Sendable {
     public init(starred: Bool, threadId: String) {
         self.starred = starred
         self.threadId = threadId
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - RemoteToolsGetPreviewInput
+public struct RemoteToolsGetPreviewInput: Codable, Equatable, Sendable {
+    public let threadId, toolCallId: String
+
+    public init(threadId: String, toolCallId: String) {
+        self.threadId = threadId
+        self.toolCallId = toolCallId
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - RemoteToolsGetPreviewOutput
+public struct RemoteToolsGetPreviewOutput: Codable, Equatable, Sendable {
+    public let inputPreview, outputPreview: String?
+    public let truncated: Bool
+
+    public init(inputPreview: String?, outputPreview: String?, truncated: Bool) {
+        self.inputPreview = inputPreview
+        self.outputPreview = outputPreview
+        self.truncated = truncated
     }
 }
 

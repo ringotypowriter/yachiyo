@@ -18,8 +18,8 @@ final class EventCursorTrackerTests: XCTestCase {
         XCTAssertNil(tracker.subscribeInput(threadIds: []).resumeFrom)
         XCTAssertTrue(tracker.accept(RemoteEventsSubscribeOutput(epoch: "e1", headSeq: 3, resumed: false)))
 
-        guard case .apply = tracker.observe(try push(seq: 4)) else { return XCTFail("expected apply") }
-        XCTAssertEqual(tracker.observe(try push(seq: 4)), .skip)
+        guard case .apply? = tracker.observe(try push(seq: 4)).first else { return XCTFail("expected apply") }
+        XCTAssertEqual(tracker.observe(try push(seq: 4)), [.skip])
         XCTAssertEqual(tracker.subscribeInput(threadIds: ["t1"]).resumeFrom, ResumeFrom(epoch: "e1", seq: 4))
 
         XCTAssertFalse(tracker.accept(RemoteEventsSubscribeOutput(epoch: "e1", headSeq: 6, resumed: true)))
@@ -28,8 +28,21 @@ final class EventCursorTrackerTests: XCTestCase {
 
     func testAnEpochChangeOrServerResyncForcesARefetch() throws {
         var tracker = EventCursorTracker(cursor: ResumeCursor(epoch: "e1", seq: 10))
-        XCTAssertEqual(tracker.observe(try push(epoch: "e2", seq: 1)), .resync)
+        XCTAssertEqual(tracker.observe(try push(epoch: "e2", seq: 1)), [.resync])
         XCTAssertEqual(tracker.cursor, ResumeCursor(epoch: "e2", seq: 1))
-        XCTAssertEqual(tracker.observe(try push(epoch: "e2", seq: 5, type: "resync")), .resync)
+        XCTAssertEqual(tracker.observe(try push(epoch: "e2", seq: 5, type: "resync")), [.resync])
+    }
+
+    func testABatchAppliesItemsInOrderAndSkipsReplayedOnes() throws {
+        var tracker = EventCursorTracker(cursor: ResumeCursor(epoch: "e1", seq: 4))
+        let json = #"{"type":"batch","epoch":"e1","timestamp":"2026-09-22T00:00:00.000Z","items":[{"seq":4,"event":{"type":"thread.invalidated","threadId":"t1"}},{"seq":6,"event":{"type":"thread.invalidated","threadId":"t2"}}]}"#
+        let batch = try JSONDecoder().decode(RemotePush.self, from: Data(json.utf8))
+        let decisions = tracker.observe(batch)
+        XCTAssertEqual(decisions.count, 2)
+        XCTAssertEqual(decisions.first, .skip)
+        guard case let .apply(event, seq) = decisions.last else { return XCTFail("expected apply") }
+        XCTAssertEqual(event.threadId, "t2")
+        XCTAssertEqual(seq, 6)
+        XCTAssertEqual(tracker.cursor, ResumeCursor(epoch: "e1", seq: 6))
     }
 }

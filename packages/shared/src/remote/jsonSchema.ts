@@ -9,9 +9,14 @@ import {
   themeAppearanceSchema,
   themeIdSchema
 } from './common.ts'
-import { remoteEventSchema, remotePushSchema } from './events.ts'
+import { remoteEventSchema, remotePushBatchItemSchema, remotePushSchema } from './events.ts'
 import { mailboxPlaintextSchema } from './mailbox.ts'
-import { remoteChatAcceptedSchema, remoteMethods, REMOTE_METHOD_NAMES } from './methods.ts'
+import {
+  handshakeServerPayloadSchema,
+  remoteChatAcceptedSchema,
+  remoteMethods,
+  REMOTE_METHOD_NAMES
+} from './methods.ts'
 import {
   handshakeClientPayloadSchema,
   pairingGrantSchema,
@@ -46,6 +51,7 @@ const NAMED_SCHEMAS: z.ZodType[] = [
   remoteEndpointSchema,
   pairingPayloadSchema,
   handshakeClientPayloadSchema,
+  handshakeServerPayloadSchema,
   pairingGrantSchema,
   mailboxPlaintextSchema,
   remoteRunStatusSchema,
@@ -65,6 +71,7 @@ const NAMED_SCHEMAS: z.ZodType[] = [
   remoteWorkspaceSchema,
   remoteSearchResultSchema,
   remoteEventSchema,
+  remotePushBatchItemSchema,
   remotePushSchema,
   remoteChatAcceptedSchema
 ]

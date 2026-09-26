@@ -321,7 +321,7 @@ final class RemoteClientTests: XCTestCase {
         var tracker = EventCursorTracker()
         var delivered: [Int] = []
         for await push in client.pushes {
-            delivered.append(push.seq)
+            delivered.append(try XCTUnwrap(push.seq))
             _ = tracker.observe(push)
         }
         XCTAssertEqual(delivered, [1, 2])
@@ -366,7 +366,7 @@ final class RemoteClientTests: XCTestCase {
         }
         XCTAssertEqual(channel.sendCount, 1)
         var delivered: [Int] = []
-        for await push in client.pushes { delivered.append(push.seq) }
+        for await push in client.pushes { delivered.append(try XCTUnwrap(push.seq)) }
         XCTAssertEqual(delivered, [1])
     }
 }

@@ -339,10 +339,12 @@ final class DesktopLink {
         for await push in client.pushes {
             guard isCurrent(generation), self.client === client else { return }
             lastSeen = Date()
-            switch tracker.observe(push) {
-            case let .apply(event): onEvent(self, event, push.seq)
-            case .skip: continue
-            case .resync: onResync(self)
+            for decision in tracker.observe(push) {
+                switch decision {
+                case let .apply(event, seq): onEvent(self, event, seq)
+                case .skip: continue
+                case .resync: onResync(self)
+                }
             }
         }
     }

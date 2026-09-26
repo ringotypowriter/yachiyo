@@ -105,6 +105,10 @@ export const remoteEventSchema = z
 export type RemoteEvent = z.infer<typeof remoteEventSchema>
 export type RemoteEventType = RemoteEvent['type']
 
+export const remotePushBatchItemSchema = z
+  .object({ seq: z.int().min(1), event: remoteEventSchema })
+  .meta({ id: 'RemotePushBatchItem' })
+
 /** Server-pushed payloads, delivered as `rpc:event` messages. */
 export const remotePushSchema = z
   .discriminatedUnion('type', [
@@ -114,6 +118,16 @@ export const remotePushSchema = z
       seq: z.int().min(1),
       timestamp: isoDateTimeSchema,
       event: remoteEventSchema
+    }),
+    /**
+     * One hub flush, sent only when the `event-batch` feature was negotiated. Items keep
+     * ascending seqs; each applies exactly like an `event` push with the batch epoch/timestamp.
+     */
+    z.object({
+      type: z.literal('batch'),
+      epoch: z.string().min(1),
+      timestamp: isoDateTimeSchema,
+      items: z.array(remotePushBatchItemSchema).min(1)
     }),
     z.object({
       type: z.literal('resync'),

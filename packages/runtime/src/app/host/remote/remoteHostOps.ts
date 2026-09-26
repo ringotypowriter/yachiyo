@@ -96,6 +96,11 @@ export interface RemoteHostOps {
   'host.remote.search'(input: { query: string; scope?: 'active' | 'archived' }): {
     results: RemoteSearchResult[]
   }
+  'host.remote.getToolPreview'(input: { threadId: string; toolCallId: string }): {
+    inputPreview?: string
+    outputPreview?: string
+    truncated: boolean
+  }
 }
 
 /**
@@ -441,6 +446,24 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     return { mediaType: match[1], data: match[2] }
   }
 
+  function getToolPreview(input: { threadId: string; toolCallId: string }): {
+    inputPreview?: string
+    outputPreview?: string
+    truncated: boolean
+  } {
+    requireActiveThread(input.threadId)
+    const toolCall = storage()
+      .listThreadToolCalls(input.threadId)
+      .find((candidate) => candidate.id === input.toolCallId)
+    if (!toolCall) throw new RemoteNotFoundError('Tool call not found.')
+    const { inputPreview, outputPreview, truncated } = projectToolCall(toolCall)
+    return {
+      ...(inputPreview ? { inputPreview } : {}),
+      ...(outputPreview ? { outputPreview } : {}),
+      truncated
+    }
+  }
+
   function search(input: { query: string; scope?: 'active' | 'archived' }): {
     results: RemoteSearchResult[]
   } {
@@ -473,7 +496,8 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     'host.remote.getHostInfo': getHostInfo,
     'host.remote.listTasks': listTasks,
     'host.remote.getImage': getImage,
-    'host.remote.search': search
+    'host.remote.search': search,
+    'host.remote.getToolPreview': getToolPreview
   }
 }
 

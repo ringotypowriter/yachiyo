@@ -32,7 +32,9 @@ export const handshakeClientPayloadSchema = z
     deviceName: z.string().min(1).max(200),
     app: z.string().min(1).max(100),
     version: z.string().min(1).max(50),
-    compression: z.array(z.string().min(1).max(32)).max(8).optional()
+    compression: z.array(z.string().min(1).max(32)).max(8).optional(),
+    /** Offered `REMOTE_FEATURES` values; unknown entries are ignored. */
+    features: z.array(z.string().min(1).max(32)).max(16).optional()
   })
   .meta({ id: 'RemoteHandshakeClientPayload' })
 

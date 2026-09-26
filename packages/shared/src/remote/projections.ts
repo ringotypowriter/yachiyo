@@ -125,6 +125,8 @@ export const remoteToolCallSchema = z
     inputPreview: z.string().max(REMOTE_TOOL_PREVIEW_LIMIT).optional(),
     outputPreview: z.string().max(REMOTE_TOOL_PREVIEW_LIMIT).optional(),
     truncated: z.boolean(),
+    /** Previews exist but were omitted from this projection; see `tools.getPreview`. */
+    hasPreview: z.boolean().optional(),
     error: z.string().optional(),
     question: remoteToolQuestionSchema.optional(),
     startedAt: isoDateTimeSchema,

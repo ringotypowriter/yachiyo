@@ -18,7 +18,8 @@ import {
   remoteTaskSchema,
   remoteThreadDetailSchema,
   remoteThreadSummarySchema,
-  remoteWorkspaceSchema
+  remoteWorkspaceSchema,
+  REMOTE_TOOL_PREVIEW_LIMIT
 } from './projections.ts'
 
 /** Upload limits mirror the desktop composer (`attachmentFileTypes.ts`). */
@@ -68,6 +69,20 @@ export const helloOutputSchema = z
   .meta({ id: 'RemoteHelloOutput' })
 
 /**
+ * Authenticated message-2 payload. Empty when the phone offered nothing; `features` and
+ * `hello` appear only when the phone offered features.
+ */
+export const handshakeServerPayloadSchema = z
+  .object({
+    compression: z.string().min(1).max(32).optional(),
+    features: z.array(z.string().min(1).max(32)).max(16).optional(),
+    hello: helloOutputSchema.optional()
+  })
+  .meta({ id: 'RemoteHandshakeServerPayload' })
+
+export type HandshakeServerPayload = z.infer<typeof handshakeServerPayloadSchema>
+
+/**
  * Every method the phone may call. Inputs are validated on the desktop; anything not listed
  * here (settings, providers, channels, memory, sync, deletion) is unreachable by design.
  */
@@ -87,7 +102,9 @@ export const remoteMethods = {
     input: z.object({
       threadId: idSchema,
       limit: z.int().min(1).max(200).optional(),
-      beforeMessageId: idSchema.optional()
+      beforeMessageId: idSchema.optional(),
+      /** Omit tool input/output previews (marked `hasPreview`); fetch them with `tools.getPreview`. */
+      omitToolPreviews: z.boolean().optional()
     }),
     output: remoteThreadDetailSchema
   },
@@ -204,7 +221,12 @@ export const remoteMethods = {
       mediaType: z.string().min(1).max(255),
       size: z.int().min(1).max(REMOTE_ATTACHMENT_MAX_BYTES)
     }),
-    output: z.object({ uploadId: idSchema, chunkSize: z.int() })
+    output: z.object({
+      uploadId: idSchema,
+      chunkSize: z.int(),
+      /** Chunks the phone may have in flight; absent means one (stop-and-wait). */
+      maxInFlightChunks: z.int().min(1).max(8).optional()
+    })
   },
   'attachments.chunk': {
     input: z.object({
@@ -224,6 +246,14 @@ export const remoteMethods = {
   'images.get': {
     input: z.object({ threadId: idSchema, messageId: idSchema, imageId: idSchema }),
     output: z.object({ mediaType: z.string(), data: z.string() })
+  },
+  'tools.getPreview': {
+    input: z.object({ threadId: idSchema, toolCallId: idSchema }),
+    output: z.object({
+      inputPreview: z.string().max(REMOTE_TOOL_PREVIEW_LIMIT).optional(),
+      outputPreview: z.string().max(REMOTE_TOOL_PREVIEW_LIMIT).optional(),
+      truncated: z.boolean()
+    })
   },
   'files.get': {
     input: z.object({ threadId: idSchema, path: z.string().min(1).max(8192) }),
