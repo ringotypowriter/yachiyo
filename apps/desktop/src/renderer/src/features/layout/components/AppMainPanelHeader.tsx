@@ -24,6 +24,9 @@ export interface AppMainPanelHeaderProps {
   isStarred?: boolean
   hideThreadActions?: boolean
   centerAccessory?: ReactNode
+  /** Replaces the thread title, left-aligned, and takes the space up to the right-side actions. */
+  tabs?: ReactNode
+  trailingAccessory?: ReactNode
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
   onOpenInEditor?: () => Promise<void>
@@ -50,6 +53,8 @@ export function AppMainPanelHeader({
   isStarred,
   hideThreadActions = false,
   centerAccessory,
+  tabs,
+  trailingAccessory,
   messageCount,
   onOpenThreadWorkspace,
   onOpenInEditor,
@@ -90,36 +95,48 @@ export function AppMainPanelHeader({
         </button>
       ) : null}
 
-      {/* Title + workspace buttons — centered when sidebar off, left when sidebar on */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: showSidebarToggle ? 'center' : 'flex-start',
-          paddingLeft: showSidebarToggle ? '80px' : `${headerPaddingLeft}px`,
-          paddingRight: '80px',
-          pointerEvents: 'none'
-        }}
-      >
-        <div className="no-drag" style={{ pointerEvents: 'auto', minWidth: 0, overflow: 'hidden' }}>
-          {showCenteredAccessory ? (
-            centerAccessory
-          ) : (
-            <ThreadHeaderTitle
-              activeThread={activeThread}
-              centered={showSidebarToggle}
-              onOpenThreadWorkspace={onOpenThreadWorkspace}
-              onOpenInEditor={onOpenInEditor}
-              onOpenInTerminal={onOpenInTerminal}
-            />
-          )}
+      {tabs ? (
+        <div
+          className="flex min-w-0 flex-1 items-center"
+          style={{ marginLeft: showSidebarToggle ? 6 : 0, marginRight: 12 }}
+        >
+          {tabs}
         </div>
-      </div>
+      ) : (
+        // Title + workspace buttons — centered when sidebar off, left when sidebar on
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: showSidebarToggle ? 'center' : 'flex-start',
+            paddingLeft: showSidebarToggle ? '80px' : `${headerPaddingLeft}px`,
+            paddingRight: '80px',
+            pointerEvents: 'none'
+          }}
+        >
+          <div
+            className="no-drag"
+            style={{ pointerEvents: 'auto', minWidth: 0, overflow: 'hidden' }}
+          >
+            {showCenteredAccessory ? (
+              centerAccessory
+            ) : (
+              <ThreadHeaderTitle
+                activeThread={activeThread}
+                centered={showSidebarToggle}
+                onOpenThreadWorkspace={onOpenThreadWorkspace}
+                onOpenInEditor={onOpenInEditor}
+                onOpenInTerminal={onOpenInTerminal}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Center status — absolutely centered, only when sidebar is open */}
-      {!showSidebarToggle && activeThread ? (
+      {!tabs && !showSidebarToggle && activeThread ? (
         <div
           style={{
             position: 'absolute',
@@ -148,6 +165,7 @@ export function AppMainPanelHeader({
 
       {/* Right zone: actions */}
       <div className="flex items-center gap-1 no-drag ml-auto" style={{ position: 'relative' }}>
+        {trailingAccessory}
         {activeThread && !isReadOnly && !hideThreadActions ? (
           <Tooltip
             content={

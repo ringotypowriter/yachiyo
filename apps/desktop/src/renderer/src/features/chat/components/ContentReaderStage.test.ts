@@ -6,6 +6,7 @@ import { parseHTML } from 'linkedom'
 import { AppDialogContext } from '@renderer/components/AppDialogContext'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ContentReaderStage } from './ContentReaderStage'
+import { ContentReaderTabs } from './ContentReaderTabs'
 import { useContentReaderStore } from '../state/useContentReaderStore'
 
 test('opening a document covers but does not unmount the conversation or composer and returns to its reading position', async () => {
@@ -91,6 +92,21 @@ test('opening a document covers but does not unmount the conversation or compose
       'Original conversation'
     )
   }
+  // Mirrors the app header: tabs replace the title and the active preview portals its tools.
+  function Header({ threadId }: { threadId: string }): React.JSX.Element {
+    const [toolsHost, setToolsHost] = React.useState<HTMLDivElement | null>(null)
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(ContentReaderTabs, { threadId }),
+      React.createElement('div', { ref: setToolsHost, 'data-reader-tools': true }),
+      React.createElement(
+        ContentReaderStage,
+        { threadId, toolsHost },
+        React.createElement(Conversation)
+      )
+    )
+  }
   const renderStage = (threadId: string): void => {
     root.render(
       React.createElement(
@@ -98,7 +114,7 @@ test('opening a document covers but does not unmount the conversation or compose
         {
           value: { alert: async () => {}, confirm: async () => false, prompt: async () => null }
         },
-        React.createElement(ContentReaderStage, { threadId }, React.createElement(Conversation)),
+        React.createElement(Header, { threadId }),
         React.createElement('textarea', { 'data-composer': true, defaultValue: 'Keep my draft' })
       )
     )
@@ -187,9 +203,7 @@ test('opening a document covers but does not unmount the conversation or compose
     const diff = document.querySelector('.content-reader-diff')!
     await act(async () => {
       document
-        .querySelector<HTMLButtonElement>(
-          '.content-reader:not([hidden]) [aria-label="Ask Yachiyo"]'
-        )!
+        .querySelector<HTMLButtonElement>('[data-reader-tools] [aria-label="Ask Yachiyo"]')!
         .click()
     })
     assert.equal(useContentReaderStore.getState().conversations.a.activeId, 'chat')
@@ -212,7 +226,7 @@ test('opening a document covers but does not unmount the conversation or compose
     await act(async () => renderStage('b'))
     assert.equal(document.querySelector('[data-image]'), image)
     assert.ok(image.closest('section')?.hasAttribute('inert'))
-    assert.equal(document.querySelectorAll('[role="tab"]').length, 1)
+    assert.equal(document.querySelector('[role="tablist"]'), null)
     await act(async () => renderStage('a'))
     await act(async () => {
       const imageTab = useContentReaderStore
@@ -228,21 +242,19 @@ test('opening a document covers but does not unmount the conversation or compose
     nativePage = { ...nativePage, url: 'https://example.com/b', title: 'Page B' }
     await act(async () => {
       document
-        .querySelector<HTMLElement>('.content-reader:not([hidden]) [aria-label="Open in browser"]')!
+        .querySelector<HTMLElement>('[data-reader-tools] [aria-label="Open in browser"]')!
         .click()
     })
     assert.deepEqual(externalUrls, ['https://example.com/b'])
     assert.equal(useContentReaderStore.getState().conversations.a.activeId, webId)
     assert.match(
-      document.querySelector('.content-reader:not([hidden]) .content-reader-title')!.textContent!,
+      document.querySelector('[role="tab"][aria-selected="true"]')!.textContent!,
       /Page B/
     )
     nativePage = { ...nativePage, url: 'https://example.com/c', title: 'Page C' }
     await act(async () => {
       document
-        .querySelector<HTMLButtonElement>(
-          '.content-reader:not([hidden]) [aria-label="Ask Yachiyo"]'
-        )!
+        .querySelector<HTMLButtonElement>('[data-reader-tools] [aria-label="Ask Yachiyo"]')!
         .click()
     })
     const webReference = useContentReaderStore.getState().references.a

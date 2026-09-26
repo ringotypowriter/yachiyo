@@ -7,6 +7,15 @@ export type ReaderTarget = ReaderScope &
     | { kind: 'diff'; runId: string; workspacePath: string; relativePath?: string }
   )
 
+export function readerTitle(target: ReaderTarget): string {
+  if (target.kind === 'diff') return 'File Changes'
+  if (target.kind === 'web') return target.title || target.url || target.session
+  return (
+    target.path?.split(/[\\/]/).pop() ||
+    (target.kind === 'image' ? target.alt || 'Image' : 'Document')
+  )
+}
+
 export function readerReference(
   target: ReaderTarget | null,
   threadId: string | null

@@ -1,17 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import {
-  LoaderCircle,
-  MessageCircleQuestion,
-  MessageSquare,
-  Globe,
-  X,
-  ExternalLink,
-  FolderOpen,
-  RefreshCw,
-  FileText,
-  Image as ImageIcon,
-  FileDiff
-} from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { MessageCircleQuestion, ExternalLink, FolderOpen, RefreshCw } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { ImageCanvas } from '@renderer/lib/markdown/ImageDetailViewer'
@@ -27,41 +16,28 @@ import { DocumentReader } from './DocumentReader'
 import { DiffReviewSurface } from './DiffReviewSurface'
 
 import type { BrowserAutomationActivityBubbleState } from '@yachiyo/shared/protocol'
-import type { ReaderTarget } from '../lib/contentReader'
+import { readerTitle, type ReaderTarget } from '../lib/contentReader'
 import { RetainedBrowserPreview } from './RetainedBrowserPreview'
 import type { PreviewReadingState } from '../lib/previewRetention'
-
-function readerTitle(target: ReaderTarget): string {
-  if (target.kind === 'diff') return 'File Changes'
-  if (target.kind === 'web') return target.title || target.url || target.session
-  return (
-    target.path?.split(/[\\/]/).pop() ||
-    (target.kind === 'image' ? target.alt || 'Image' : 'Document')
-  )
-}
 
 export function ContentReaderStage({
   threadId,
   children,
   browserSuspended = false,
-  browserActivityBubble
+  browserActivityBubble,
+  toolsHost
 }: {
   threadId: string | null
   children?: ReactNode
   browserSuspended?: boolean
   browserActivityBubble?: BrowserAutomationActivityBubbleState | null
+  /** Header element where the active preview renders its actions. */
+  toolsHost: HTMLElement | null
 }): React.JSX.Element {
   const conversations = useContentReaderStore((state) => state.conversations)
   const conversation = threadId
     ? (conversations[threadId] ?? EMPTY_READER_CONVERSATION)
     : EMPTY_READER_CONVERSATION
-  const running = useAppStore((state) => !!threadId && !!state.activeRunIdsByThread[threadId])
-  const needsAttention = useAppStore(
-    (state) =>
-      !!threadId &&
-      (state.planDocumentsByThread[threadId]?.decision === 'pending' ||
-        !!state.toolCalls[threadId]?.some((call) => call.status === 'waiting-for-user'))
-  )
   const select = useContentReaderStore((state) => state.select)
   const closeTab = useContentReaderStore((state) => state.closeTab)
   const opened = conversation.activeId !== 'chat'
@@ -117,80 +93,6 @@ export function ContentReaderStage({
   }, [opened, threadId, select])
   return (
     <div className="content-reader-stage">
-      <div
-        className="content-reader-tabs"
-        role="tablist"
-        aria-label="Conversation tabs"
-        onKeyDown={(event) => {
-          if (event.target instanceof HTMLElement && event.target.getAttribute('role') !== 'tab')
-            return
-          const tabs = Array.from(
-            event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-          )
-          const index = tabs.indexOf(event.target as HTMLButtonElement)
-          const next =
-            event.key === 'ArrowRight'
-              ? (index + 1) % tabs.length
-              : event.key === 'ArrowLeft'
-                ? (index + tabs.length - 1) % tabs.length
-                : event.key === 'Home'
-                  ? 0
-                  : event.key === 'End'
-                    ? tabs.length - 1
-                    : -1
-          if (next < 0) return
-          event.preventDefault()
-          tabs[next].click()
-          tabs[next].focus()
-        }}
-      >
-        <button
-          type="button"
-          role="tab"
-          tabIndex={opened ? -1 : 0}
-          aria-selected={!opened}
-          onClick={() => threadId && select(threadId, 'chat')}
-        >
-          <MessageSquare size={14} />
-          Chat
-          {needsAttention ? (
-            <MessageCircleQuestion size={14} aria-label="Needs your attention" />
-          ) : running ? (
-            <LoaderCircle size={13} className="animate-spin" aria-label="Yachiyo is working" />
-          ) : null}
-        </button>
-        {conversation.tabs.map((tab) => (
-          <div className="content-reader-tab" key={tab.id}>
-            <button
-              type="button"
-              role="tab"
-              tabIndex={conversation.activeId === tab.id ? 0 : -1}
-              aria-selected={conversation.activeId === tab.id}
-              title={readerTitle(tab.target)}
-              onClick={() => threadId && select(threadId, tab.id)}
-            >
-              {tab.target.kind === 'web' ? (
-                <Globe size={14} />
-              ) : tab.target.kind === 'image' ? (
-                <ImageIcon size={14} />
-              ) : tab.target.kind === 'diff' ? (
-                <FileDiff size={14} />
-              ) : (
-                <FileText size={14} />
-              )}
-              <span>{readerTitle(tab.target)}</span>
-            </button>
-            <button
-              type="button"
-              className="content-reader-tab-close"
-              aria-label={`Close ${readerTitle(tab.target)}`}
-              onClick={() => threadId && closeTab(threadId, tab.id)}
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ))}
-      </div>
       <div className="content-reader-panels">
         <div
           ref={timelineRef}
@@ -213,6 +115,7 @@ export function ContentReaderStage({
                 reading={tab.reading}
                 target={tab.target}
                 active={owner === threadId && entry.activeId === tab.id}
+                toolsSlot={toolsHost}
                 close={() => closeTab(owner, tab.id)}
                 ask={() => useContentReaderStore.getState().ask(owner, tab.id)}
               />
@@ -228,6 +131,7 @@ function ReaderPanel({
   tabId,
   reading,
   active,
+  toolsSlot,
   close,
   ask,
   browserSuspended,
@@ -237,6 +141,7 @@ function ReaderPanel({
   tabId: string
   reading: PreviewReadingState
   active: boolean
+  toolsSlot: HTMLElement | null
   close: () => void
   ask: () => void
   browserSuspended: boolean
@@ -361,81 +266,72 @@ function ReaderPanel({
       data-reader-kind={target.kind}
       aria-label={title}
     >
-      <header className="content-reader-header">
-        <span className="content-reader-title" title={title}>
-          {target.kind === 'image' ? (
-            <ImageIcon size={14} />
-          ) : target.kind === 'diff' ? (
-            <FileDiff size={14} />
-          ) : target.kind === 'web' ? (
-            <Globe size={14} />
-          ) : (
-            <FileText size={14} />
-          )}
-          <span>{title}</span>
-        </span>
-        <div className="content-reader-tools">
-          <button
-            type="button"
-            onClick={() => (webSession ? void webAction('ask') : ask())}
-            title="Ask Yachiyo"
-            aria-label="Ask Yachiyo"
-          >
-            <MessageCircleQuestion size={14} />
-            <span>Ask Yachiyo</span>
-          </button>
-          {webSession ? (
-            <button
-              type="button"
-              title="Open in browser"
-              aria-label="Open in browser"
-              onClick={() => void webAction('external')}
-            >
-              <ExternalLink size={14} />
-            </button>
-          ) : externalUrl ? (
-            <a
-              href={externalUrl}
-              target="_blank"
-              rel="noreferrer"
-              title="Open in browser"
-              aria-label="Open in browser"
-            >
-              <ExternalLink size={14} />
-            </a>
-          ) : null}
-          {target.kind !== 'diff' && target.kind !== 'web' ? (
-            <button
-              type="button"
-              title="Reload file"
-              aria-label="Reload file"
-              onClick={() => setRefresh((value) => value + 1)}
-            >
-              <RefreshCw size={14} />
-            </button>
-          ) : null}
-          {path ? (
+      {active && toolsSlot
+        ? createPortal(
             <>
               <button
                 type="button"
-                title="Open externally"
-                aria-label="Open externally"
-                onClick={() => void fileAction(false)}
+                onClick={() => (webSession ? void webAction('ask') : ask())}
+                title="Ask Yachiyo"
+                aria-label="Ask Yachiyo"
               >
-                <ExternalLink size={14} />
+                <MessageCircleQuestion size={14} />
+                <span>Ask Yachiyo</span>
               </button>
-              <button
-                type="button"
-                title="Show in folder"
-                aria-label="Show in folder"
-                onClick={() => void fileAction(true)}
-              >
-                <FolderOpen size={14} />
-              </button>
-            </>
-          ) : null}
-        </div>
-      </header>
+              {webSession ? (
+                <button
+                  type="button"
+                  title="Open in browser"
+                  aria-label="Open in browser"
+                  onClick={() => void webAction('external')}
+                >
+                  <ExternalLink size={14} />
+                </button>
+              ) : externalUrl ? (
+                <a
+                  href={externalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open in browser"
+                  aria-label="Open in browser"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              ) : null}
+              {target.kind !== 'diff' && target.kind !== 'web' ? (
+                <button
+                  type="button"
+                  title="Reload file"
+                  aria-label="Reload file"
+                  onClick={() => setRefresh((value) => value + 1)}
+                >
+                  <RefreshCw size={14} />
+                </button>
+              ) : null}
+              {path ? (
+                <>
+                  <button
+                    type="button"
+                    title="Open externally"
+                    aria-label="Open externally"
+                    onClick={() => void fileAction(false)}
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Show in folder"
+                    aria-label="Show in folder"
+                    onClick={() => void fileAction(true)}
+                  >
+                    <FolderOpen size={14} />
+                  </button>
+                </>
+              ) : null}
+            </>,
+            toolsSlot
+          )
+        : null}
       <div className="content-reader-body">
         {target.kind === 'web' ? (
           <RetainedBrowserPreview

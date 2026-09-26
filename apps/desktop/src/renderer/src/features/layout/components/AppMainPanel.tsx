@@ -24,6 +24,7 @@ import {
 import { Composer } from '@renderer/features/chat/components/Composer'
 import { ContentReaderProvider } from '@renderer/features/chat/components/ContentReaderContext'
 import { ContentReaderStage } from '@renderer/features/chat/components/ContentReaderStage'
+import { ContentReaderTabs } from '@renderer/features/chat/components/ContentReaderTabs'
 import { useContentReaderStore } from '@renderer/features/chat/state/useContentReaderStore'
 import { startPreviewResourceLifecycle } from '@renderer/features/chat/state/previewResourceLifecycle'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
@@ -219,6 +220,10 @@ export function AppMainPanel({
   const readerOpen = useContentReaderStore(
     (state) => state.target !== null && state.target.threadId === activeThreadId
   )
+  const hasReaderTabs = useContentReaderStore(
+    (state) => !!activeThreadId && (state.conversations[activeThreadId]?.tabs.length ?? 0) > 0
+  )
+  const [readerToolsHost, setReaderToolsHost] = useState<HTMLDivElement | null>(null)
   const [isBrowserSessionMenuOpen, setIsBrowserSessionMenuOpen] = useState(false)
   const [runtimeBrowserSessions, setRuntimeBrowserSessions] = useState<
     BrowserAutomationSessionRecord[]
@@ -343,9 +348,9 @@ export function AppMainPanel({
         className="content-reader-web-picker"
         onToggle={(event) => setIsBrowserSessionMenuOpen(event.currentTarget.open)}
       >
-        <summary title="Preview web page in Yachiyo">
+        <summary title="Preview web page in Yachiyo" aria-label="Preview web page">
           <Globe size={14} />
-          Preview web page
+          {hasReaderTabs ? null : 'Preview web page'}
         </summary>
         <div>
           {browserActivity.sessions.map((session) => (
@@ -964,6 +969,7 @@ export function AppMainPanel({
                 threadId={activeThreadId}
                 browserSuspended={isBrowserSessionMenuOpen}
                 browserActivityBubble={browserActivityBubble}
+                toolsHost={readerToolsHost}
               >
                 <AnimatePresence initial={false} mode="popLayout">
                   {showWelcomeState ? (
@@ -1133,7 +1139,20 @@ export function AppMainPanel({
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         isStarred={!!activeThread?.starredAt}
         hideThreadActions={readerOpen}
-        centerAccessory={headerSurfaceSwitcher}
+        centerAccessory={hasReaderTabs ? undefined : headerSurfaceSwitcher}
+        tabs={
+          hasReaderTabs ? (
+            <ContentReaderTabs
+              threadId={activeThreadId}
+              title={activeThread?.title}
+              icon={activeThread?.icon}
+              accessory={headerSurfaceSwitcher}
+            />
+          ) : undefined
+        }
+        trailingAccessory={
+          readerOpen ? <div ref={setReaderToolsHost} className="content-reader-tools" /> : null
+        }
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
         onOpenInEditor={config?.workspace?.editorApp ? handleOpenInEditor : undefined}
