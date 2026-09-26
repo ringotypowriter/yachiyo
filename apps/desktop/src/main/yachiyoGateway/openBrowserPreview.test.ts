@@ -15,7 +15,7 @@ function setup(): {
     opens,
     backend: {
       listSessions: ({ threadId }) => sessions.filter((session) => session.threadId === threadId),
-      open: async ({ threadId, session, url }) => {
+      openPreview: async ({ threadId, session, url }) => {
         opens.push(url!)
         sessions.push({
           threadId,
@@ -24,7 +24,7 @@ function setup(): {
           viewport: { width: 1000, height: 800 },
           updatedAt: ''
         })
-        return { url: url! }
+        return sessions.at(-1)!
       }
     }
   }

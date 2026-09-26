@@ -55,6 +55,27 @@ export interface ListBrowserAutomationSessionsInput {
 export interface OpenBrowserPreviewInput {
   threadId: string
   url: string
+  session?: string
+  reading?: BrowserPreviewReadingState
+}
+
+export interface BrowserPreviewReadingState {
+  webScrollX?: number
+  webScrollY?: number
+  webZoom?: number
+}
+
+export interface ReleaseBrowserPreviewInput {
+  threadId: string
+  session: string
+  mode: 'auto' | 'close'
+}
+
+export interface ReleaseBrowserPreviewResult {
+  released: boolean
+  reading?: BrowserPreviewReadingState
+  url?: string
+  title?: string
 }
 
 export interface ShowBrowserAutomationSessionInput {

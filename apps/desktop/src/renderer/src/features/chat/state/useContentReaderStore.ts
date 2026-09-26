@@ -1,9 +1,14 @@
 import { create } from 'zustand'
 import type { ReaderTarget } from '../lib/contentReader.ts'
+import { previewDiscardCandidates, type PreviewReadingState } from '../lib/previewRetention.ts'
 
 export interface ReaderTab {
   id: string
   target: ReaderTarget
+  hot: boolean
+  lastUsedAt: number
+  generation: number
+  reading: PreviewReadingState
 }
 export interface ReaderConversation {
   tabs: ReaderTab[]
@@ -31,6 +36,13 @@ function activeTarget(conversation: ReaderConversation): ReaderTarget | null {
   return conversation.tabs.find((tab) => tab.id === conversation.activeId)?.target ?? null
 }
 interface ContentReaderState {
+  saveReading: (threadId: string, id: string, reading: PreviewReadingState) => void
+  discardIdle: (
+    now: number,
+    release: (
+      target: Extract<ReaderTarget, { kind: 'web' }>
+    ) => Promise<{ released: boolean; reading?: PreviewReadingState; url?: string; title?: string }>
+  ) => Promise<void>
   refreshWeb: (
     threadId: string,
     session: string,
@@ -43,7 +55,7 @@ interface ContentReaderState {
   target: ReaderTarget | null
   references: Record<string, ReaderTarget>
   ask: (threadId: string, id: string) => void
-  open: (target: ReaderTarget, options?: { activate?: boolean }) => void
+  open: (target: ReaderTarget, options?: { activate?: boolean; resident?: boolean }) => void
   openWeb: (
     threadId: string,
     url: string,
@@ -60,11 +72,95 @@ interface ContentReaderState {
   selectDiffFile: (runId: string, relativePath: string | undefined) => void
 }
 
+function touchCurrent(state: ContentReaderState): Record<string, ReaderConversation> {
+  const owner = state.threadId
+  const entry = owner ? state.conversations[owner] : undefined
+  if (!owner || !entry || entry.activeId === 'chat') return state.conversations
+  return {
+    ...state.conversations,
+    [owner]: {
+      ...entry,
+      tabs: entry.tabs.map((tab) =>
+        tab.id === entry.activeId ? { ...tab, lastUsedAt: Date.now() } : tab
+      )
+    }
+  }
+}
+
 export const useContentReaderStore = create<ContentReaderState>((set, get) => ({
   conversations: {},
   threadId: null,
   target: null,
   references: {},
+  saveReading: (threadId, id, reading) =>
+    set((state) => {
+      const entry = state.conversations[threadId]
+      if (!entry?.tabs.some((tab) => tab.id === id)) return {}
+      return {
+        conversations: {
+          ...state.conversations,
+          [threadId]: {
+            ...entry,
+            tabs: entry.tabs.map((tab) =>
+              tab.id === id ? { ...tab, reading: { ...tab.reading, ...reading } } : tab
+            )
+          }
+        }
+      }
+    }),
+  discardIdle: async (now, release) => {
+    const protectedKeys = new Set<string>()
+    while (true) {
+      const state = get()
+      const current = state.threadId
+        ? JSON.stringify([state.threadId, state.conversations[state.threadId]?.activeId])
+        : null
+      const tabs = Object.entries(state.conversations).flatMap(([owner, entry]) =>
+        entry.tabs.map((tab) => ({ ...tab, owner, key: JSON.stringify([owner, tab.id]) }))
+      )
+      const candidate = previewDiscardCandidates(tabs, current, now, protectedKeys)[0]
+      if (!candidate) return
+      const result =
+        candidate.target.kind === 'web' ? await release(candidate.target) : { released: true }
+      if (!result.released) {
+        protectedKeys.add(candidate.key)
+        continue
+      }
+      set((latest) => {
+        const entry = latest.conversations[candidate.owner]
+        const tab = entry?.tabs.find((tab) => tab.id === candidate.id)
+        if (!tab || (tab.lastUsedAt !== candidate.lastUsedAt && candidate.target.kind !== 'web'))
+          return {}
+        const visible = latest.threadId === candidate.owner && entry.activeId === candidate.id
+        return {
+          conversations: {
+            ...latest.conversations,
+            [candidate.owner]: {
+              ...entry,
+              tabs: entry.tabs.map((tab) =>
+                tab.id === candidate.id
+                  ? {
+                      ...tab,
+                      hot: visible,
+                      generation: tab.generation + 1,
+                      reading: { ...tab.reading, ...result.reading },
+                      target:
+                        tab.target.kind === 'web'
+                          ? {
+                              ...tab.target,
+                              url: result.url ?? tab.target.url,
+                              title: result.title ?? tab.target.title
+                            }
+                          : tab.target
+                    }
+                  : tab
+              )
+            }
+          }
+        }
+      })
+    }
+  },
   refreshWeb: async (threadId, session, load) => {
     const pages = await load({ threadId })
     const page = pages.find((entry) => entry.threadId === threadId && entry.session === session)
@@ -92,29 +188,47 @@ export const useContentReaderStore = create<ContentReaderState>((set, get) => ({
     state.open(
       { kind: 'web', threadId, ...page },
       {
+        resident: true,
         activate:
           state.threadId === threadId &&
           (state.conversations[threadId]?.activeId ?? 'chat') === previous
       }
     )
   },
-  setThread: (threadId) =>
-    set((state) => ({
-      threadId,
-      target: threadId
-        ? activeTarget(state.conversations[threadId] ?? EMPTY_READER_CONVERSATION)
-        : null
-    })),
-  open: (target, { activate = true } = {}) =>
+  setThread: (threadId) => {
+    if (threadId) get().select(threadId, get().conversations[threadId]?.activeId ?? 'chat')
+    else set((state) => ({ conversations: touchCurrent(state), threadId: null, target: null }))
+  },
+  open: (target, { activate = true, resident = false } = {}) =>
     set((state) => {
-      const previous = state.conversations[target.threadId] ?? EMPTY_READER_CONVERSATION
+      if (target.kind === 'image' && target.path)
+        target = { ...target, src: `yachiyo-asset://local/?p=${encodeURIComponent(target.path)}` }
+      const conversations = activate ? touchCurrent(state) : state.conversations
+      const previous = conversations[target.threadId] ?? EMPTY_READER_CONVERSATION
       const id = tabId(target)
       const existing = previous.tabs.find((tab) => tab.id === id)
       const tabs = existing
         ? previous.tabs.map((tab) =>
-            tab.id === id ? { id, target: { ...tab.target, ...target } as ReaderTarget } : tab
+            tab.id === id
+              ? {
+                  ...tab,
+                  hot: activate || resident || tab.hot,
+                  lastUsedAt: activate || resident ? Date.now() : tab.lastUsedAt,
+                  target: { ...tab.target, ...target } as ReaderTarget
+                }
+              : tab
           )
-        : [...previous.tabs, { id, target }]
+        : [
+            ...previous.tabs,
+            {
+              id,
+              target,
+              hot: activate || resident,
+              lastUsedAt: Date.now(),
+              generation: 0,
+              reading: {}
+            }
+          ]
       const conversation = {
         tabs,
         activeId: activate ? id : previous.activeId,
@@ -123,7 +237,7 @@ export const useContentReaderStore = create<ContentReaderState>((set, get) => ({
           : previous.recent
       }
       return {
-        conversations: { ...state.conversations, [target.threadId]: conversation },
+        conversations: { ...conversations, [target.threadId]: conversation },
         ...(activate
           ? {
               threadId: target.threadId,
@@ -136,15 +250,19 @@ export const useContentReaderStore = create<ContentReaderState>((set, get) => ({
     }),
   select: (threadId, id) =>
     set((state) => {
-      const previous = state.conversations[threadId] ?? EMPTY_READER_CONVERSATION
+      const conversations = touchCurrent(state)
+      const previous = conversations[threadId] ?? EMPTY_READER_CONVERSATION
       if (id !== 'chat' && !previous.tabs.some((tab) => tab.id === id)) return {}
       const conversation = {
         ...previous,
         activeId: id,
+        tabs: previous.tabs.map((tab) =>
+          tab.id === id ? { ...tab, hot: true, lastUsedAt: Date.now() } : tab
+        ),
         recent: [...previous.recent.filter((entry) => entry !== id), id]
       }
       return {
-        conversations: { ...state.conversations, [threadId]: conversation },
+        conversations: { ...conversations, [threadId]: conversation },
         threadId,
         target: activeTarget(conversation)
       }
@@ -155,12 +273,27 @@ export const useContentReaderStore = create<ContentReaderState>((set, get) => ({
       if (!previous || id === 'chat') return {}
       const tabs = previous.tabs.filter((tab) => tab.id !== id)
       const recent = previous.recent.filter((entry) => entry !== id)
+      const activeId = previous.activeId === id ? (recent.at(-1) ?? 'chat') : previous.activeId
+      const reference = state.references[threadId]
+      let references = state.references
+      if (
+        reference?.kind === 'image' &&
+        !reference.path &&
+        /^(data|blob):/.test(reference.src) &&
+        tabId(reference) === id
+      ) {
+        references = { ...references }
+        delete references[threadId]
+      }
       const conversation = {
-        tabs,
+        tabs: tabs.map((tab) =>
+          tab.id === activeId ? { ...tab, hot: true, lastUsedAt: Date.now() } : tab
+        ),
         recent,
-        activeId: previous.activeId === id ? (recent.at(-1) ?? 'chat') : previous.activeId
+        activeId
       }
       return {
+        references,
         conversations: { ...state.conversations, [threadId]: conversation },
         ...(state.threadId === threadId ? { target: activeTarget(conversation) } : {})
       }

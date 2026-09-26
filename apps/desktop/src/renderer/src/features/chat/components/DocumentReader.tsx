@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { PreviewReadingState } from '../lib/previewRetention'
 import type { FilePreviewContent } from '@yachiyo/shared/filePreview'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { ReaderTarget } from '../lib/contentReader'
@@ -9,26 +10,43 @@ const PdfDocument = lazy(() =>
 
 export function DocumentReader({
   target,
-  revision
+  revision,
+  reading,
+  onReadingChange
 }: {
   target: Extract<ReaderTarget, { kind: 'file' }>
   revision: string
+  reading?: PreviewReadingState
+  onReadingChange?: (reading: PreviewReadingState) => void
 }): React.JSX.Element {
   return (
     <LoadedDocumentReader
       key={JSON.stringify([target.path, target.threadId, target.workspacePath, revision])}
       target={target}
+      reading={reading}
+      onReadingChange={onReadingChange}
     />
   )
 }
 
 function LoadedDocumentReader({
-  target
+  target,
+  reading,
+  onReadingChange
 }: {
   target: Extract<ReaderTarget, { kind: 'file' }>
+  reading?: PreviewReadingState
+  onReadingChange?: (reading: PreviewReadingState) => void
 }): React.JSX.Element {
   const [document, setDocument] = useState<FilePreviewContent | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const surface = useRef<HTMLDivElement>(null)
+  const [initialReading] = useState(reading)
+  useLayoutEffect(() => {
+    if (!document || !surface.current || document.kind === 'pdf') return
+    surface.current.scrollTop = initialReading?.scrollTop ?? 0
+    surface.current.scrollLeft = initialReading?.scrollLeft ?? 0
+  }, [document, initialReading])
   useEffect(() => {
     let cancelled = false
     void window.api.yachiyo
@@ -52,7 +70,16 @@ function LoadedDocumentReader({
   }, [target.path, target.workspacePath, target.threadId])
 
   return (
-    <div className="content-reader-document">
+    <div
+      ref={surface}
+      className="content-reader-document"
+      onScroll={(event) =>
+        onReadingChange?.({
+          scrollTop: event.currentTarget.scrollTop,
+          scrollLeft: event.currentTarget.scrollLeft
+        })
+      }
+    >
       {error ? (
         <div className="content-reader-notice" role="alert">
           {error} Use Open externally to continue.
@@ -74,6 +101,8 @@ function LoadedDocumentReader({
           <PdfDocument
             content={document.content}
             title={target.path.split(/[\\/]/).pop() ?? 'PDF document'}
+            reading={initialReading}
+            onReadingChange={onReadingChange}
           />
         </Suspense>
       ) : null}

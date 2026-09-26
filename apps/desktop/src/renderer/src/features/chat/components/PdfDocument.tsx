@@ -8,23 +8,47 @@ import {
 } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { decodePdf, pdfPageNumber, pdfZoom, renderPdfPage } from '../lib/pdfPreview'
+import type { PreviewReadingState } from '../lib/previewRetention'
 
 GlobalWorkerOptions.workerSrc = workerUrl
 
 export function PdfDocument({
   content,
-  title
+  title,
+  reading,
+  onReadingChange
 }: {
   content: string
   title: string
+  reading?: PreviewReadingState
+  onReadingChange?: (reading: PreviewReadingState) => void
 }): React.JSX.Element {
-  return <PdfViewer key={content} content={content} title={title} />
+  return (
+    <PdfViewer
+      key={content}
+      content={content}
+      title={title}
+      reading={reading}
+      onReadingChange={onReadingChange}
+    />
+  )
 }
 
-function PdfViewer({ content, title }: { content: string; title: string }): React.JSX.Element {
+function PdfViewer({
+  content,
+  title,
+  reading,
+  onReadingChange
+}: {
+  content: string
+  title: string
+  reading?: PreviewReadingState
+  onReadingChange?: (reading: PreviewReadingState) => void
+}): React.JSX.Element {
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null)
-  const [page, setPage] = useState(1)
-  const [zoom, setZoom] = useState(1)
+  const [page, setPage] = useState(reading?.pdfPage ?? 1)
+  const [zoom, setZoom] = useState(reading?.zoom ?? 1)
+  const restoreScroll = useRef(reading)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const surface = useRef<HTMLDivElement>(null)
@@ -45,7 +69,10 @@ function PdfViewer({ content, title }: { content: string; title: string }): Reac
           useWorkerFetch: false
         })
         const pdf = await task.promise
-        if (!cancelled) setDocument(pdf)
+        if (!cancelled) {
+          setPage((page) => pdfPageNumber(page, pdf.numPages))
+          setDocument(pdf)
+        }
       } catch (reason) {
         if (!cancelled) {
           setError(reason instanceof Error ? reason.message : 'Unable to load this PDF.')
@@ -76,6 +103,11 @@ function PdfViewer({ content, title }: { content: string; title: string }): Reac
       canvas,
       onReady: () => {
         canvas.hidden = false
+        if (restoreScroll.current && surface.current) {
+          surface.current.scrollTop = restoreScroll.current.scrollTop ?? 0
+          surface.current.scrollLeft = restoreScroll.current.scrollLeft ?? 0
+          restoreScroll.current = undefined
+        }
         setLoading(false)
       },
       onError: (reason) => {
@@ -86,6 +118,8 @@ function PdfViewer({ content, title }: { content: string; title: string }): Reac
     return () => {
       cancel()
       canvas.remove()
+      canvas.width = 0
+      canvas.height = 0
     }
   }, [document, page, zoom, title])
 
@@ -95,6 +129,8 @@ function PdfViewer({ content, title }: { content: string; title: string }): Reac
     setError(null)
     setPage(nextPage)
     setZoom(nextZoom)
+    restoreScroll.current = undefined
+    onReadingChange?.({ pdfPage: nextPage, zoom: nextZoom, scrollTop: 0, scrollLeft: 0 })
   }
 
   return (
@@ -158,7 +194,19 @@ function PdfViewer({ content, title }: { content: string; title: string }): Reac
           <span>{error} Use Open externally to continue.</span>
         </div>
       ) : null}
-      <div ref={surface} className="content-reader-pdf-surface" aria-busy={loading} />
+      <div
+        ref={surface}
+        className="content-reader-pdf-surface"
+        aria-busy={loading}
+        onScroll={(event) =>
+          onReadingChange?.({
+            pdfPage: page,
+            zoom,
+            scrollTop: event.currentTarget.scrollTop,
+            scrollLeft: event.currentTarget.scrollLeft
+          })
+        }
+      />
     </section>
   )
 }

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { PreviewReadingState } from '../lib/previewRetention'
 import {
   RotateCcw,
   FilePlus2,
@@ -25,6 +26,8 @@ interface DiffReviewSurfaceProps {
   workspacePath: string
   /** When false, revert buttons are hidden to prevent silently discarding later runs' edits. */
   isLatestRun?: boolean
+  reading?: PreviewReadingState
+  onReadingChange?: (reading: PreviewReadingState) => void
 }
 
 const statusIcon: Record<FileChangeStatus, typeof FileEdit> = {
@@ -43,7 +46,9 @@ export function DiffReviewSurface({
   runId,
   threadId,
   workspacePath,
-  isLatestRun = true
+  isLatestRun = true,
+  reading,
+  onReadingChange
 }: DiffReviewSurfaceProps): React.JSX.Element {
   const t = useT()
   const dialog = useAppDialog()
@@ -54,6 +59,8 @@ export function DiffReviewSurface({
   const [reverting, setReverting] = useState(false)
   const [confirmRevertMode, setConfirmRevertMode] = useState<'file' | 'all' | null>(null)
   const [confirmRevertPath, setConfirmRevertPath] = useState<string | null>(null)
+  const initialReading = useRef(reading)
+  const codeRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setChanges(null)
@@ -64,7 +71,13 @@ export function DiffReviewSurface({
       .then((result) => {
         if (ignore) return
         setChanges(result)
-        if (result.length > 0) setSelectedIdx(0)
+        if (result.length > 0)
+          setSelectedIdx(
+            Math.max(
+              0,
+              result.findIndex((change) => change.relativePath === initialReading.current?.diffPath)
+            )
+          )
       })
       .catch(() => {
         if (ignore) return
@@ -166,9 +179,20 @@ export function DiffReviewSurface({
   )
 
   const selected = changes?.[selectedIdx]
+  useLayoutEffect(() => {
+    const surface = codeRef.current?.querySelector<HTMLElement>('.overflow-auto')
+    if (!surface || !selected) return
+    const saved = initialReading.current
+    if (saved?.diffPath === selected.relativePath) {
+      surface.scrollTop = saved.scrollTop ?? 0
+      surface.scrollLeft = saved.scrollLeft ?? 0
+      initialReading.current = undefined
+    }
+  }, [selected])
   useEffect(() => {
     useContentReaderStore.getState().selectDiffFile(runId, selected?.relativePath)
-  }, [runId, selected?.relativePath])
+    if (selected) onReadingChange?.({ diffPath: selected.relativePath })
+  }, [runId, selected, onReadingChange])
 
   return (
     <>
@@ -207,6 +231,14 @@ export function DiffReviewSurface({
                         type="button"
                         aria-current={index === selectedIdx ? 'true' : undefined}
                         onClick={(event) => {
+                          if (index !== selectedIdx) {
+                            initialReading.current = undefined
+                            onReadingChange?.({
+                              diffPath: change.relativePath,
+                              scrollTop: 0,
+                              scrollLeft: 0
+                            })
+                          }
                           setSelectedIdx(index)
                           event.currentTarget.closest('details')?.removeAttribute('open')
                         }}
@@ -269,7 +301,18 @@ export function DiffReviewSurface({
                 ) : null}
               </div>
             </div>
-            <div className="content-reader-diff__code">
+            <div
+              ref={codeRef}
+              className="content-reader-diff__code"
+              onScrollCapture={(event) => {
+                const surface = event.target as HTMLElement
+                onReadingChange?.({
+                  diffPath: selected.relativePath,
+                  scrollTop: surface.scrollTop,
+                  scrollLeft: surface.scrollLeft
+                })
+              }}
+            >
               <ToolCodeBlock
                 key={selected.relativePath}
                 value={selected.diff}

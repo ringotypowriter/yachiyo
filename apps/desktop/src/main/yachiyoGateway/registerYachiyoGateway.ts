@@ -8,7 +8,7 @@ import {
   systemPreferences
 } from 'electron'
 import { is } from '@electron-toolkit/utils'
-import { openBrowserPreview } from './openBrowserPreview'
+import { registerBrowserPreviewHandlers } from './browserPreviewHandlers'
 import { t } from '@yachiyo/i18n/index'
 import { spawn } from 'child_process'
 import { join } from 'node:path'
@@ -21,7 +21,6 @@ import type {
   AcceptThreadPlanDocumentInput,
   AnswerToolQuestionInput,
   BrowserAutomationSessionRecord,
-  OpenBrowserPreviewInput,
   ChannelsConfig,
   LoadThreadDataInput,
   CompactThreadInput,
@@ -1199,9 +1198,7 @@ export function registerYachiyoGateway(options: {
     (input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[] =>
       browserAutomation().listSessions(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.openBrowserPreview, (input: OpenBrowserPreviewInput) =>
-    openBrowserPreview(browserAutomation(), input)
-  )
+  registerBrowserPreviewHandlers(browserAutomation)
   ipcMain.removeHandler(IPC_CHANNELS.showBrowserAutomationSession)
   ipcMain.handle(
     IPC_CHANNELS.showBrowserAutomationSession,

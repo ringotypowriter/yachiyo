@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
   importWebSearchBrowserSession: 'yachiyo:import-web-search-browser-session',
   listBrowserAutomationSessions: 'yachiyo:list-browser-automation-sessions',
   openBrowserPreview: 'yachiyo:open-browser-preview',
+  releaseBrowserPreview: 'yachiyo:release-browser-preview',
   showBrowserAutomationSession: 'yachiyo:show-browser-automation-session',
   hideBrowserAutomationSession: 'yachiyo:hide-browser-automation-session',
   setBrowserAutomationSessionBounds: 'yachiyo:set-browser-automation-session-bounds',

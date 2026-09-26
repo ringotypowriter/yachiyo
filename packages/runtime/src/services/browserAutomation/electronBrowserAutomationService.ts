@@ -1,4 +1,9 @@
 import electron from 'electron'
+import {
+  BROWSER_PREVIEW_INSPECTION_SCRIPT,
+  inspectBrowserPreviewFrames,
+  releaseBrowserPreview
+} from './browserPreviewRetention.ts'
 import { createBrowserOperationLifecycle } from './browserOperationLifecycle.ts'
 import { BROWSER_AUTOMATION_TOOL_METHODS } from './browserAutomationToolBackend.ts'
 
@@ -24,6 +29,9 @@ import type {
 import { assertNonEmptyScreenshotByteLength } from './browserCaptureValidation.ts'
 import { createBrowserPointerOverlay, type BrowserPointerOverlay } from './browserPointerOverlay.ts'
 import type {
+  BrowserPreviewReadingState,
+  ReleaseBrowserPreviewInput,
+  ReleaseBrowserPreviewResult,
   BrowserAutomationPointerState,
   BrowserAutomationSessionRecord,
   BrowserAutomationViewBounds,
@@ -58,6 +66,13 @@ export type {
  * objects and therefore never crosses a process boundary.
  */
 export interface BrowserAutomationService extends BrowserAutomationToolBackend {
+  openPreview(input: {
+    threadId: string
+    session: string
+    url: string
+    reading?: BrowserPreviewReadingState
+  }): Promise<BrowserAutomationSessionRecord>
+  releasePreview(input: ReleaseBrowserPreviewInput): Promise<ReleaseBrowserPreviewResult>
   listSessions(input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[]
 
   showSessionView(
@@ -76,6 +91,10 @@ export interface BrowserAutomationService extends BrowserAutomationToolBackend {
 }
 
 interface ThreadBrowserSessionState {
+  previewOwned: boolean
+  mediaPlaying: boolean
+  downloads: number
+  navigationVersion: number
   invalidated?: boolean
   view: InstanceType<typeof electron.WebContentsView>
   refXpathById: Map<string, string>
@@ -172,6 +191,15 @@ export function createElectronBrowserAutomationService(input: {
   const threadSessions = new Map<string, Map<string, ThreadBrowserSessionState>>()
   let browserSession: ReturnType<typeof session.fromPath> | undefined
   let proxyReady: Promise<void> | undefined
+  const previewOwners = new Set<string>()
+  const agentOwners = new Set<string>()
+  const previewOpening = new Set<string>()
+  const discardedPreviews = new Map<
+    string,
+    { url: string; title?: string; reading?: BrowserPreviewReadingState }
+  >()
+  const sessionKey = (threadId: string, session: string): string =>
+    JSON.stringify([threadId, session])
   const idleSweep = setInterval(() => {
     const now = Date.now()
     for (const [threadId, threadMap] of threadSessions) {
@@ -179,8 +207,7 @@ export function createElectronBrowserAutomationService(input: {
         const updatedAt = Date.parse(state.updatedAt)
         if (state.attachedWindow || !Number.isFinite(updatedAt)) continue
         if (now - updatedAt <= IDLE_SESSION_TTL_MS) continue
-        threadMap.delete(name)
-        destroySessionState(state)
+        void service.releasePreview({ threadId, session: name, mode: 'auto' })
       }
       if (threadMap.size === 0) {
         threadSessions.delete(threadId)
@@ -197,6 +224,21 @@ export function createElectronBrowserAutomationService(input: {
     return created
   }
 
+  function onDownload(
+    _event: Electron.Event,
+    item: Electron.DownloadItem,
+    contents: Electron.WebContents
+  ): void {
+    for (const sessions of threadSessions.values())
+      for (const state of sessions.values()) {
+        if (state.view.webContents !== contents) continue
+        state.downloads++
+        item.once('done', () => {
+          state.downloads--
+        })
+      }
+  }
+
   function getBrowserSession(): ReturnType<typeof session.fromPath> {
     if (
       typeof session?.fromPath !== 'function' ||
@@ -206,7 +248,10 @@ export function createElectronBrowserAutomationService(input: {
       throw new Error('Browser automation is only available inside the Electron app.')
     }
 
-    browserSession ??= session.fromPath(input.profilePath, { cache: true })
+    if (!browserSession) {
+      browserSession = session.fromPath(input.profilePath, { cache: true })
+      browserSession.on?.('will-download', onDownload)
+    }
     return browserSession
   }
 
@@ -322,6 +367,8 @@ export function createElectronBrowserAutomationService(input: {
   function destroySessionState(state: ThreadBrowserSessionState): void {
     if (state.invalidated) return
     state.invalidated = true
+    previewOwners.delete(sessionKey(state.threadId, state.session))
+    agentOwners.delete(sessionKey(state.threadId, state.session))
     lifecycle.invalidate(
       state,
       new Error(`Browser session "${state.session}" was destroyed. Re-open it.`)
@@ -466,6 +513,84 @@ export function createElectronBrowserAutomationService(input: {
   }
 
   const service: BrowserAutomationService = {
+    async openPreview(args) {
+      const key = sessionKey(args.threadId, args.session)
+      const existing = threadSessions.get(args.threadId)?.get(args.session)
+      if (existing && !existing.view.webContents.isDestroyed()) return toSessionRecord(existing)
+      const saved = discardedPreviews.get(key)
+      if (saved) args = { ...args, url: saved.url, reading: saved.reading }
+      if (!agentOwners.has(key)) previewOwners.add(key)
+      previewOpening.add(key)
+      let created = false
+      try {
+        await lifecycle.run(args, async () => {
+          const current = threadSessions.get(args.threadId)?.get(args.session)
+          if (current && !current.invalidated) return pageState(current)
+          created = true
+          return openPreviewRaw(args)
+        })
+        const state = requireSessionState(args.threadId, args.session)
+        const contents = state.view.webContents
+        if (created && state.previewOwned && args.reading?.webZoom)
+          contents.setZoomFactor(args.reading.webZoom)
+        if (created && state.previewOwned && args.reading)
+          await lifecycle.run(args, () =>
+            contents.executeJavaScript(
+              `window.scrollTo(${Number(args.reading?.webScrollX) || 0}, ${Number(args.reading?.webScrollY) || 0})`
+            )
+          )
+        discardedPreviews.delete(key)
+        return toSessionRecord(state)
+      } finally {
+        previewOpening.delete(key)
+      }
+    },
+    async releasePreview(args) {
+      const map = threadSessions.get(args.threadId)
+      const state = map?.get(args.session)
+      const key = sessionKey(args.threadId, args.session)
+      if (args.mode === 'close') discardedPreviews.delete(key)
+      if (!state) {
+        if (args.mode === 'close' && previewOwners.has(key))
+          lifecycle.invalidate(args, new Error('Browser preview closed'))
+        previewOwners.delete(key)
+        return { released: true }
+      }
+      const contents = state.view.webContents
+      const metadata = { url: state.url, title: state.title }
+      const revision = state.navigationVersion
+      const result = await releaseBrowserPreview(
+        {
+          protected: () =>
+            !state.previewOwned ||
+            previewOpening.has(key) ||
+            !!state.attachedWindow ||
+            state.mediaPlaying ||
+            state.downloads > 0 ||
+            typeof browserSession?.on !== 'function' ||
+            contents.isLoadingMainFrame(),
+          shared: () => !state.previewOwned,
+          current: () =>
+            map?.get(args.session) === state &&
+            !state.invalidated &&
+            state.navigationVersion === revision,
+          inspect: () =>
+            inspectBrowserPreviewFrames(
+              contents.mainFrame.framesInSubtree,
+              contents.getZoomFactor()
+            ),
+          detach: () => detachSessionView(state),
+          destroy: () => {
+            map?.delete(args.session)
+            destroySessionState(state)
+          }
+        },
+        args.mode
+      )
+      if (result.released && args.mode === 'auto')
+        discardedPreviews.set(key, { ...metadata, reading: result.reading })
+      return { ...result, ...metadata }
+    },
     listSessions({ threadId }) {
       const threadMap = threadSessions.get(threadId)
       if (!threadMap) return []
@@ -572,6 +697,12 @@ export function createElectronBrowserAutomationService(input: {
       view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
       const state: ThreadBrowserSessionState = {
+        previewOwned:
+          previewOwners.has(sessionKey(threadId, sessionName)) &&
+          !agentOwners.has(sessionKey(threadId, sessionName)),
+        mediaPlaying: false,
+        downloads: 0,
+        navigationVersion: 0,
         view,
         refXpathById: new Map<string, string>(),
         refSummaryById: new Map<string, string>(),
@@ -585,6 +716,26 @@ export function createElectronBrowserAutomationService(input: {
         updatedAt: timestamp()
       }
       threadMap.set(sessionName, state)
+      view.webContents.on('media-started-playing', () => {
+        state.mediaPlaying = true
+      })
+      view.webContents.on('did-start-navigation', () => {
+        state.navigationVersion++
+      })
+      view.webContents.on('frame-created', () => {
+        state.navigationVersion++
+      })
+      view.webContents.on('media-paused', () => {
+        state.mediaPlaying = false
+      })
+      const trackDirtyFrames = (): void => {
+        if (!state.previewOwned || state.invalidated) return
+        for (const frame of view.webContents.mainFrame?.framesInSubtree ?? []) {
+          void frame.executeJavaScript(BROWSER_PREVIEW_INSPECTION_SCRIPT).catch(() => {})
+        }
+      }
+      view.webContents.on('dom-ready', trackDirtyFrames)
+      view.webContents.on('did-frame-finish-load', trackDirtyFrames)
 
       view.webContents.on('did-navigate', (_event, navigatedUrl) => {
         if (!state.invalidated) updateSessionMetadata(state, { url: navigatedUrl })
@@ -997,14 +1148,19 @@ export function createElectronBrowserAutomationService(input: {
     dispose() {
       lifecycle.dispose()
       clearInterval(idleSweep)
+      browserSession?.removeListener?.('will-download', onDownload)
       for (const threadMap of threadSessions.values()) {
         for (const state of threadMap.values()) {
           destroySessionState(state)
         }
       }
       threadSessions.clear()
+      discardedPreviews.clear()
+      previewOwners.clear()
+      agentOwners.clear()
     }
   }
+  const openPreviewRaw = service.open.bind(service)
   for (const method of BROWSER_AUTOMATION_TOOL_METHODS) {
     const operation = service[method].bind(service) as (args: {
       threadId: string
@@ -1017,8 +1173,13 @@ export function createElectronBrowserAutomationService(input: {
         timeoutMs?: number
         signal?: AbortSignal
       }) => {
+        previewOwners.delete(sessionKey(args.threadId, args.session))
+        agentOwners.add(sessionKey(args.threadId, args.session))
+        const state = threadSessions.get(args.threadId)?.get(args.session)
+        if (state) state.previewOwned = false
         if (method === 'close') {
           lifecycle.invalidate(args, new Error('Browser session closed. Re-open it.'))
+          if (!state) agentOwners.delete(sessionKey(args.threadId, args.session))
           return operation(args)
         }
         // Allow healthy wait timeouts and eval's post-script interaction settlement.

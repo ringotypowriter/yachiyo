@@ -17,10 +17,27 @@ import { createElectronBrowserAutomationService } from './electronBrowserAutomat
 class FakeContents extends EventEmitter {
   destroyed = false
   closed = 0
-  executeJavaScript: () => Promise<unknown> = () => new Promise(() => {})
+  executeJavaScript: (script?: string) => Promise<unknown> = (script) =>
+    script?.startsWith('window.scrollTo') ? Promise.resolve(undefined) : new Promise(() => {})
   capturePage: () => Promise<unknown> = () => new Promise(() => {})
-  loadURL: (url: string) => Promise<void> = async () => {}
+  loadedUrls: string[] = []
+  loadURL: (url: string) => Promise<void> = async (url) => {
+    this.loadedUrls.push(url)
+  }
+  zoom = 1
+  setZoomFactor(zoom: number): void {
+    this.zoom = zoom
+  }
+  isLoadingMainFrame(): boolean {
+    return false
+  }
   printToPDF: () => Promise<unknown> = () => new Promise(() => {})
+  mainFrame = {
+    framesInSubtree: [{ executeJavaScript: async () => ({ safe: true, scrollX: 3, scrollY: 400 }) }]
+  }
+  getZoomFactor(): number {
+    return 1.25
+  }
   isDestroyed(): boolean {
     return this.destroyed
   }
@@ -45,8 +62,13 @@ function setup(
 ): {
   service: ReturnType<typeof createElectronBrowserAutomationService>
   contents: FakeContents[]
+  session: EventEmitter
 } {
   const contents: FakeContents[] = []
+  const fakeSession = Object.assign(new EventEmitter(), {
+    setProxy: () => proxyReady,
+    setCertificateVerifyProc: () => {}
+  })
   class FakeView {
     webContents = new FakeContents()
     constructor() {
@@ -63,11 +85,11 @@ function setup(
       BrowserWindow: class {},
       WebContentsView: FakeView,
       session: {
-        fromPath: () => ({ setProxy: () => proxyReady, setCertificateVerifyProc: () => {} })
+        fromPath: () => fakeSession
       }
     } as unknown as typeof electron
   })
-  return { service, contents }
+  return { service, contents, session: fakeSession }
 }
 const input = { threadId: 't', session: 's' }
 
@@ -335,6 +357,107 @@ test('destroyed contents invalidate the generation even before destroyed event d
     contents[0]!.emit('destroyed')
     assert.equal(contents.length, 2)
     assert.equal(service.listSessions(input).length, 1)
+  } finally {
+    service.dispose()
+  }
+})
+
+test('preview-owned views are destroyed and restore with the same session identity', async () => {
+  const { service, contents } = setup()
+  try {
+    await service.openPreview({ ...input, url: 'https://example.test' })
+    const released = await service.releasePreview({ ...input, mode: 'auto' })
+    assert.equal(released.released, true)
+    assert.deepEqual(released.reading, { webScrollX: 3, webScrollY: 400, webZoom: 1.25 })
+    assert.equal(contents[0].closed, 1)
+    await service.openPreview({ ...input, url: 'https://example.test' })
+    assert.equal(contents.length, 2)
+    assert.equal(service.listSessions(input)[0].session, input.session)
+  } finally {
+    service.dispose()
+  }
+})
+
+test('service-side idle reclamation retains the latest URL and reading snapshot for restoration', async () => {
+  const { service, contents } = setup()
+  try {
+    await service.openPreview({ ...input, url: 'https://example.test/a' })
+    contents[0].getURL = () => 'https://example.test/b'
+    contents[0].emit('did-navigate', {}, 'https://example.test/b')
+    await service.releasePreview({ ...input, mode: 'auto' })
+    await service.openPreview({ ...input, url: 'https://example.test/a' })
+    assert.deepEqual(contents[1].loadedUrls, ['https://example.test/b'])
+    assert.equal(contents[1].zoom, 1.25)
+  } finally {
+    service.dispose()
+  }
+})
+
+test('agent use transfers a user preview to shared ownership; preview close cannot terminate it', async () => {
+  const { service, contents } = setup()
+  try {
+    await service.openPreview({ ...input, url: 'https://example.test' })
+    await service.getUrl(input)
+    assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, false)
+    assert.equal((await service.releasePreview({ ...input, mode: 'close' })).released, true)
+    assert.equal(contents[0].closed, 0)
+    assert.equal(service.listSessions(input).length, 1)
+  } finally {
+    service.dispose()
+  }
+})
+
+test('media and active downloads defer discard until playback and download finish', async () => {
+  const { service, contents, session } = setup()
+  try {
+    await service.openPreview({ ...input, url: 'https://example.test' })
+    contents[0].emit('media-started-playing')
+    assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, false)
+    contents[0].emit('media-paused')
+    const download = new EventEmitter()
+    session.emit('will-download', {}, download, contents[0])
+    assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, false)
+    download.emit('done')
+    assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, true)
+  } finally {
+    service.dispose()
+  }
+})
+
+test('closing a preview during proxy startup cancels its pending owned creation', async () => {
+  let ready!: () => void
+  const { service, contents } = setup(
+    1000,
+    new Promise((resolve) => {
+      ready = resolve
+    })
+  )
+  const pending = service.openPreview({ ...input, url: 'https://example.test' })
+  const rejected = assert.rejects(pending, /closed/)
+  await Promise.resolve()
+  await service.releasePreview({ ...input, mode: 'close' })
+  ready()
+  await rejected
+  assert.equal(contents.length, 0)
+  service.dispose()
+})
+
+test('a concurrent user open cannot claim ownership from an already queued agent open', async () => {
+  let ready!: () => void
+  const { service, contents } = setup(
+    1000,
+    new Promise((resolve) => {
+      ready = resolve
+    })
+  )
+  try {
+    const agent = service.open({ ...input, url: 'https://example.test' })
+    const preview = service.openPreview({ ...input, url: 'https://example.test' })
+    ready()
+    await Promise.all([agent, preview])
+    assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, false)
+    await service.releasePreview({ ...input, mode: 'close' })
+    assert.equal(contents[0].closed, 0)
   } finally {
     service.dispose()
   }

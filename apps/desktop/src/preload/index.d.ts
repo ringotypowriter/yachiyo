@@ -12,6 +12,8 @@ import type {
   BootstrapPayload,
   BrowserAutomationSessionRecord,
   OpenBrowserPreviewInput,
+  ReleaseBrowserPreviewInput,
+  ReleaseBrowserPreviewResult,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -306,6 +308,9 @@ declare global {
         openBrowserPreview: (
           input: OpenBrowserPreviewInput
         ) => Promise<BrowserAutomationSessionRecord>
+        releaseBrowserPreview: (
+          input: ReleaseBrowserPreviewInput
+        ) => Promise<ReleaseBrowserPreviewResult>
         hideBrowserAutomationSession: (input: HideBrowserAutomationSessionInput) => Promise<void>
         setBrowserAutomationSessionBounds: (
           input: SetBrowserAutomationSessionBoundsInput

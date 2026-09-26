@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   LoaderCircle,
   MessageCircleQuestion,
@@ -28,7 +28,8 @@ import { DiffReviewSurface } from './DiffReviewSurface'
 
 import type { BrowserAutomationActivityBubbleState } from '@yachiyo/shared/protocol'
 import type { ReaderTarget } from '../lib/contentReader'
-import { BrowserTimelineView } from './BrowserTimelineView'
+import { RetainedBrowserPreview } from './RetainedBrowserPreview'
+import type { PreviewReadingState } from '../lib/previewRetention'
 
 function readerTitle(target: ReaderTarget): string {
   if (target.kind === 'diff') return 'File Changes'
@@ -66,6 +67,9 @@ export function ContentReaderStage({
   const opened = conversation.activeId !== 'chat'
   useLayoutEffect(() => {
     useContentReaderStore.getState().setThread(threadId)
+    return () => {
+      useContentReaderStore.getState().setThread(null)
+    }
   }, [threadId])
   const timelineRef = useRef<HTMLDivElement>(null)
   const origin = useRef<{
@@ -198,17 +202,21 @@ export function ContentReaderStage({
           {children}
         </div>
         {Object.entries(conversations).flatMap(([owner, entry]) =>
-          entry.tabs.map((tab) => (
-            <ReaderPanel
-              browserSuspended={browserSuspended}
-              browserActivityBubble={browserActivityBubble}
-              key={JSON.stringify([owner, tab.id])}
-              target={tab.target}
-              active={owner === threadId && entry.activeId === tab.id}
-              close={() => closeTab(owner, tab.id)}
-              ask={() => useContentReaderStore.getState().ask(owner, tab.id)}
-            />
-          ))
+          entry.tabs
+            .filter((tab) => tab.hot)
+            .map((tab) => (
+              <ReaderPanel
+                browserSuspended={browserSuspended}
+                browserActivityBubble={browserActivityBubble}
+                key={JSON.stringify([owner, tab.id, tab.generation])}
+                tabId={tab.id}
+                reading={tab.reading}
+                target={tab.target}
+                active={owner === threadId && entry.activeId === tab.id}
+                close={() => closeTab(owner, tab.id)}
+                ask={() => useContentReaderStore.getState().ask(owner, tab.id)}
+              />
+            ))
         )}
       </div>
     </div>
@@ -217,6 +225,8 @@ export function ContentReaderStage({
 
 function ReaderPanel({
   target,
+  tabId,
+  reading,
   active,
   close,
   ask,
@@ -224,6 +234,8 @@ function ReaderPanel({
   browserActivityBubble
 }: {
   target: ReaderTarget
+  tabId: string
+  reading: PreviewReadingState
   active: boolean
   close: () => void
   ask: () => void
@@ -231,6 +243,13 @@ function ReaderPanel({
   browserActivityBubble?: BrowserAutomationActivityBubbleState | null
 }): React.JSX.Element {
   const threadId = target.threadId
+  const [initialReading] = useState(reading)
+  const saveReading = useCallback(
+    (reading: PreviewReadingState): void => {
+      useContentReaderStore.getState().saveReading(threadId, tabId, reading)
+    },
+    [threadId, tabId]
+  )
   const latestRun = useAppStore((state) =>
     threadId ? state.latestRunsByThread[threadId] : undefined
   )
@@ -419,17 +438,11 @@ function ReaderPanel({
       </header>
       <div className="content-reader-body">
         {target.kind === 'web' ? (
-          <BrowserTimelineView
-            threadId={threadId}
-            sessionId={target.session}
-            activityBubble={browserActivityBubble}
-            activitySession={{
-              session: target.session,
-              url: target.url,
-              title: target.title,
-              updatedAt: ''
-            }}
+          <RetainedBrowserPreview
+            target={target}
+            reading={initialReading}
             suspended={!active || browserSuspended}
+            activityBubble={browserActivityBubble}
           />
         ) : null}
         {target.kind === 'image' ? (
@@ -441,15 +454,25 @@ function ReaderPanel({
             alt={target.alt}
             onClose={close}
             embedded
+            reading={initialReading}
+            onReadingChange={saveReading}
           />
         ) : null}
         {target.kind === 'file' ? (
-          <DocumentReader key={target.path} target={target} revision={revision} />
+          <DocumentReader
+            key={target.path}
+            target={target}
+            revision={revision}
+            reading={initialReading}
+            onReadingChange={saveReading}
+          />
         ) : null}
         {target.kind === 'diff' ? (
           <DiffReviewSurface
             key={target.runId}
             runId={target.runId}
+            reading={initialReading}
+            onReadingChange={saveReading}
             threadId={target.threadId}
             workspacePath={target.workspacePath}
             isLatestRun={latestRun?.id === target.runId && !!latestRun.completedAt && !activeRunId}

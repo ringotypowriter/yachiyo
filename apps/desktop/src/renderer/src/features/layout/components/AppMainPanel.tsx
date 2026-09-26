@@ -25,6 +25,7 @@ import { Composer } from '@renderer/features/chat/components/Composer'
 import { ContentReaderProvider } from '@renderer/features/chat/components/ContentReaderContext'
 import { ContentReaderStage } from '@renderer/features/chat/components/ContentReaderStage'
 import { useContentReaderStore } from '@renderer/features/chat/state/useContentReaderStore'
+import { startPreviewResourceLifecycle } from '@renderer/features/chat/state/previewResourceLifecycle'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { WelcomeSparks } from '@renderer/features/layout/components/WelcomeSparks'
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
@@ -194,6 +195,10 @@ export function AppMainPanel({
   const t = useT()
   const locale = useLocale()
   const dialog = useAppDialog()
+  useEffect(
+    () => startPreviewResourceLifecycle({ release: window.api.yachiyo.releaseBrowserPreview }),
+    []
+  )
   const archiveThread = useAppStore((s) => s.archiveThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)

@@ -39,13 +39,20 @@ test('opening a document covers but does not unmount the conversation or compose
     title: 'Page A'
   }
   const externalUrls: string[] = []
+  let nativePresent = true
+  const restores: unknown[] = []
   Object.assign(window, {
     open: (url: string) => {
       externalUrls.push(url)
     },
     api: {
       yachiyo: {
-        listBrowserAutomationSessions: async () => [nativePage],
+        listBrowserAutomationSessions: async () => (nativePresent ? [nativePage] : []),
+        openBrowserPreview: async (input: unknown) => {
+          restores.push(input)
+          nativePresent = true
+          return nativePage
+        },
         showBrowserAutomationSession: async () => nativePage,
         setBrowserAutomationSessionBounds: async () => nativePage,
         hideBrowserAutomationSession: async () => {},
@@ -149,12 +156,31 @@ test('opening a document covers but does not unmount the conversation or compose
     assert.equal(diffTarget?.kind === 'diff' ? diffTarget.relativePath : null, 'settings.ts')
     const picker = document.querySelector<HTMLDetailsElement>('.content-reader-file-picker')
     assert.ok(picker)
+    const diffScroller = document.querySelector<HTMLElement>(
+      '.content-reader-diff__code .overflow-auto'
+    )!
+    const diffId = useContentReaderStore.getState().conversations.a.activeId
+    await act(async () => {
+      diffScroller.scrollTop = 230
+      diffScroller.scrollLeft = 40
+      diffScroller.dispatchEvent(new window.Event('scroll', { bubbles: true }))
+    })
+    assert.equal(
+      useContentReaderStore.getState().conversations.a.tabs.find((tab) => tab.id === diffId)!
+        .reading.scrollTop,
+      230
+    )
     picker.setAttribute('open', '')
     await act(async () => {
       picker.querySelectorAll<HTMLButtonElement>('button')[1]!.click()
     })
     const selectedTarget = useContentReaderStore.getState().target
     assert.equal(selectedTarget?.kind === 'diff' ? selectedTarget.relativePath : null, 'reader.ts')
+    assert.deepEqual(
+      useContentReaderStore.getState().conversations.a.tabs.find((tab) => tab.id === diffId)!
+        .reading,
+      { diffPath: 'reader.ts', scrollTop: 0, scrollLeft: 0 }
+    )
     assert.equal(picker.hasAttribute('open'), false)
     assert.equal(unmounts, 0)
     const image = document.querySelector('[data-image]') as HTMLElement
@@ -222,6 +248,49 @@ test('opening a document covers but does not unmount the conversation or compose
     const webReference = useContentReaderStore.getState().references.a
     assert.equal(webReference.kind === 'web' && webReference.url, 'https://example.com/c')
     assert.equal(useContentReaderStore.getState().conversations.a.activeId, 'chat')
+    assert.equal(composer.value, 'Keep my draft')
+    await act(async () => {
+      await useContentReaderStore.getState().discardIdle(Date.now() + 300001, async () => {
+        nativePresent = false
+        return {
+          released: true,
+          url: nativePage.url,
+          title: nativePage.title,
+          reading: { webScrollY: 123, webZoom: 1.25 }
+        }
+      })
+    })
+    assert.equal(document.querySelector('[data-image]'), null)
+    assert.equal(document.querySelector('.content-reader-diff'), null)
+    const imageDescriptor = useContentReaderStore
+      .getState()
+      .conversations.a.tabs.find((tab) => tab.target.kind === 'image')!
+    assert.equal(imageDescriptor.hot, false)
+    await act(async () => useContentReaderStore.getState().select('a', imageDescriptor.id))
+    const restoredImage = document.querySelector('[data-image]') as HTMLElement
+    assert.notEqual(restoredImage, image)
+    assert.match(restoredImage.style.transform, /scale\(1\.15\)/)
+    assert.equal(document.querySelector('.content-reader-diff'), null)
+    const diffDescriptor = useContentReaderStore
+      .getState()
+      .conversations.a.tabs.find((tab) => tab.target.kind === 'diff')!
+    await act(async () => useContentReaderStore.getState().select('a', diffDescriptor.id))
+    const restoredDiffTarget = useContentReaderStore.getState().target
+    assert.equal(
+      restoredDiffTarget?.kind === 'diff' && restoredDiffTarget.relativePath,
+      'reader.ts'
+    )
+    assert.equal(composer.value, 'Keep my draft')
+    assert.equal(unmounts, 0)
+    await act(async () => useContentReaderStore.getState().select('a', webId))
+    assert.deepEqual(restores, [
+      {
+        threadId: 'a',
+        session: 'native-preview',
+        url: 'https://example.com/c',
+        reading: { webScrollY: 123, webZoom: 1.25 }
+      }
+    ])
     assert.equal(composer.value, 'Keep my draft')
   } finally {
     await act(async () => root.unmount())

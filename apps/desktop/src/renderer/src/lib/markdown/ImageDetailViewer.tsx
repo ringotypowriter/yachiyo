@@ -13,6 +13,7 @@ import { Tooltip } from '@renderer/components/Tooltip'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { extractLocalPath } from './imageUrl'
+import type { PreviewReadingState } from '@renderer/features/chat/lib/previewRetention'
 
 interface ImageDetailViewerProps {
   src: string
@@ -124,15 +125,24 @@ export function ImageCanvas({
   src,
   alt,
   onClose,
-  embedded = false
-}: Omit<ImageDetailViewerProps, 'isOpen'> & { embedded?: boolean }): React.JSX.Element {
-  const [zoom, setZoom] = useState(1)
-  const [offset, setOffset] = useState({ x: 0, y: 0 })
-  const [rotation, setRotation] = useState(0)
+  embedded = false,
+  reading,
+  onReadingChange
+}: Omit<ImageDetailViewerProps, 'isOpen'> & {
+  embedded?: boolean
+  reading?: PreviewReadingState
+  onReadingChange?: (reading: PreviewReadingState) => void
+}): React.JSX.Element {
+  const [zoom, setZoom] = useState(reading?.zoom ?? 1)
+  const [offset, setOffset] = useState({ x: reading?.imageX ?? 0, y: reading?.imageY ?? 0 })
+  const [rotation, setRotation] = useState(reading?.rotation ?? 0)
+  useEffect(() => {
+    onReadingChange?.({ zoom, imageX: offset.x, imageY: offset.y, rotation })
+  }, [zoom, offset, rotation, onReadingChange])
   const [isDragging, setIsDragging] = useState(false)
   const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null)
 
-  useRestoreFocusOnUnmount()
+  useRestoreFocusOnUnmount(!embedded)
 
   // Escape key.
   useEffect(() => {
