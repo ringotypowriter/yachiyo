@@ -62,8 +62,8 @@ class ResponsesWebSocketClosedError extends Error {
   }
 }
 
-/** A sent generation is ambiguous on disconnect: never retry at the runtime boundary. */
-class ResponsesWebSocketStreamError extends Error {
+/** Prevent SDK-level replay; run recovery may resume from a checkpoint. */
+export class ResponsesWebSocketStreamError extends Error {
   readonly isRetryable = false
 }
 
@@ -329,7 +329,9 @@ class ResponsesWebSocketConnection {
       const onMessage = (data: WebSocket.RawData, isBinary: boolean): void => {
         if (isBinary) {
           fail(
-            new ResponsesWebSocketStreamError('Responses websocket sent an unexpected binary frame')
+            Object.assign(new Error('Responses websocket sent an unexpected binary frame'), {
+              isRetryable: false
+            })
           )
           this.terminate()
           return

@@ -8,7 +8,11 @@ import { streamText } from 'ai'
 
 import { CodexWebSocketPool, createCodexWebSocketFetch } from './codexResponsesWebSocket.ts'
 import { createResponsesWebSocketFetch } from './responsesWebSocket.ts'
-import { isTransientTransportError } from '../models/runtimeErrors.ts'
+import {
+  isTransientTransportError,
+  isRetryableRunError,
+  toRunBoundaryError
+} from '../models/runtimeErrors.ts'
 
 const HTTP_URL = 'https://chatgpt.com/backend-api/codex/responses'
 
@@ -430,7 +434,7 @@ for (const firstEvent of [false, true]) {
         (error: Error & { isRetryable?: boolean }) => {
           assert.match(error.message, /closed before response.completed/)
           assert.equal(error.isRetryable, false)
-          assert.equal(isTransientTransportError(error), false)
+          assert.equal(isTransientTransportError(error), true)
           return true
         }
       )
@@ -621,36 +625,56 @@ test('generic nonstream Responses requests preserve HTTP JSON semantics', async 
   }
 })
 
-test('AI SDK streaming preserves nonretryable disconnect errors for the runtime boundary', async () => {
-  const server = await startServer((socket) => socket.close())
-  const pool = new CodexWebSocketPool()
-  const calls: string[] = []
-  const fetch = createResponsesWebSocketFetch(recordingFetch(calls), {
-    sessionId: 'sdk-no-replay',
-    pool
-  })
-  try {
-    const provider = createOpenAI({
-      apiKey: 'fixture',
-      baseURL: server.url.replace('ws:', 'http:').replace('/responses', ''),
-      fetch
+for (const firstEvent of [false, true]) {
+  test(`AI SDK does not replay disconnects but run recovery recognizes them (first event: ${firstEvent})`, async () => {
+    const server = await startServer((socket) => {
+      if (firstEvent) socket.send(event('codex.rate_limits', { rate_limits: {} }))
+      socket.close()
     })
-    const result = streamText({
-      model: provider.responses('model'),
-      prompt: 'local fixture',
-      maxRetries: 2
+    const pool = new CodexWebSocketPool()
+    const calls: string[] = []
+    const fetch = createResponsesWebSocketFetch(recordingFetch(calls), {
+      sessionId: 'sdk-no-replay',
+      pool
     })
-    let streamError: unknown
-    for await (const part of result.fullStream) {
-      if (part.type === 'error') streamError = part.error
+    try {
+      const provider = createOpenAI({
+        apiKey: 'fixture',
+        baseURL: server.url.replace('ws:', 'http:').replace('/responses', ''),
+        fetch
+      })
+      const result = streamText({
+        model: provider.responses('model'),
+        prompt: 'local fixture',
+        maxRetries: 2
+      })
+      let streamError: unknown
+      try {
+        for await (const part of result.fullStream) {
+          if (part.type === 'error') streamError = part.error
+        }
+      } catch (error) {
+        streamError = error
+      }
+      assert.ok(streamError instanceof Error)
+      assert.equal((streamError as Error & { isRetryable: boolean }).isRetryable, false)
+      if (firstEvent) {
+        assert.equal((streamError as Error & { statusCode: number }).statusCode, 200)
+        assert.match(streamError.message, /Failed to process successful response/)
+      }
+      assert.equal(isTransientTransportError(streamError), true)
+      const recovered = toRunBoundaryError(streamError)
+      assert.equal(isRetryableRunError(recovered), true)
+      assert.match(
+        (recovered as Error).message,
+        /Responses websocket closed before response.completed/
+      )
+      assert.equal((recovered as Error).cause, streamError)
+      assert.equal(server.frames.length, 1)
+      assert.equal(calls.length, 0)
+    } finally {
+      pool.closeAll()
+      await server.close()
     }
-    assert.ok(streamError instanceof Error)
-    assert.equal((streamError as Error & { isRetryable: boolean }).isRetryable, false)
-    assert.equal(isTransientTransportError(streamError), false)
-    assert.equal(server.frames.length, 1)
-    assert.equal(calls.length, 0)
-  } finally {
-    pool.closeAll()
-    await server.close()
-  }
-})
+  })
+}

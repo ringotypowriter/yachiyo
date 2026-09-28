@@ -31,6 +31,16 @@ test('isTransientTransportError honors explicit isRetryable flag', () => {
   assert.equal(isTransientTransportError({ isRetryable: false }), false)
 })
 
+test('HTTP 200 response processing failures without a websocket disconnect are not recoverable', () => {
+  const error = Object.assign(new Error('Failed to process successful response'), {
+    statusCode: 200,
+    isRetryable: false,
+    cause: new Error('Invalid response schema')
+  })
+  assert.equal(isTransientTransportError(error), false)
+  assert.equal(toRunBoundaryError(error), error)
+})
+
 test('isTransientTransportError classifies HTTP statuses', () => {
   const mk = (status: number): Error => Object.assign(new Error(`HTTP ${status}`), { status })
   // Browser-side transport surfaces as status 0.

@@ -1,3 +1,5 @@
+import { ResponsesWebSocketStreamError } from '../providers/responsesWebSocket.ts'
+
 /**
  * Typed error contract for the run-execution retry state machine.
  *
@@ -122,6 +124,15 @@ export function isContextWindowExceededError(error: unknown): boolean {
 export function isTransientTransportError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
 
+  // The WS adapter forbids SDK-level replay, but its transport failure (even
+  // when wrapped by the SDK as HTTP 200) can recover via a run checkpoint.
+  if (
+    error instanceof ResponsesWebSocketStreamError ||
+    (error instanceof Error && error.cause instanceof ResponsesWebSocketStreamError)
+  ) {
+    return true
+  }
+
   const explicit = (error as { isRetryable?: unknown }).isRetryable
   if (typeof explicit === 'boolean') return explicit
 
@@ -213,6 +224,11 @@ export function toRunBoundaryError(error: unknown): unknown {
     return new ContextWindowExceededRunError(message || 'Context window exceeded', { cause: error })
   }
   if (!isTransientTransportError(error)) return error
-  const message = error instanceof Error ? error.message : String(error)
+  const message =
+    error instanceof Error && error.cause instanceof ResponsesWebSocketStreamError
+      ? error.cause.message
+      : error instanceof Error
+        ? error.message
+        : String(error)
   return new RetryableRunError(message, { cause: error })
 }
