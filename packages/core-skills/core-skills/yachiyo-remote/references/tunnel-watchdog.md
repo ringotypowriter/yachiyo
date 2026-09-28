@@ -43,8 +43,10 @@ Automatic restart requires all of the following:
   rollback resets grace and the failure streak.
 - Three consecutive observations report zero HA connections and a healthy local origin.
 - The current public response corroborates an unavailable tunnel (HTTP 530 or Cloudflare 1033),
-  establishing that the edge is reachable. DNS/TLS timeouts with unknown network health do not
-  count as proof of a tunnel failure.
+  or the current quick tunnel's log contains a fresh Cloudflare `Unauthorized: Tunnel not found`
+  registration rejection after its last successful registration. This explicit rejection permits
+  recovery even if the separate public probe cannot complete TLS through a proxy. Other DNS/TLS
+  timeouts with unknown network health do not count as proof of a tunnel failure.
 - The restart cooldown and rolling attempt budget permit it.
 
 Origin down, unknown metrics, unknown/global offline connectivity, an unsupported configuration,

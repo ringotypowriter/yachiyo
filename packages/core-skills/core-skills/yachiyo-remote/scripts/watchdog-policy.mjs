@@ -189,13 +189,21 @@ export class TunnelWatchdog {
     if (this.snapshot.haConnections === null) return suppress('metrics-unknown')
     if (ha > 0) return suppress('healthy-ha')
     if (observation.originHealthy !== true) return suppress('origin-unhealthy-or-unknown')
-    if (observation.networkHealthy !== true) return suppress('network-unhealthy-or-unknown')
+    // A fresh Cloudflare rejection of this quick tunnel is direct evidence even when
+    // the separate public probe cannot complete TLS through the local proxy.
+    const rejectedQuick = observation.mode === 'quick' && observation.registrationRejected === true
+    if (!rejectedQuick && observation.networkHealthy !== true)
+      return suppress('network-unhealthy-or-unknown')
     this.snapshot.consecutiveZero += 1
     if (this.snapshot.consecutiveZero < 3) {
       this.snapshot.reason = 'confirming-zero-ha'
       return
     }
-    if (observation.publicStatus !== 530 && observation.publicErrorCode !== 1033) {
+    if (
+      !rejectedQuick &&
+      observation.publicStatus !== 530 &&
+      observation.publicErrorCode !== 1033
+    ) {
       this.snapshot.reason = 'public-not-corroborated'
       return
     }

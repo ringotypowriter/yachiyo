@@ -7,6 +7,7 @@ import {
   parseManagedPlist,
   parseIngress,
   currentQuickHostname,
+  quickRegistrationRejected,
   resolveQuickEndpoint,
   parseMetrics,
   parsePublicResponse,
@@ -105,6 +106,30 @@ test('current launch hostname rejects stale, insecure, token-bearing URLs', () =
     currentQuickHostname(previous + 'https://new.trycloudflare.com'),
     'https://new.trycloudflare.com'
   )
+})
+
+test('only a fresh, unrecovered rejection in the current quick launch is corroboration', () => {
+  const start = '2026-09-28T05:00:00Z INF Requesting new quick Tunnel on trycloudflare.com...\n'
+  const rejected =
+    '2026-09-28T05:08:00Z ERR Register tunnel error from server side error="Unauthorized: Tunnel not found"\n'
+  const now = Date.parse('2026-09-28T05:09:00Z')
+  assert.equal(quickRegistrationRejected(start + rejected, now), true)
+  assert.equal(quickRegistrationRejected(start + rejected, now + 11 * 60_000), false)
+  assert.equal(
+    quickRegistrationRejected(
+      start + rejected + '2026-09-28T05:08:30Z INF Registered tunnel connection\n',
+      now
+    ),
+    false
+  )
+  assert.equal(
+    quickRegistrationRejected(
+      start + rejected + '2026-09-28T05:08:30Z INF Requesting new quick Tunnel\n',
+      now
+    ),
+    false
+  )
+  assert.equal(quickRegistrationRejected(rejected, now), false)
 })
 
 test('quick endpoint cache requires same known PID and truncated marker-free tail', () => {

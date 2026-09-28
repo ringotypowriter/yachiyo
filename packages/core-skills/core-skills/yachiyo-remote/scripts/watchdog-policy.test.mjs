@@ -105,6 +105,23 @@ test('1033 corroborates; unknown samples break consecutive zero sequence', async
   assert.equal(f.counts().restarts, 1)
 })
 
+test('fresh Cloudflare rejection of a quick tunnel recovers despite unknown public TLS', async () => {
+  const f = fixture()
+  f.set({ mode: 'quick', networkHealthy: null, publicStatus: null, registrationRejected: true })
+  await confirm(f)
+  assert.equal(f.counts().restarts, 1)
+})
+
+test('stale or named-tunnel rejection does not bypass public corroboration', async () => {
+  const f = fixture()
+  f.set({ mode: 'named', networkHealthy: null, publicStatus: null, registrationRejected: true })
+  await confirm(f)
+  assert.equal(f.counts().restarts, 0)
+  f.set({ mode: 'quick', registrationRejected: false })
+  await f.at(180_000)
+  assert.equal(f.counts().restarts, 0)
+})
+
 test('wake gap starts fresh 90s grace, rather than using stale zero samples', async () => {
   const f = fixture()
   await f.at(0)

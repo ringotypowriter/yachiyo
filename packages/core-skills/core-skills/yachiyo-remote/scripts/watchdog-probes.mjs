@@ -121,6 +121,20 @@ export function currentQuickHostname(text) {
   return urls.length ? urls.at(-1).origin : null
 }
 
+export function quickRegistrationRejected(text, now = Date.now()) {
+  const marker = text.lastIndexOf('Requesting new quick Tunnel')
+  if (marker < 0) return false
+  const lines = text.slice(marker).split('\n')
+  const lastSuccess = lines.findLastIndex((line) => line.includes('Registered tunnel connection'))
+  const rejection = lines
+    .slice(lastSuccess + 1)
+    .findLast((line) =>
+      line.includes('Register tunnel error from server side error="Unauthorized: Tunnel not found"')
+    )
+  const at = Date.parse(rejection?.slice(0, 20) || '')
+  return Number.isFinite(at) && now >= at && now - at < 10 * 60_000
+}
+
 export function parseMetrics(text) {
   const values = [
     ...text.matchAll(
@@ -335,11 +349,13 @@ export async function observeTunnel({ home, uid = process.getuid?.(), signal }) 
       launchPid = Number(processInfo.stdout.match(/^\s*pid = (\d+)\s*$/m)?.[1]) || null
   }
   let endpoint = null
+  let registrationRejected = false
   if (cfg.mode === 'quick') {
     try {
+      const log = await tail(cfg.logPath || join(home, '.yachiyo/logs/cloudflared.log'))
       const state = resolveQuickEndpoint(
         {
-          ...(await tail(cfg.logPath || join(home, '.yachiyo/logs/cloudflared.log'))),
+          ...log,
           pid: launchPid
         },
         quickCache.get(home)
@@ -348,6 +364,7 @@ export async function observeTunnel({ home, uid = process.getuid?.(), signal }) 
         quickCache.delete(quickCache.keys().next().value)
       quickCache.set(home, state)
       endpoint = state.endpoint
+      registrationRejected = Boolean(endpoint && launchPid && quickRegistrationRejected(log.text))
     } catch {
       quickCache.delete(home)
     }
@@ -395,6 +412,7 @@ export async function observeTunnel({ home, uid = process.getuid?.(), signal }) 
     ...publicResult,
     haConnections,
     originHealthy,
+    registrationRejected,
     mode: cfg.mode,
     endpoint,
     launchPid,
