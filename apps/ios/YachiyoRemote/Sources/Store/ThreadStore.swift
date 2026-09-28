@@ -60,6 +60,9 @@ final class ThreadStore: ChatMessageSource {
 
     /// Messages streaming in the active run (message id → accumulated text / reasoning).
     private var streamingText: [String: String] = [:]
+    private var streamingBlocks: [String: [TextBlock]] = [:]
+    private var streamingContentOrder: [String: [String]] = [:]
+    private var nextStreamingBlock: Set<String> = []
     private var streamingReasoning: [String: String] = [:]
     private var streamingParent: [String: String] = [:]
     private var streamingOrder: [String] = []
@@ -334,6 +337,9 @@ final class ThreadStore: ChatMessageSource {
 
     private func clearStreaming() {
         streamingText.removeAll()
+        streamingBlocks.removeAll()
+        streamingContentOrder.removeAll()
+        nextStreamingBlock.removeAll()
         streamingReasoning.removeAll()
         streamingParent.removeAll()
         streamingOrder.removeAll()
@@ -365,7 +371,18 @@ final class ThreadStore: ChatMessageSource {
     private func beginStreaming(_ messageId: String, runId: String?) {
         if let runId { messageRunIds[messageId] = runId }
         guard streamingText[messageId] == nil else { return }
-        streamingText[messageId] = detail?.messages.first { $0.id == messageId }?.content ?? ""
+        let loaded = detail?.messages.first { $0.id == messageId }
+        streamingText[messageId] = loaded?.content ?? ""
+        streamingBlocks[messageId] = loaded?.textBlocks ?? []
+        streamingContentOrder[messageId] = loaded?.contentOrder ?? loaded?.textBlocks?.map(\.id) ?? []
+        if let last = loaded?.contentOrder?.last,
+           !(loaded?.textBlocks?.contains { $0.id == last } ?? false) {
+            nextStreamingBlock.insert(messageId)
+        }
+        if !(loaded?.content ?? "").isEmpty, streamingBlocks[messageId]?.isEmpty == true {
+            streamingBlocks[messageId] = [TextBlock(content: loaded!.content, createdAt: loaded!.createdAt, id: "\(messageId)-initial")]
+            streamingContentOrder[messageId] = ["\(messageId)-initial"]
+        }
         streamingCreatedAt[messageId] = Date()
         streamingOrder.append(messageId)
     }
@@ -391,7 +408,24 @@ final class ThreadStore: ChatMessageSource {
             guard let messageId = event.messageId else { return }
             observeRun(event.runId ?? activeRunId, responding: true)
             beginStreaming(messageId, runId: event.runId ?? activeRunId)
-            streamingText[messageId, default: ""] += event.delta ?? ""
+            let delta = event.delta ?? ""
+            streamingText[messageId, default: ""] += delta
+            if !delta.isEmpty {
+                var blocks = streamingBlocks[messageId] ?? []
+                if !nextStreamingBlock.contains(messageId), let last = blocks.popLast() {
+                    blocks.append(TextBlock(content: last.content + delta, createdAt: last.createdAt, id: last.id))
+                } else {
+                    let blockId = UUID().uuidString
+                    blocks.append(TextBlock(
+                        content: delta,
+                        createdAt: Date().ISO8601Format(.init(includingFractionalSeconds: true)),
+                        id: blockId
+                    ))
+                    streamingContentOrder[messageId, default: []].append(blockId)
+                }
+                streamingBlocks[messageId] = blocks
+                nextStreamingBlock.remove(messageId)
+            }
             scheduleDeltaRebuild()
         case .messageReasoningDelta:
             guard let messageId = event.messageId else { return }
@@ -408,6 +442,9 @@ final class ThreadStore: ChatMessageSource {
             if message.role == .assistant, let runId = event.runId { messageRunIds[message.id] = runId }
             upsertLoaded(message)
             streamingText[message.id] = nil
+            streamingBlocks[message.id] = nil
+            streamingContentOrder[message.id] = nil
+            nextStreamingBlock.remove(message.id)
             streamingReasoning[message.id] = nil
             streamingCreatedAt[message.id] = nil
             streamingOrder.removeAll { $0 == message.id }
@@ -416,6 +453,13 @@ final class ThreadStore: ChatMessageSource {
             guard let toolCall = event.toolCall else { return }
             observeRun(event.runId ?? toolCall.runId, responding: true)
             if liveToolCalls[toolCall.id] != toolCall {
+                if liveToolCalls[toolCall.id] == nil,
+                   let messageId = toolCall.assistantMessageId ?? streamingOrder.last,
+                   streamingText[messageId] != nil,
+                   !(streamingContentOrder[messageId]?.contains(toolCall.id) ?? false) {
+                    streamingContentOrder[messageId, default: []].append(toolCall.id)
+                    nextStreamingBlock.insert(messageId)
+                }
                 liveToolCalls[toolCall.id] = toolCall
                 scheduleDeltaRebuild()
             }
@@ -522,6 +566,8 @@ final class ThreadStore: ChatMessageSource {
                     text: text, reasoning: streamingReasoning[message.id] ?? message.reasoning,
                     reasoningCollapsed: true, createdAt: createdAt,
                     attachments: message.attachments.map(\.filename), toolCalls: calls,
+                    textBlocks: streamingBlocks[message.id],
+                    contentOrder: streamingContentOrder[message.id],
                     siblings: message.siblingIds, plan: message.isPlanDocument ? "accepted" : nil,
                     images: message.images, footer: footer
                 ))
@@ -539,6 +585,8 @@ final class ThreadStore: ChatMessageSource {
                 text: message.content, reasoning: message.reasoning,
                 reasoningCollapsed: true, createdAt: createdAt,
                 attachments: message.attachments.map(\.filename), toolCalls: calls,
+                textBlocks: message.textBlocks,
+                contentOrder: message.contentOrder,
                 siblings: message.siblingIds, plan: message.isPlanDocument ? "accepted" : nil,
                 images: message.images, footer: footer
             )
@@ -558,6 +606,8 @@ final class ThreadStore: ChatMessageSource {
                 createdAt: streamingCreatedAt[id] ?? activeRunObservedAt,
                 attachments: [],
                 toolCalls: isLast ? unattached : [],
+                textBlocks: streamingBlocks[id],
+                contentOrder: streamingContentOrder[id],
                 siblings: nil,
                 plan: nil,
                 footer: footers.byMessage[id]
@@ -622,6 +672,8 @@ final class ThreadStore: ChatMessageSource {
         createdAt: Date,
         attachments: [String],
         toolCalls: [RemoteToolCall],
+        textBlocks: [TextBlock]? = nil,
+        contentOrder: [String]? = nil,
         siblings: [String]?,
         plan: String?,
         images: [RemoteImageRef] = [],
@@ -631,7 +683,7 @@ final class ThreadStore: ChatMessageSource {
         if let reasoning, !reasoning.isEmpty {
             parts.append(.reasoning(ReasoningContentPart(id: "\(id)-reasoning", text: reasoning, isCollapsed: reasoningCollapsed)))
         }
-        for call in toolCalls {
+        func appendCall(_ call: RemoteToolCall) {
             if let question = call.question {
                 parts.append(.question(QuestionContentPart(
                     id: call.id,
@@ -650,7 +702,50 @@ final class ThreadStore: ChatMessageSource {
                 )))
             }
         }
-        parts.append(.text(TextContentPart(id: "\(id)-text", text: text)))
+        if role == .assistant, let textBlocks, !textBlocks.isEmpty {
+            enum Segment {
+                case text(TextBlock)
+                case tool(RemoteToolCall)
+
+                var id: String {
+                    switch self {
+                    case let .text(block): block.id
+                    case let .tool(call): call.id
+                    }
+                }
+
+                var timestamp: String {
+                    switch self {
+                    case let .text(block): block.createdAt
+                    case let .tool(call): call.startedAt
+                    }
+                }
+            }
+            let segments = textBlocks.map(Segment.text) + toolCalls.map(Segment.tool)
+            let ordered: [Segment]
+            if let contentOrder {
+                let byId = Dictionary(segments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let ids = Set(contentOrder)
+                ordered = segments.filter {
+                    if case .tool = $0 { return !ids.contains($0.id) }
+                    return false
+                } + contentOrder.compactMap { byId[$0] } + segments.filter {
+                    if case .text = $0 { return !ids.contains($0.id) }
+                    return false
+                }
+            } else {
+                ordered = segments.sorted(by: { ($0.timestamp.isoDate ?? .distantPast) < ($1.timestamp.isoDate ?? .distantPast) })
+            }
+            for segment in ordered {
+                switch segment {
+                case let .text(block): parts.append(.text(TextContentPart(id: block.id, text: block.content)))
+                case let .tool(call): appendCall(call)
+                }
+            }
+        } else {
+            for call in toolCalls { appendCall(call) }
+            parts.append(.text(TextContentPart(id: "\(id)-text", text: text)))
+        }
         for name in attachments {
             parts.append(.file(FileContentPart(mediaType: "application/octet-stream", data: Data(), textContent: name, name: name)))
         }

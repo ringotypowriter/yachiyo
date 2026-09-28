@@ -40,6 +40,25 @@ final class TimelineIdentityTests: XCTestCase {
         XCTAssertEqual(afterChunks.map(\.content).joined(separator: "\n\n"), text)
     }
 
+    func testAssistantTextAndToolCallsKeepTheirContentPartOrder() {
+        let message = ConversationMessage(id: "reply", conversationID: "thread", role: .assistant, parts: [
+            .text(TextContentPart(id: "before", text: "Before tool")),
+            .toolCall(ToolCallContentPart(id: "tool-1", toolName: "read")),
+            .text(TextContentPart(id: "middle", text: "Between tools")),
+            .toolCall(ToolCallContentPart(id: "tool-2", toolName: "grep")),
+            .text(TextContentPart(id: "after", text: "After tools")),
+        ])
+        let entries = MessageListView().entries(from: [message])
+        let sequence = entries.compactMap { entry -> String? in
+            switch entry {
+            case let .responseContent(_, chunk): return chunk.content
+            case let .toolCallHint(_, calls, _, _): return calls.map(\.id).joined(separator: ",")
+            default: return nil
+            }
+        }
+        XCTAssertEqual(sequence, ["Before tool", "tool-1", "Between tools", "tool-2", "After tools"])
+    }
+
     func testReasoningRowIgnoresAnswerDeltasAndTimestamps() {
         let list = MessageListView()
         func message(answer: String, createdAt: Date) -> ConversationMessage {

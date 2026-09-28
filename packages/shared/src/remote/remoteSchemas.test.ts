@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import type { MessageRecord } from '../protocol.ts'
 
 import { remoteEventSchema, remotePushSchema } from './events.ts'
 import { buildRemoteProtocolJsonSchema } from './jsonSchema.ts'
+import { projectMessage } from './project.ts'
 import { mailboxPlaintextSchema } from './mailbox.ts'
 import { REMOTE_METHOD_NAMES, remoteMethods } from './methods.ts'
 import {
@@ -14,6 +16,7 @@ import {
   type PairingPayload
 } from './pairing.ts'
 import {
+  remoteMessageSchema,
   remoteThreadDetailSchema,
   type RemoteMessage,
   type RemoteThreadSummary
@@ -66,6 +69,44 @@ const message: RemoteMessage = {
   siblingIds: ['message-0', 'message-1'],
   isPlanDocument: false
 }
+
+test('remote message preserves assistant text blocks across a JSON round trip', () => {
+  const blocks = [
+    { id: 'before', content: 'Before tool', createdAt: '2026-09-22T12:00:00.000Z' },
+    { id: 'after', content: 'After tool', createdAt: '2026-09-22T12:00:02.000Z' }
+  ]
+  const decoded = remoteMessageSchema.parse(
+    JSON.parse(JSON.stringify({ ...message, textBlocks: blocks }))
+  )
+  assert.deepEqual(decoded.textBlocks, blocks)
+  const source: MessageRecord = {
+    id: message.id,
+    threadId: 'thread-1',
+    role: 'assistant',
+    content: 'Before toolAfter tool',
+    status: 'completed',
+    createdAt: message.createdAt,
+    textBlocks: blocks,
+    responseMessages: [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Before tool' },
+          { type: 'tool-call', toolCallId: 'tool-1', toolName: 'read', input: {} }
+        ]
+      },
+      {
+        role: 'tool',
+        content: [{ type: 'tool-result', toolCallId: 'tool-1', toolName: 'read', output: 'ok' }]
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'After tool' }] }
+    ]
+  }
+  const projected = projectMessage(source)
+  assert.deepEqual(projected?.textBlocks, blocks)
+  assert.deepEqual(projected?.contentOrder, ['before', 'tool-1', 'after'])
+  assert.deepEqual(remoteMessageSchema.parse(projected).contentOrder, ['before', 'tool-1', 'after'])
+})
 
 function roundTrip<T>(schema: { parse(value: unknown): T }, value: T): void {
   const parsed = schema.parse(value)

@@ -619,6 +619,7 @@ public enum RemoteChatAcceptedKind: String, Codable, Equatable, Sendable {
 public struct RemoteMessage: Codable, Equatable, Sendable {
     public let attachments: [RemoteFileRef]
     public let content: String
+    public let contentOrder: [String]?
     public let createdAt: String
     public let id: String
     public let images: [RemoteImageRef]
@@ -630,10 +631,12 @@ public struct RemoteMessage: Codable, Equatable, Sendable {
     public let role: Role
     public let siblingIds: [String]?
     public let status: RemoteMessageStatus
+    public let textBlocks: [TextBlock]?
 
-    public init(attachments: [RemoteFileRef], content: String, createdAt: String, id: String, images: [RemoteImageRef], isPlanDocument: Bool, modelId: String?, parentMessageId: String?, providerName: String?, reasoning: String?, requestKind: RequestKind?, role: Role, siblingIds: [String]?, status: RemoteMessageStatus) {
+    public init(attachments: [RemoteFileRef], content: String, contentOrder: [String]?, createdAt: String, id: String, images: [RemoteImageRef], isPlanDocument: Bool, modelId: String?, parentMessageId: String?, providerName: String?, reasoning: String?, requestKind: RequestKind?, role: Role, siblingIds: [String]?, status: RemoteMessageStatus, textBlocks: [TextBlock]?) {
         self.attachments = attachments
         self.content = content
+        self.contentOrder = contentOrder
         self.createdAt = createdAt
         self.id = id
         self.images = images
@@ -646,6 +649,7 @@ public struct RemoteMessage: Codable, Equatable, Sendable {
         self.role = role
         self.siblingIds = siblingIds
         self.status = status
+        self.textBlocks = textBlocks
     }
 }
 
@@ -700,6 +704,25 @@ public enum RemoteMessageStatus: String, Codable, Equatable, Sendable {
     case failed = "failed"
     case stopped = "stopped"
     case streaming = "streaming"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - TextBlock
+public struct TextBlock: Codable, Equatable, Sendable {
+    public let content: String
+    public let createdAt: String
+    public let id: String
+
+    public init(content: String, createdAt: String, id: String) {
+        self.content = content
+        self.createdAt = createdAt
+        self.id = id
+    }
 }
 
 //

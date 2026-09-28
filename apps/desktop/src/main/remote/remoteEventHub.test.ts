@@ -272,6 +272,8 @@ test('active snapshots accumulate raw text and reasoning before delta coalescing
       parentMessageId: 'user-1',
       role: 'assistant',
       content: 'Hello',
+      textBlocks: [{ id: 'm1-text-0', content: 'Hello', createdAt: '2026-09-22T00:00:00.000Z' }],
+      contentOrder: ['m1-text-0'],
       reasoning: 'thinking',
       images: [],
       attachments: [],
@@ -281,6 +283,44 @@ test('active snapshots accumulate raw text and reasoning before delta coalescing
     }
   ])
   assert.deepEqual(hub.snapshotMessages('t1', 'other-run'), [])
+  hub.stop()
+})
+
+test('active snapshot starts a new text block after a tool call', () => {
+  const { hub, source } = createHub()
+  source.emit(delta('m1', 'Before'))
+  source.emit(toolUpdate('tool-1', 'running'))
+  source.emit(delta('m1', 'After'))
+  assert.deepEqual(
+    hub.snapshotMessages('t1', 'r1')[0]?.textBlocks?.map((block) => block.content),
+    ['Before', 'After']
+  )
+  assert.deepEqual(hub.snapshotMessages('t1', 'r1')[0]?.contentOrder, [
+    'm1-text-0',
+    'tool-1',
+    'm1-text-1'
+  ])
+  hub.stop()
+})
+
+test('tool start prevents pending text deltas on either side from merging', async () => {
+  const { hub, source } = createHub()
+  const { pushes, subscription } = collect(hub, ['t1'])
+  await subscribe(subscription)
+  source.emit(delta('m1', 'Before'))
+  source.emit(toolUpdate('tool-1', 'running'))
+  source.emit(delta('m1', 'After'))
+  hub.flush()
+  assert.deepEqual(
+    events(pushes).map((event) => event.type),
+    ['message.delta', 'tool.updated', 'message.delta']
+  )
+  assert.deepEqual(
+    events(pushes)
+      .filter((event) => event.type === 'message.delta')
+      .map((event) => event.delta),
+    ['Before', 'After']
+  )
   hub.stop()
 })
 

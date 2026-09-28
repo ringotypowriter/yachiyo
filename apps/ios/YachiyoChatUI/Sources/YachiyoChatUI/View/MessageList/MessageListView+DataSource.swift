@@ -203,36 +203,40 @@ extension MessageListView {
                     entries.append(.reasoningContent(message.id, reasoningRep))
                 }
 
-                // A stable deck per message preserves selection while calls stream in.
-                let toolCalls = message.parts.compactMap { part -> ToolCallContentPart? in
-                    if case let .toolCall(call) = part { return call }
-                    return nil
-                }
-                if !toolCalls.isEmpty {
-                    let selectedID = selectedToolCalls[message.id].flatMap { id in
-                        toolCalls.contains(where: { $0.id == id }) ? id : nil
+                var pendingCalls: [ToolCallContentPart] = []
+                var chunkIndex = 0
+                func flushCalls() {
+                    guard let first = pendingCalls.first else { return }
+                    let deckID = "\(message.id)-\(first.id)"
+                    let selectedID = selectedToolCalls[deckID].flatMap { id in
+                        pendingCalls.contains(where: { $0.id == id }) ? id : nil
                     }
-                    entries.append(.toolCallHint(message.id, toolCalls, selectedID, expandedToolDecks.contains(message.id)))
+                    entries.append(.toolCallHint(deckID, pendingCalls, selectedID, expandedToolDecks.contains(deckID)))
+                    pendingCalls.removeAll()
                 }
-
                 for part in message.parts {
-                    if case let .question(question) = part {
+                    switch part {
+                    case let .toolCall(call): pendingCalls.append(call)
+                    case let .question(question):
+                        flushCalls()
                         entries.append(.questionCard(question.id, question))
+                    case let .text(text) where !text.text.isEmpty && message.metadata[MessageMetadataKey.plan] == nil:
+                        flushCalls()
+                        for chunk in responseChunks(messageID: "\(message.id)/\(text.id)", text: text.text) {
+                            entries.append(.response(ResponseChunk(
+                                messageId: message.id,
+                                index: chunkIndex,
+                                content: chunk.text,
+                                endsInsideFence: chunk.endsInsideFence
+                            )))
+                            chunkIndex += 1
+                        }
+                    default: break
                     }
                 }
-
-                // Text content
+                flushCalls()
                 if let planState = message.metadata[MessageMetadataKey.plan] {
                     entries.append(.planCard(message.id, .init(messageId: message.id, content: textContent, isPending: planState == "pending")))
-                } else if !textContent.isEmpty {
-                    for (index, chunk) in responseChunks(messageID: message.id, text: textContent).enumerated() {
-                        entries.append(.response(ResponseChunk(
-                            messageId: message.id,
-                            index: index,
-                            content: chunk.text,
-                            endsInsideFence: chunk.endsInsideFence
-                        )))
-                    }
                 }
                 if let footer = message.metadata[MessageMetadataKey.footer], !footer.isEmpty {
                     entries.append(.hint("footer.\(message.id)", footer))

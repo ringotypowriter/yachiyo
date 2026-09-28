@@ -74,6 +74,45 @@ export function projectThreadSummary(
   }
 }
 
+function responseContentOrder(message: MessageRecord): string[] | undefined {
+  const blocks = message.textBlocks
+  if (!blocks?.length || !message.responseMessages?.length) return undefined
+  const order: string[] = []
+  let textIndex = 0
+  for (const response of message.responseMessages) {
+    if (
+      !response ||
+      typeof response !== 'object' ||
+      !('role' in response) ||
+      response.role !== 'assistant' ||
+      !('content' in response) ||
+      !Array.isArray(response.content)
+    )
+      continue
+    for (const part of response.content) {
+      if (!part || typeof part !== 'object') continue
+      if (
+        'type' in part &&
+        part.type === 'text' &&
+        'text' in part &&
+        typeof part.text === 'string'
+      ) {
+        const block = blocks[textIndex++]
+        if (block?.content !== part.text) return undefined
+        order.push(block.id)
+      } else if (
+        'type' in part &&
+        part.type === 'tool-call' &&
+        'toolCallId' in part &&
+        typeof part.toolCallId === 'string'
+      ) {
+        order.push(part.toolCallId)
+      }
+    }
+  }
+  return textIndex === blocks.length ? order : undefined
+}
+
 /** Returns null for messages hidden from the timeline. */
 export function projectMessage(
   message: MessageRecord,
@@ -82,11 +121,14 @@ export function projectMessage(
   if (message.hidden) return null
   const isPlanDocument = message.role === 'assistant' && isPlanDocumentMessage(message.content)
   const requestKind = message.turnContext?.hiddenRequestKind
+  const contentOrder = isPlanDocument ? undefined : responseContentOrder(message)
   return {
     id: message.id,
     ...(message.parentMessageId ? { parentMessageId: message.parentMessageId } : {}),
     role: message.role,
     content: isPlanDocument ? stripPlanDocumentMarker(message.content) : message.content,
+    ...(!isPlanDocument && message.textBlocks?.length ? { textBlocks: message.textBlocks } : {}),
+    ...(contentOrder ? { contentOrder } : {}),
     ...(message.reasoning ? { reasoning: message.reasoning } : {}),
     images: (message.images ?? []).map((image, index) => ({
       imageId: String(index),

@@ -50,6 +50,10 @@ interface ActiveMessage {
   id: string
   parentMessageId?: string
   content: string
+  textBlocks: Array<{ id: string; content: string; createdAt: string }>
+  contentOrder: string[]
+  nextTextBlock: boolean
+  seenToolCallIds: Set<string>
   reasoning: string
   createdAt: string
 }
@@ -326,6 +330,10 @@ export class RemoteEventHub {
       ...(message.parentMessageId ? { parentMessageId: message.parentMessageId } : {}),
       role: 'assistant',
       content: message.content,
+      ...(message.textBlocks.length
+        ? { textBlocks: message.textBlocks.map((block) => ({ ...block })) }
+        : {}),
+      ...(message.contentOrder.length ? { contentOrder: [...message.contentOrder] } : {}),
       ...(message.reasoning ? { reasoning: message.reasoning } : {}),
       images: [],
       attachments: [],
@@ -592,8 +600,23 @@ export class RemoteEventHub {
       case 'message.delta':
       case 'message.reasoning.delta': {
         const message = this.ensureActiveMessage(event)
-        if (event.type === 'message.delta') message.content += event.delta
-        else message.reasoning += event.delta
+        if (event.type === 'message.delta') {
+          message.content += event.delta
+          if (event.delta) {
+            const last = message.textBlocks.at(-1)
+            if (last && !message.nextTextBlock) last.content += event.delta
+            else {
+              const id = `${message.id}-text-${message.textBlocks.length}`
+              message.textBlocks.push({
+                id,
+                content: event.delta,
+                createdAt: event.timestamp
+              })
+              message.contentOrder.push(id)
+            }
+            message.nextTextBlock = false
+          }
+        } else message.reasoning += event.delta
         const key = `${event.type}:${event.messageId}`
         const pending = this.pending.get(key)
         if (pending?.kind === 'delta') {
@@ -740,6 +763,25 @@ export class RemoteEventHub {
    */
   private translateToolUpdate(event: Extract<YachiyoServerEvent, { type: 'tool.updated' }>): void {
     this.trackAttention(event.threadId, event.toolCall.id, event.toolCall.status)
+    const messages = event.runId
+      ? this.activeMessages.get(event.threadId)?.get(event.runId)
+      : undefined
+    const message = event.toolCall.assistantMessageId
+      ? messages?.get(event.toolCall.assistantMessageId)
+      : [...(messages?.values() ?? [])].at(-1)
+    if (
+      message &&
+      !message.seenToolCallIds.has(event.toolCall.id) &&
+      !this.pending.has(`tool:${event.toolCall.id}`) &&
+      !this.sentTools.has(event.toolCall.id)
+    ) {
+      // A tool starts a new text segment. Flush the preceding delta before a later delta can
+      // coalesce under the same pending message key and erase the boundary on the phone.
+      this.flushPending()
+      message.seenToolCallIds.add(event.toolCall.id)
+      message.contentOrder.push(event.toolCall.id)
+      message.nextTextBlock = true
+    }
     const remote: ToolUpdatedEvent = {
       type: 'tool.updated',
       threadId: event.threadId,
@@ -805,6 +847,10 @@ export class RemoteEventHub {
         id: event.messageId,
         ...(event.parentMessageId ? { parentMessageId: event.parentMessageId } : {}),
         content: '',
+        textBlocks: [],
+        contentOrder: [],
+        nextTextBlock: false,
+        seenToolCallIds: new Set(),
         reasoning: '',
         createdAt: event.timestamp
       }

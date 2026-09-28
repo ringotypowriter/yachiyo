@@ -79,6 +79,17 @@ export const remoteMessageSchema = z
     parentMessageId: idSchema.optional(),
     role: z.enum(['user', 'assistant']),
     content: z.string(),
+    textBlocks: z
+      .array(
+        z.object({
+          id: idSchema,
+          content: z.string(),
+          createdAt: isoDateTimeSchema
+        })
+      )
+      .optional(),
+    /** Ordered text block and tool call IDs from the assistant's source response. */
+    contentOrder: z.array(idSchema).optional(),
     reasoning: z.string().optional(),
     images: z.array(remoteImageRefSchema),
     attachments: z.array(remoteFileRefSchema),
