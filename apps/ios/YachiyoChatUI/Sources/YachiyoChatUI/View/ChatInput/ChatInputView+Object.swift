@@ -58,7 +58,7 @@ extension ChatInputView {
                 // Never replace edits made while the delegate was uploading or awaiting ACK.
                 guard self.inputEditor.textView.text == submittedText,
                       Array(self.attachmentsBar.attachments.values) == submittedAttachments else { return }
-                self.resetValues(keepingFocus: true)
+                self.resetValues()
                 // Do not remove the shared directory: another import or upload may still
                 // reference it. Temporary assets remain available for the OS temp lifecycle.
             }
