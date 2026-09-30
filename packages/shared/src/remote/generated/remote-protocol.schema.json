@@ -1613,6 +1613,9 @@
           "items": {
             "$ref": "#/$defs/RemoteSelectableModel"
           }
+        },
+        "defaultRunMode": {
+          "$ref": "#/$defs/RemoteRunMode"
         }
       },
       "required": [

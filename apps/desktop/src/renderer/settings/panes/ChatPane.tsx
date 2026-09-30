@@ -4,6 +4,7 @@ import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import {
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
+  type SelectableRunModeId,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
 import { getToolModelConfig, resolveToolModelProvider } from '@yachiyo/shared/providerConfig'
@@ -183,6 +184,34 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
         <SettingLabel>{t('settings.chat.conversationSection')}</SettingLabel>
+
+        <SettingItem
+          label={t('settings.chat.defaultRunModeLabel')}
+          description={t('settings.chat.defaultRunModeDesc')}
+          control={
+            <select
+              value={draft.chat?.defaultRunMode ?? 'auto'}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  chat: {
+                    ...draft.chat,
+                    defaultRunMode: event.target.value as SelectableRunModeId
+                  }
+                })
+              }
+              aria-label={t('settings.chat.defaultRunModeAria')}
+              className="rounded-lg px-2 py-1 text-xs"
+              style={inputStyle()}
+            >
+              {(['auto', 'code', 'explore', 'plan', 'chat'] as const).map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode[0].toUpperCase() + mode.slice(1)}
+                </option>
+              ))}
+            </select>
+          }
+        />
 
         <SettingItem
           label={t('settings.chat.enterSteersLabel')}

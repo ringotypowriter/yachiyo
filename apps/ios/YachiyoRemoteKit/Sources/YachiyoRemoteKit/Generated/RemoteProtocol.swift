@@ -1456,9 +1456,11 @@ public struct RemoteModelsListSelectableInput: Codable, Equatable, Sendable {
 
 // MARK: - RemoteModelsListSelectableOutput
 public struct RemoteModelsListSelectableOutput: Codable, Equatable, Sendable {
+    public let defaultRunMode: RemoteRunMode?
     public let models: [RemoteSelectableModel]
 
-    public init(models: [RemoteSelectableModel]) {
+    public init(defaultRunMode: RemoteRunMode?, models: [RemoteSelectableModel]) {
+        self.defaultRunMode = defaultRunMode
         self.models = models
     }
 }

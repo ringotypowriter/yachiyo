@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     }
   },
   chat: {
+    defaultRunMode: 'auto',
     minimalPrompt: false,
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
     stripCompact: true,

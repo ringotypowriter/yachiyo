@@ -158,6 +158,9 @@ export const behavior = {
 }
 
 export const chat = {
+  defaultRunModeLabel: '默认运行模式',
+  defaultRunModeDesc: 'Mac 和手机上的新会话使用此模式；已有会话保留原模式。',
+  defaultRunModeAria: '选择默认运行模式',
   conversationSection: '对话',
   enterSteersLabel: '运行期间 Enter 用于引导',
   enterSteersDesc: '关闭后，消息会排队作为追加内容。Alt+Enter 可临时反转。',

@@ -129,6 +129,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     write(config) {
       return {
         chat: {
+          defaultRunMode: config.chat?.defaultRunMode ?? 'auto',
           activeRunEnterBehavior:
             config.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
           minimalPrompt: config.chat?.minimalPrompt === true,

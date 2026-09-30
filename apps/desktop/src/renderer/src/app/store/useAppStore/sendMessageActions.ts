@@ -174,7 +174,10 @@ export function createSendMessageActions(input: {
             currentState.reasoningEffortByThread[getComposerDraftKey(null)]
           const stagedPendingToolMode = currentState.toolModeByThread[getComposerDraftKey(null)]
           const pendingToolMode =
-            stagedPendingToolMode?.runMode === 'custom' ? undefined : stagedPendingToolMode
+            stagedPendingToolMode?.runMode === 'custom'
+              ? undefined
+              : (stagedPendingToolMode ??
+                (initialToolMode.runMode !== 'auto' ? initialToolMode : undefined))
           const thread = await window.api.yachiyo.createThread({
             ...(workspacePath ? { workspacePath } : {}),
             ...(essentialId ? { createdFromEssentialId: essentialId } : {}),

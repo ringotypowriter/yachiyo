@@ -1,6 +1,7 @@
 import { isModelImageCapable } from '@yachiyo/shared/providerConfig'
 import { isPlanModeExitRecord, PLAN_MODE_EXIT_TOOL_NAME } from '@yachiyo/shared/planMode'
-import { DEFAULT_ENABLED_TOOL_NAMES, DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
+import { DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
+import { normalizeRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
@@ -188,9 +189,12 @@ export function createThreadLifecycleActions(input: {
       )
 
       if (reusableThread) {
+        const defaultMode = normalizeRunModeId(currentState.config?.chat?.defaultRunMode)
+        const defaultTools = resolveRunModeEnabledTools(defaultMode)
         const reusableAutoThread = { ...reusableThread }
         delete reusableAutoThread.enabledTools
-        delete reusableAutoThread.runMode
+        if (defaultMode === DEFAULT_RUN_MODE_ID) delete reusableAutoThread.runMode
+        else reusableAutoThread.runMode = defaultMode
 
         set((state) => {
           const nextState = {
@@ -230,20 +234,22 @@ export function createThreadLifecycleActions(input: {
           return {
             ...nextState,
             ...deriveActiveThreadRunState(nextState),
-            enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-            runMode: DEFAULT_RUN_MODE_ID
+            enabledTools: defaultTools,
+            runMode: defaultMode
           }
         })
         if (
-          (reusableThread.enabledTools !== undefined || reusableThread.runMode !== undefined) &&
+          (reusableThread.enabledTools !== undefined ||
+            reusableThread.runMode !== undefined ||
+            defaultMode !== DEFAULT_RUN_MODE_ID) &&
           typeof window !== 'undefined' &&
           window.api?.yachiyo?.setThreadToolMode
         ) {
           void window.api.yachiyo
             .setThreadToolMode({
               threadId: reusableThread.id,
-              enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-              runMode: DEFAULT_RUN_MODE_ID
+              enabledTools: defaultTools,
+              runMode: defaultMode
             })
             .then((updatedThread) => {
               set((state) => ({ threads: upsertThread(state.threads, updatedThread) }))
@@ -277,13 +283,16 @@ export function createThreadLifecycleActions(input: {
         return
       }
 
+      const defaultMode = normalizeRunModeId(currentState.config?.chat?.defaultRunMode)
       const createThreadInput = {
+        ...(defaultMode !== DEFAULT_RUN_MODE_ID ? { runMode: defaultMode } : {}),
         ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
         ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
       }
       const thread = await window.api.yachiyo.createThread(
         Object.keys(createThreadInput).length > 0 ? createThreadInput : undefined
       )
+      if (defaultMode !== DEFAULT_RUN_MODE_ID) thread.runMode = defaultMode
       set((state) => {
         const nextState = {
           ...state,
@@ -323,8 +332,10 @@ export function createThreadLifecycleActions(input: {
         return {
           ...nextState,
           ...deriveActiveThreadRunState(nextState),
-          enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-          runMode: DEFAULT_RUN_MODE_ID
+          enabledTools: resolveRunModeEnabledTools(
+            normalizeRunModeId(state.config?.chat?.defaultRunMode)
+          ),
+          runMode: normalizeRunModeId(state.config?.chat?.defaultRunMode)
         }
       })
       await refreshAvailableSkills(set, get)
@@ -359,8 +370,10 @@ export function createThreadLifecycleActions(input: {
             getComposerDraftKey(null),
             undefined
           ),
-          enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-          runMode: DEFAULT_RUN_MODE_ID,
+          enabledTools: resolveRunModeEnabledTools(
+            normalizeRunModeId(state.config?.chat?.defaultRunMode)
+          ),
+          runMode: normalizeRunModeId(state.config?.chat?.defaultRunMode),
           ...withFilterBase(state.sidebarFilter, 'all')
         }
       })

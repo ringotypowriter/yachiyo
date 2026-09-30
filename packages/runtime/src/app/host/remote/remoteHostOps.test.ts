@@ -26,7 +26,8 @@ async function withFakeDesktop(
   fn: (input: {
     server: YachiyoServer
     ops: ReturnType<typeof createRemoteHostOps>
-  }) => Promise<void>
+  }) => Promise<void>,
+  defaultRunMode?: string
 ): Promise<void> {
   const fake = await createFakeDesktopServer({
     chunkDelayMs: 0,
@@ -48,6 +49,9 @@ async function withFakeDesktop(
       'label = "Lab"',
       'workspacePath = "/tmp/lab"',
       'order = 0',
+      '',
+      '[chat]',
+      ...(defaultRunMode ? [`defaultRunMode = "${defaultRunMode}"`] : []),
       '',
       '[general]',
       'themeId = "gobyou"',
@@ -216,4 +220,11 @@ test('archived and unknown threads are not loadable', async () => {
       name: 'RemoteNotFound'
     })
   })
+})
+
+test('new-thread options expose the configured default run mode', async () => {
+  await withFakeDesktop(async ({ ops }) => {
+    const options = await ops['host.remote.listSelectableModels']()
+    assert.equal(options.defaultRunMode, 'code')
+  }, 'code')
 })

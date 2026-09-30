@@ -30,6 +30,7 @@ final class NewThreadViewController: UIViewController {
     private var models: [RemoteSelectableModel] = []
     private var model: RemoteSelectableModel?
     private var runMode = "auto"
+    private var didSelectRunMode = false
     private var privacy = false
     private var cancellables: Set<AnyCancellable> = []
     private var deviceIds: [String] = []
@@ -234,6 +235,8 @@ final class NewThreadViewController: UIViewController {
             essentials = []
             workspaces = []
             models = []
+            didSelectRunMode = false
+            runMode = "auto"
         }
         errorLabel.textColor = .secondaryLabel
         errorLabel.text = String(localized: "Loading options…")
@@ -259,6 +262,7 @@ final class NewThreadViewController: UIViewController {
         }
         if let result = results.1 { self.workspaces = result.workspaces }
         if let result = results.2 {
+            if !didSelectRunMode { runMode = result.defaultRunMode?.rawValue ?? "auto" }
             self.models = result.models
             if model == nil || !self.models.contains(where: { $0 == model }) {
                 model = self.models.first(where: \.isDefault)
@@ -398,6 +402,7 @@ final class NewThreadViewController: UIViewController {
         modeButton.menu = UIMenu(children: ["auto", "code", "explore", "plan", "chat"].map { option in
             UIAction(title: option.capitalized, state: option == runMode ? .on : .off) { [weak self] _ in
                 self?.runMode = option
+                self?.didSelectRunMode = true
                 self?.updateButtons()
             }
         })

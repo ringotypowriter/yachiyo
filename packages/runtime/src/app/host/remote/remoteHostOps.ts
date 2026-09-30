@@ -9,9 +9,11 @@ import {
   type ActiveRunEnterBehavior,
   type MessageRecord,
   type RunRecord,
+  type SelectableRunModeId,
   type SettingsConfig,
   type ThreadRecord
 } from '@yachiyo/shared/protocol'
+import { normalizeRunModeId } from '@yachiyo/shared/toolModes'
 import { isModelImageCapable } from '@yachiyo/shared/providerConfig'
 import { getReasoningSelectorState } from '@yachiyo/shared/reasoningEffort'
 import { REMOTE_THREAD_PAGE_DEFAULT } from '@yachiyo/shared/remote/methods'
@@ -111,7 +113,10 @@ export interface RemoteHostOps {
     byteLength: number
   }
   'host.remote.listRecentWorkspaces'(): { workspaces: RemoteWorkspace[] }
-  'host.remote.listSelectableModels'(): Promise<{ models: RemoteSelectableModel[] }>
+  'host.remote.listSelectableModels'(): Promise<{
+    models: RemoteSelectableModel[]
+    defaultRunMode: SelectableRunModeId
+  }>
   'host.remote.listEssentials'(): Promise<{ essentials: RemoteEssential[] }>
   /** One essential without icon versioning, for starting a thread from it. */
   'host.remote.getEssential'(input: { essentialId: string }): Promise<RemoteEssential | null>
@@ -403,7 +408,10 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     }
   }
 
-  async function listSelectableModels(): Promise<{ models: RemoteSelectableModel[] }> {
+  async function listSelectableModels(): Promise<{
+    models: RemoteSelectableModel[]
+    defaultRunMode: SelectableRunModeId
+  }> {
     const config = await server.getConfig()
     const models: RemoteSelectableModel[] = []
     for (const provider of config.providers) {
@@ -421,7 +429,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
         })
       }
     }
-    return { models }
+    return { models, defaultRunMode: normalizeRunModeId(config.chat?.defaultRunMode) }
   }
 
   async function listEssentials(): Promise<{ essentials: RemoteEssential[] }> {
