@@ -79,7 +79,6 @@ import type {
 } from '@yachiyo/shared/protocol'
 
 const api = {
-  plaintextCredentials: process.argv.includes('--yachiyo-plaintext-credentials'),
   process: {
     versions: {
       electron: process.versions.electron,

@@ -1,14 +1,5 @@
 import log from 'electron-log/main'
-import {
-  app,
-  dialog,
-  screen,
-  shell,
-  BrowserWindow,
-  globalShortcut,
-  ipcMain,
-  nativeTheme
-} from 'electron'
+import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain, nativeTheme } from 'electron'
 import {
   DEFAULT_REMOTE_CONFIG,
   DEFAULT_THEME_APPEARANCE,
@@ -36,14 +27,14 @@ import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
 import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
 import {
   reportDesktopStartupFailure,
+  prepareDesktopCredentialStorage,
   verifyNativeSqliteDependency
 } from './electron/desktopStartup'
 import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
 import {
   createElectronCliProviderCredentialVault,
-  prepareElectronProviderCredentials,
-  isPlaintextProviderCredentialMode
+  prepareElectronProviderCredentials
 } from './security/providerCredentials'
 import {
   buildAuxiliaryWindowOptions,
@@ -145,9 +136,6 @@ function openTranslatorWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      additionalArguments: isPlaintextProviderCredentialMode()
-        ? ['--yachiyo-plaintext-credentials']
-        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -201,9 +189,6 @@ function openJotdownWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      additionalArguments: isPlaintextProviderCredentialMode()
-        ? ['--yachiyo-plaintext-credentials']
-        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -264,9 +249,6 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      additionalArguments: isPlaintextProviderCredentialMode()
-        ? ['--yachiyo-plaintext-credentials']
-        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -336,11 +318,6 @@ async function startDesktop(): Promise<void> {
     return
   }
 
-  if (!(await prepareElectronProviderCredentials(resolveYachiyoSettingsPath(), false))) {
-    app.quit()
-    return
-  }
-
   // The custom protocol must be installed before the renderer starts loading.
   installYachiyoAssetProtocolHandler()
 
@@ -400,7 +377,11 @@ async function startDesktop(): Promise<void> {
   // renderer IPC queues behind this synchronous block, which guarantees every
   // yachiyo:* handler is registered before the first invoke is dispatched.
   createWindow()
-  hydrateProcessEnvFromLoginShell()
+  prepareDesktopCredentialStorage({
+    hydrateEnvironment: hydrateProcessEnvFromLoginShell,
+    resolveSettingsPath: resolveYachiyoSettingsPath,
+    prepareCredentials: prepareElectronProviderCredentials
+  })
   verifyNativeSqliteDependency()
   const proxyHydration = hydrateProxyFromSystemSettings()
   setupCLI()
@@ -537,16 +518,7 @@ void app
   .then(startDesktop)
   .catch((error: unknown) =>
     reportDesktopStartupFailure(error, {
-      platform: process.platform,
-      isPackaged: app.isPackaged,
       logError: (startupError) => console.error('[startup] failed:', startupError),
-      showMessageBox: (options) => {
-        if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-          mainWindowRef.show()
-          return dialog.showMessageBox(mainWindowRef, options)
-        }
-        return dialog.showMessageBox(options)
-      },
       quit: () => app.quit()
     })
   )
