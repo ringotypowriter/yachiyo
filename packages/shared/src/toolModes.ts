@@ -66,7 +66,8 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     id: 'code',
     label: 'Code Mode',
     shortLabel: 'Code',
-    description: 'Prefer shell and REPL; file tools are available through jsRepl, not directly.',
+    description:
+      'Prefer shell and REPL; file tools are available through jsRepl and pyRepl, not directly.',
     enabledTools: CODE_MODE_TOOL_NAMES,
     seasoningKey: 'code',
     iconName: 'Code2'

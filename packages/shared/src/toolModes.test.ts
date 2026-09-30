@@ -19,7 +19,7 @@ test('run mode definitions expose expected tool sets', () => {
   assert.deepEqual(resolveRunModeEnabledTools('chat'), [])
 })
 
-test('Code mode hides direct file tools but keeps them accessible through jsRepl', () => {
+test('Code mode hides direct file tools while keeping shell and REPLs', () => {
   const tools = resolveRunModeEnabledTools('code')
   assert.deepEqual(
     tools,

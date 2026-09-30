@@ -40,7 +40,7 @@ export function createTool(context: AgentToolContext): Tool<BashToolInput, BashT
       'Always provide a `description`: a short, present-tense, user-facing summary of what this command does (e.g. "List files in the current directory", "Run the linter"). It is shown to the user in place of the raw command.\n' +
       'Do not chain follow-up work after a sleep that is longer than or equal to the timeout; the follow-up command cannot run before the timeout fires.\n' +
       (context.runMode === 'code'
-        ? 'In Code Mode, use shell commands for code search and file discovery when useful; with the standard Code preset, read, grep, glob, write, and edit are available inside jsRepl via tool.<name>.'
+        ? 'In Code Mode, use shell commands for code search and file discovery when useful; with the standard Code preset, read, grep, glob, write, and edit are available inside jsRepl or pyRepl via tool.<name> (when available).'
         : 'Do NOT use bash for searching code or finding files — use the `grep` tool (content search) or `glob` tool (file discovery) instead. They are faster, produce structured output, and respect workspace boundaries.'),
     inputSchema: bashToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),

@@ -114,7 +114,7 @@ export function buildDisabledToolsReminderSection(input: {
         : []),
       ...(nestedFileTools
         ? [
-            `Direct read, grep, glob, write, edit tools are hidden; call them through jsRepl as tool.<name> instead.`
+            `Direct read, grep, glob, write, edit tools are hidden; call them through jsRepl or pyRepl as tool.<name> instead (when available).`
           ]
         : [])
     ]

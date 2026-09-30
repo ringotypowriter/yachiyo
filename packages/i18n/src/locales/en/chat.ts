@@ -17,7 +17,8 @@ export const chat = {
     code: {
       label: 'Code Mode',
       shortLabel: 'Code',
-      description: 'Prefer shell and REPL; file tools are available through jsRepl, not directly.'
+      description:
+        'Prefer shell and REPL; file tools are available through jsRepl and pyRepl, not directly.'
     },
     explore: {
       label: 'Explore Mode',

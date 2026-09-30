@@ -17,7 +17,7 @@ export const chat = {
     code: {
       label: '代码模式',
       shortLabel: '代码',
-      description: '优先使用 Shell 和 REPL；文件工具仅可通过 jsRepl 调用。'
+      description: '优先使用 Shell 和 REPL；文件工具仅可通过 jsRepl 和 pyRepl 调用。'
     },
     explore: {
       label: '探索模式',

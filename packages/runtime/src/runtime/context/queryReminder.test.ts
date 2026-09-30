@@ -136,13 +136,13 @@ test('buildDisabledToolsReminderSection lists tools unavailable in the current m
   }
 })
 
-test('Code mode reminds the model that file tools remain available inside jsRepl', () => {
+test('Code mode reminds the model that file tools remain available through REPLs', () => {
   const section = buildDisabledToolsReminderSection({
     runMode: 'code',
     enabledTools: resolveRunModeEnabledTools('code')
   })
   assert.ok(section)
-  assert.match(section.lines.join('\n'), /read, grep, glob, write, edit.*jsRepl/)
+  assert.match(section.lines.join('\n'), /read, grep, glob, write, edit.*jsRepl or pyRepl/)
   assert.doesNotMatch(section.lines.join('\n'), /unavailable.*read, grep, glob, write, edit/)
   const changed = buildRunModeChangedReminderSection({
     previousRunMode: 'auto',

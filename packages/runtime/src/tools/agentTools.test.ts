@@ -509,7 +509,7 @@ test('createAgentToolSet exposes sendThreadMessage only when local delivery is a
   assert.equal(result?.error, undefined)
 })
 
-test('Code mode exposes file tools only through jsRepl', async () => {
+test('Code mode exposes file tools through jsRepl but not as direct schemas', async () => {
   await withWorkspace(async (workspacePath) => {
     await writeFile(join(workspacePath, 'notes.txt'), 'hello code mode', 'utf8')
     const tools = createAgentToolSet(
@@ -544,6 +544,78 @@ return JSON.stringify(results)`
       assert.equal(await readFile(join(workspacePath, 'new.txt'), 'utf8'), 'after')
     } finally {
       await repl.dispose()
+    }
+  })
+})
+
+test('Code mode also exposes nested file tools to pyRepl', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const runtimeRoot = join(workspacePath, 'python-runtime')
+    await mkdir(runtimeRoot, { recursive: true })
+    const seen: string[] = []
+    const tools = createAgentToolSet(
+      { workspacePath, runMode: 'code', enabledTools: resolveRunModeEnabledTools('code') },
+      {
+        searchService: createSearchService(),
+        pyReplDependencies: {
+          ensureRuntime: async () => ({
+            kind: 'managed',
+            rootPath: runtimeRoot,
+            pythonPath: join(runtimeRoot, 'python'),
+            uvPath: join(runtimeRoot, 'uv'),
+            environmentPath: join(runtimeRoot, 'environment'),
+            env: {},
+            version: '3.12.14' as const,
+            acquireProcessLease: async () => async () => {},
+            release: async () => {}
+          }),
+          createKernel: (() =>
+            ({
+              execute: async (call: {
+                availableTools: readonly string[]
+                resolveTool(name: string): unknown
+              }) => {
+                for (const name of ['read', 'grep', 'glob', 'write', 'edit']) {
+                  assert.ok(call.availableTools.includes(name))
+                  assert.ok(call.resolveTool(name))
+                  seen.push(name)
+                }
+                return {
+                  events: [{ type: 'result', bundle: { 'text/plain': 'python-tools-ready' } }],
+                  status: 'ok',
+                  cancelled: false,
+                  timedOut: false,
+                  contextReset: false
+                }
+              },
+              dispose: async () => {}
+            }) as never) as NonNullable<
+            NonNullable<Parameters<typeof createAgentToolSet>[1]>['pyReplDependencies']
+          >['createKernel']
+        }
+      }
+    )
+    assert.ok(tools?.pyRepl)
+    const repl = tools.pyRepl as unknown as {
+      execute(
+        input: { code: string },
+        options: {
+          toolCallId: string
+          messages: []
+          abortSignal: AbortSignal
+        }
+      ): Promise<{ details: { result?: string }; error?: string }>
+    }
+    try {
+      const result = await repl.execute(
+        { code: "tool.read({'path': 'notes.txt'})" },
+        { toolCallId: 'code-py-repl', messages: [], abortSignal: new AbortController().signal }
+      )
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, 'python-tools-ready')
+      assert.deepEqual(seen, ['read', 'grep', 'glob', 'write', 'edit'])
+    } finally {
+      await disposeAgentToolSet(tools)
     }
   })
 })
