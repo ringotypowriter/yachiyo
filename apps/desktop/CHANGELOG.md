@@ -1,5 +1,17 @@
 # @yachiyo/desktop
 
+## 1.7.2
+
+### Patch Changes
+
+- [#74](https://github.com/ringotypowriter/yachiyo/pull/74) [`80bf074`](https://github.com/ringotypowriter/yachiyo/commit/80bf074debd5cd5e5de77e5a0ff2d87b005f5b48) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Restore the existing desktop interface by removing Linux-specific Remote controls, credential banners, and added startup dialogs. Keep the backend Linux fixes and explicit plaintext credential startup flags, with actionable diagnostics in the application log.
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.7.2
+  - @yachiyo/runtime@1.7.2
+  - @yachiyo/shared@1.7.2
+  - @yachiyo/core-skills@1.7.2
+
 ## 1.7.1
 
 ### Patch Changes
