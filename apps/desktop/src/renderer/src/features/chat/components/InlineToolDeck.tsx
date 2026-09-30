@@ -172,6 +172,7 @@ export function InlineToolDeck({
   const summary = buildToolCallRowSummary(displayedSummaryToolCall, workspacePath)
   const summaryIsFailed = displayedSummaryToolCall.status === 'failed'
   const iconStackOverlap = getToolIconStackOverlap(displayedToolCalls.length)
+  const deckIconNames = [...new Set(displayedToolCalls.map((call) => call.toolName))].slice(0, 2)
 
   return (
     <div ref={deckRef} className="px-6 py-1" data-tool-deck>
@@ -188,17 +189,21 @@ export function InlineToolDeck({
           }}
         >
           <span
-            data-tool-deck-label
-            className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.05em]"
+            data-tool-deck-icons
+            className="flex shrink-0 items-center gap-1"
             style={{
               color: displayedToolCalls.some((call) => call.status === 'failed')
                 ? theme.text.danger
                 : displayedToolCalls.some(isForegroundToolCall)
                   ? theme.text.accent
-                  : theme.text.secondary
+                  : theme.text.muted
             }}
+            aria-hidden="true"
           >
-            Work
+            {deckIconNames.map((toolName) => {
+              const Icon = getToolCallIcon(toolName)
+              return <Icon key={toolName} size={13} strokeWidth={1.8} />
+            })}
           </span>
           <span className="min-w-0 truncate text-xs leading-5">{deckSummary}</span>
           <ChevronDown
