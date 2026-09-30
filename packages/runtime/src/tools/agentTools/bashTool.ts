@@ -385,7 +385,10 @@ export async function* streamBashTool(
   const description = input.description.trim()
   const timeoutSeconds = input.timeout ?? DEFAULT_BASH_TIMEOUT_SECONDS
 
-  const securityCheck = validateBashCommand(command)
+  const securityCheck = validateBashCommand(
+    command,
+    context.runMode === 'code' ? 'code' : undefined
+  )
 
   // Plan Mode: bash is restricted to read-only commands (search, read).
   if (context.runMode === 'plan') {
@@ -487,7 +490,8 @@ export async function* streamBashTool(
     return
   }
 
-  const sleepTimeoutBlockMessage = getChainedSleepTimeoutBlockMessage(command, timeoutSeconds)
+  const sleepTimeoutBlockMessage =
+    context.runMode === 'code' ? null : getChainedSleepTimeoutBlockMessage(command, timeoutSeconds)
   if (sleepTimeoutBlockMessage) {
     queue.push(
       createBashResult({
