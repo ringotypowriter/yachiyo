@@ -193,6 +193,25 @@ test('text deltas are merged per message and flushed before the next ordered eve
   hub.stop()
 })
 
+test('summary-only tool refresh forwards the deck heading without a new text boundary', async () => {
+  const { hub, source } = createHub()
+  const { pushes, subscription } = collect(hub, ['t1'])
+  await subscribe(subscription)
+  source.emit({ type: 'message.started', threadId: 't1', runId: 'r1', messageId: 'm1' })
+  source.emit(toolUpdate('tool-1', 'completed'))
+  const refreshed = toolUpdate('tool-1', 'completed')
+  refreshed.summaryOnly = true
+  ;(refreshed.toolCall as Record<string, unknown>).deckSummary = 'Reading files'
+  source.emit(refreshed)
+  source.emit(delta('m1', 'Answer'))
+  hub.flush()
+  const toolEvents = events(pushes).filter((event) => event.type === 'tool.updated')
+  assert.equal(toolEvents.length, 2)
+  assert.equal(toolEvents[1]?.summaryOnly, true)
+  assert.equal((toolEvents[1]?.toolCall as { deckSummary?: string }).deckSummary, 'Reading files')
+  hub.stop()
+})
+
 test('running tool output is coalesced per call, deduplicated, and ordered before transitions', async () => {
   const { hub, source } = createHub()
   const { pushes, subscription } = collect(hub, ['t1'])

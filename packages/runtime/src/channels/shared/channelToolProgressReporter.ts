@@ -222,7 +222,7 @@ export function createToolProgressReporter(
   const unsubscribe = subscribe((event: YachiyoServerEvent) => {
     if (stopped) return
     if (!('threadId' in event) || event.threadId !== threadId) return
-    if (event.type !== 'tool.updated') return
+    if (event.type !== 'tool.updated' || event.summaryOnly) return
     if (!('runId' in event) || event.runId !== runId) return
 
     const toolCall = (

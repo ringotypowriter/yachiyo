@@ -71,7 +71,9 @@ final class ToolHintView: MessageListRowView {
     var onSelect: ((String?) -> Void)?
     var onDetails: ((String) -> Void)?
     var onToggleAll: (() -> Void)?
+    var onToggleSummary: (() -> Void)?
     private var showsAll = false
+    private var isSummaryExpanded = false
     private var callButtons: [CallButton] = []
     private var overflowAppearance: (showsAll: Bool, hiddenCount: Int)?
 
@@ -185,8 +187,10 @@ final class ToolHintView: MessageListRowView {
         }
     }
 
-    static func height(width: CGFloat, callCount: Int, isExpanded: Bool, showsAll: Bool = false) -> CGFloat {
-        IconLayout(width: width, callCount: callCount, isExpanded: isExpanded, showsAll: showsAll).height + summaryHeight
+    static func height(width: CGFloat, callCount: Int, isExpanded: Bool, showsAll: Bool = false,
+                       hasDeckSummary: Bool = false, isSummaryExpanded: Bool = false) -> CGFloat {
+        if hasDeckSummary && !isSummaryExpanded && !isExpanded { return summaryHeight }
+        return IconLayout(width: width, callCount: callCount, isExpanded: isExpanded, showsAll: showsAll).height + summaryHeight
     }
 
     override init(frame: CGRect) {
@@ -209,7 +213,8 @@ final class ToolHintView: MessageListRowView {
         summaryButton.contentHorizontalAlignment = .leading
         summaryButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
-            onSelect?(selectedID == nil ? Self.summaryCall(in: calls)?.id : nil)
+            if calls.first?.deckSummary != nil { onToggleSummary?() }
+            else { onSelect?(selectedID == nil ? Self.summaryCall(in: calls)?.id : nil) }
         }, for: .touchUpInside)
         detailButton.configuration = Self.detailConfiguration
         detailButton.addAction(UIAction { [weak self] _ in
@@ -218,10 +223,15 @@ final class ToolHintView: MessageListRowView {
         }, for: .touchUpInside)
     }
 
-    func configure(calls: [ToolCallContentPart], selectedID: String?, showsAll: Bool = false) {
+    func configure(calls: [ToolCallContentPart], selectedID: String?, showsAll: Bool = false,
+                   isSummaryExpanded: Bool = false) {
         self.calls = calls
         self.selectedID = selectedID
         self.showsAll = showsAll
+        self.isSummaryExpanded = isSummaryExpanded || selectedID != nil
+        let hasDeckSummary = calls.first?.deckSummary != nil
+        let hidesIcons = hasDeckSummary && !self.isSummaryExpanded
+        iconContainer.isHidden = hidesIcons
         summaryButton.accessibilityIdentifier = calls.first.map { "toolDeck.summary.\($0.id)" }
         detailButton.accessibilityIdentifier = calls.first.map { "toolDeck.details.\($0.id)" }
         let selected = calls.first(where: { $0.id == selectedID })
@@ -231,18 +241,18 @@ final class ToolHintView: MessageListRowView {
             let title = call.parameters.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
             return title.isEmpty || title == "{}" ? call.toolName : title
         }
-        summaryButton.summaryLabel.text = title
+        summaryButton.summaryLabel.text = calls.first?.deckSummary ?? title
         summaryButton.summaryLabel.font = UIFont.preferredFont(forTextStyle: .footnote)
         summaryButton.summaryLabel.textColor = displayed?.state == .failed ? .systemRed : .label
         summaryButton.summaryLabel.accessibilityIdentifier = "toolDeck.summaryText"
-        summaryButton.chevron.image = UIImage(systemName: selected == nil ? "chevron.down" : "chevron.up")
+        summaryButton.chevron.image = UIImage(systemName: (hasDeckSummary ? self.isSummaryExpanded : selected != nil) ? "chevron.up" : "chevron.down")
         summaryButton.chevron.tintColor = summaryButton.summaryLabel.textColor
         summaryButton.chevron.accessibilityIdentifier = "toolDeck.summaryChevron"
         summaryButton.setNeedsLayout()
         let importantCalls = calls.filter { $0.id != displayed?.id && $0.state != .succeeded }
-        summaryButton.accessibilityLabel = ([title, displayed.map { statusText(for: $0) }]
+        summaryButton.accessibilityLabel = ([calls.first?.deckSummary ?? title, displayed.map { statusText(for: $0) }]
             .compactMap { $0 } + importantCalls.map { statusText(for: $0) }).joined(separator: ". ")
-        summaryButton.accessibilityValue = selected == nil ? String(localized: "Collapsed") : String(localized: "Expanded")
+        summaryButton.accessibilityValue = (hasDeckSummary ? self.isSummaryExpanded : selected != nil) ? String(localized: "Expanded") : String(localized: "Collapsed")
         let isRunning = calls.contains { $0.state == .running }
         let hasFailure = calls.contains { $0.state == .failed }
         if isRunning && !UIAccessibility.isReduceMotionEnabled {
@@ -257,7 +267,7 @@ final class ToolHintView: MessageListRowView {
         stateImageView.accessibilityIdentifier = calls.first.map { "toolDeck.status.\($0.id)" }
         activityIndicator.accessibilityIdentifier = calls.first.map { "toolDeck.activity.\($0.id)" }
         runningImageView.accessibilityIdentifier = calls.first.map { "toolDeck.running.\($0.id)" }
-        detailButton.isHidden = selected == nil
+        detailButton.isHidden = selected == nil || hidesIcons
         detailButton.isEnabled = selected?.state != .running
         detailButton.accessibilityLabel = String(localized: "Details")
         // Buttons exist right after configure (hit-testing, accessibility), sized for the current
@@ -271,6 +281,7 @@ final class ToolHintView: MessageListRowView {
         onSelect = nil
         onDetails = nil
         onToggleAll = nil
+        onToggleSummary = nil
         activityIndicator.stopAnimating()
     }
 
@@ -283,12 +294,12 @@ final class ToolHintView: MessageListRowView {
     }
 
     private func currentIconLayout() -> IconLayout {
-        IconLayout(width: contentView.bounds.width, callCount: calls.count, isExpanded: !detailButton.isHidden, showsAll: showsAll)
+        IconLayout(width: contentView.bounds.width, callCount: calls.count, isExpanded: selectedID != nil, showsAll: showsAll)
     }
 
     /// The visible calls are the most recent ones; earlier calls sit behind the overflow button.
     private func syncCallButtons(layout: IconLayout) {
-        let visibleCalls = calls.suffix(layout.visibleCallCount)
+        let visibleCalls = iconContainer.isHidden ? calls.suffix(0) : calls.suffix(layout.visibleCallCount)
         while callButtons.count < visibleCalls.count {
             let button = CallButton(type: .system)
             button.addAction(UIAction { [weak self, weak button] _ in
@@ -352,6 +363,7 @@ final class ToolHintView: MessageListRowView {
     override func layoutContent() {
         let width = contentView.bounds.width
         let layout = currentIconLayout()
+        let iconHeight: CGFloat = iconContainer.isHidden ? 0 : layout.height
         let summaryHeight = Self.summaryHeight
         iconContainer.frame = CGRect(x: 0, y: 0, width: width, height: layout.iconHeight)
         syncCallButtons(layout: layout)
@@ -361,7 +373,7 @@ final class ToolHintView: MessageListRowView {
             button.frame = CGRect(x: CGFloat(position % layout.columns) * 44,
                                   y: CGFloat(position / layout.columns) * 44, width: 44, height: 44)
         }
-        overflowButton.isHidden = !layout.hasOverflow
+        overflowButton.isHidden = iconContainer.isHidden || !layout.hasOverflow
         if layout.hasOverflow {
             updateOverflowButton(hiddenCount: calls.count - layout.visibleCallCount)
             let position = showsAll ? calls.count : 0
@@ -370,10 +382,10 @@ final class ToolHintView: MessageListRowView {
         }
         detailButton.frame = layout.detailFrame
         let showsBothStates = calls.contains { $0.state == .running } && calls.contains { $0.state == .failed }
-        activityIndicator.frame = CGRect(x: 0, y: layout.height + (summaryHeight - 20) / 2, width: 20, height: 20)
+        activityIndicator.frame = CGRect(x: 0, y: iconHeight + (summaryHeight - 20) / 2, width: 20, height: 20)
         runningImageView.frame = activityIndicator.frame.insetBy(dx: 2, dy: 2)
         stateImageView.frame = activityIndicator.frame.offsetBy(dx: showsBothStates ? 20 : 0, dy: 0).insetBy(dx: 2, dy: 2)
         let summaryX: CGFloat = showsBothStates ? 48 : 28
-        summaryButton.frame = CGRect(x: summaryX, y: layout.height, width: max(0, width - summaryX), height: summaryHeight)
+        summaryButton.frame = CGRect(x: summaryX, y: iconHeight, width: max(0, width - summaryX), height: summaryHeight)
     }
 }

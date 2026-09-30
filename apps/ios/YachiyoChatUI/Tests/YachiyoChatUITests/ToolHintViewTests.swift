@@ -4,6 +4,82 @@ import XCTest
 
 @MainActor
 final class ToolHintViewTests: XCTestCase {
+    func testArrivingSummaryKeepsAnAlreadySelectedToolVisible() throws {
+        let call = ToolCallContentPart(id: "read", toolName: "read", parameters: "Read notes", state: .succeeded)
+        let deck = ToolHintView()
+        deck.configure(calls: [call], selectedID: call.id)
+        let summaryCall = ToolCallContentPart(id: "read", toolName: "read", parameters: "Read notes", state: .succeeded,
+                                              deckSummary: "Reading the project notes")
+        deck.configure(calls: [summaryCall], selectedID: call.id)
+        XCTAssertEqual(ToolHintView.height(width: 320, callCount: 1, isExpanded: true, hasDeckSummary: true),
+                       ToolHintView.height(width: 320, callCount: 1, isExpanded: true))
+        XCTAssertFalse(try XCTUnwrap(view("toolDeck.call.read", in: deck)).isHidden)
+        XCTAssertEqual(try XCTUnwrap(view("toolDeck.summary.read", in: deck)).accessibilityValue, "Expanded")
+    }
+
+    func testAISummaryStartsCollapsedAndExpansionKeepsIconsAndDetailsAvailable() throws {
+        let first = ToolCallContentPart(id: "first", toolName: "read", parameters: "Read notes", state: .succeeded,
+                                        deckSummary: "Checking the project before making changes")
+        let second = ToolCallContentPart(id: "second", toolName: "bash", parameters: "Run tests", state: .succeeded)
+        let message = ConversationMessage(conversationID: "thread", role: .assistant)
+        message.parts = [.toolCall(first), .toolCall(second)]
+        let list = MessageListView()
+        let deck = ToolHintView()
+        deck.frame = CGRect(x: 0, y: 0, width: 320, height: ToolHintView.height(width: 320 - MessageListView.listRowInsets.horizontal,
+                                                                                 callCount: 2, isExpanded: false, hasDeckSummary: true))
+        deck.onToggleSummary = {
+            let id = "\(message.id)-first"
+            if list.expandedSummaryDecks.contains(id) || list.selectedToolCalls[id] != nil {
+                list.expandedSummaryDecks.remove(id)
+                list.selectedToolCalls[id] = nil
+            } else {
+                list.expandedSummaryDecks.insert(id)
+            }
+        }
+        deck.onSelect = { list.selectedToolCalls["\(message.id)-first"] = $0 }
+        func render() throws {
+            let entries = list.entries(from: [message])
+            guard let entry = entries.first(where: { if case .toolCallHint = $0 { return true }; return false }),
+                  case let .toolCallHint(_, calls, selectedID, showsAll) = entry else {
+                return XCTFail("Expected tool deck")
+            }
+            deck.frame.size.height = ToolHintView.height(width: 320 - MessageListView.listRowInsets.horizontal,
+                                                         callCount: calls.count, isExpanded: selectedID != nil,
+                                                         showsAll: showsAll, hasDeckSummary: true,
+                                                         isSummaryExpanded: list.expandedSummaryDecks.contains("\(message.id)-first"))
+            deck.configure(calls: calls, selectedID: selectedID, showsAll: showsAll,
+                           isSummaryExpanded: list.expandedSummaryDecks.contains("\(message.id)-first"))
+            deck.layoutIfNeeded()
+        }
+        try render()
+        let summary = try XCTUnwrap(view("toolDeck.summary.first", in: deck) as? UIButton)
+        XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text,
+                       "Checking the project before making changes")
+        XCTAssertTrue(view("toolDeck.call.second", in: deck)?.isHidden ?? true)
+        XCTAssertEqual(summary.accessibilityValue, "Collapsed")
+
+        summary.sendActions(for: .touchUpInside)
+        try render()
+        let icon = try XCTUnwrap(view("toolDeck.call.second", in: deck) as? UIButton)
+        XCTAssertFalse(icon.isHidden)
+        XCTAssertEqual(icon.frame.size, CGSize(width: 44, height: 44))
+        icon.sendActions(for: .touchUpInside)
+        try render()
+        let details = try XCTUnwrap(view("toolDeck.details.first", in: deck) as? UIButton)
+        XCTAssertFalse(details.isHidden)
+        XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text,
+                       "Checking the project before making changes")
+        // A live message replacement retains the stable deck identity and manual expansion.
+        message.parts = [.toolCall(first), .toolCall(ToolCallContentPart(id: "second", toolName: "bash", state: .running))]
+        try render()
+        XCTAssertFalse(icon.isHidden)
+        XCTAssertEqual(summary.accessibilityValue, "Expanded")
+        summary.sendActions(for: .touchUpInside)
+        try render()
+        XCTAssertTrue(icon.isHidden)
+        XCTAssertTrue(details.isHidden)
+    }
+
     func testGroupedDeckSelectsAndRoutesDetailsWithoutAddingAPreviewPanel() throws {
         let first = ToolCallContentPart(id: "first", toolName: "read", parameters: "Read the project notes", state: .succeeded)
         let second = ToolCallContentPart(id: "second", toolName: "bash", parameters: "Run the tests", state: .succeeded)
@@ -12,7 +88,8 @@ final class ToolHintViewTests: XCTestCase {
         let list = MessageListView()
         let deck = ToolHintView()
         deck.frame = CGRect(x: 0, y: 0, width: 320, height: ToolHintView.height(width: 320 - MessageListView.listRowInsets.horizontal, callCount: 2, isExpanded: false))
-        deck.onSelect = { list.selectedToolCalls[message.id] = $0 }
+        let deckID = "\(message.id)-\(first.id)"
+        deck.onSelect = { list.selectedToolCalls[deckID] = $0 }
         var detailID: String?
         deck.onDetails = { detailID = $0 }
 
@@ -36,7 +113,7 @@ final class ToolHintViewTests: XCTestCase {
         XCTAssertTrue(details.isHidden)
         summary.sendActions(for: .touchUpInside)
         try render()
-        XCTAssertEqual(list.selectedToolCalls[message.id], second.id)
+        XCTAssertEqual(list.selectedToolCalls[deckID], second.id)
         XCTAssertFalse(details.isHidden)
         XCTAssertGreaterThanOrEqual(details.bounds.height, 44)
         XCTAssertGreaterThanOrEqual(summary.bounds.height, 44)
@@ -45,14 +122,14 @@ final class ToolHintViewTests: XCTestCase {
         let firstButton = try XCTUnwrap(view("toolDeck.call.first", in: deck) as? UIButton)
         firstButton.sendActions(for: .touchUpInside)
         try render()
-        XCTAssertEqual(list.selectedToolCalls[message.id], first.id)
+        XCTAssertEqual(list.selectedToolCalls[deckID], first.id)
         XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text, "Read the project notes")
         XCTAssertEqual(labels(in: deck).filter { $0.text == first.parameters }.count, 1)
         details.sendActions(for: .touchUpInside)
         XCTAssertEqual(detailID, first.id)
         summary.sendActions(for: .touchUpInside)
         try render()
-        XCTAssertNil(list.selectedToolCalls[message.id])
+        XCTAssertNil(list.selectedToolCalls[deckID])
         XCTAssertTrue(details.isHidden)
         XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text, "Run the tests")
     }

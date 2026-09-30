@@ -1050,11 +1050,12 @@ public struct RemoteEvent: Codable, Equatable, Sendable {
     public let delta: String?
     public let message: RemoteMessage?
     public let queuedFollowUps: [RemoteMessage]?
+    public let summaryOnly: Bool?
     public let toolCall: RemoteToolCall?
     public let items: [RemoteTodoItem]?
     public let attempt, maxAttempts: Int?
 
-    public init(summary: RemoteThreadSummary?, threadId: String?, type: RemoteEventType, reason: RemoteEventReason?, error: String?, runId: String?, status: RemoteRunStatus?, appearance: RemoteAppearance?, messageId: String?, parentMessageId: String?, delta: String?, message: RemoteMessage?, queuedFollowUps: [RemoteMessage]?, toolCall: RemoteToolCall?, items: [RemoteTodoItem]?, attempt: Int?, maxAttempts: Int?) {
+    public init(summary: RemoteThreadSummary?, threadId: String?, type: RemoteEventType, reason: RemoteEventReason?, error: String?, runId: String?, status: RemoteRunStatus?, appearance: RemoteAppearance?, messageId: String?, parentMessageId: String?, delta: String?, message: RemoteMessage?, queuedFollowUps: [RemoteMessage]?, summaryOnly: Bool?, toolCall: RemoteToolCall?, items: [RemoteTodoItem]?, attempt: Int?, maxAttempts: Int?) {
         self.summary = summary
         self.threadId = threadId
         self.type = type
@@ -1068,6 +1069,7 @@ public struct RemoteEvent: Codable, Equatable, Sendable {
         self.delta = delta
         self.message = message
         self.queuedFollowUps = queuedFollowUps
+        self.summaryOnly = summaryOnly
         self.toolCall = toolCall
         self.items = items
         self.attempt = attempt
@@ -1113,7 +1115,7 @@ public enum RemoteEventReason: String, Codable, Equatable, Sendable {
 // MARK: - RemoteToolCall
 public struct RemoteToolCall: Codable, Equatable, Sendable {
     public let assistantMessageId: String?
-    public let error: String?
+    public let deckSummary, error: String?
     public let finishedAt: String?
     public let hasPreview: Bool?
     public let id: String
@@ -1125,8 +1127,9 @@ public struct RemoteToolCall: Codable, Equatable, Sendable {
     public let title, toolName: String
     public let truncated: Bool
 
-    public init(assistantMessageId: String?, error: String?, finishedAt: String?, hasPreview: Bool?, id: String, inputPreview: String?, outputPreview: String?, question: RemoteToolQuestion?, requestMessageId: String?, runId: String?, startedAt: String, status: RemoteToolCallStatus, title: String, toolName: String, truncated: Bool) {
+    public init(assistantMessageId: String?, deckSummary: String?, error: String?, finishedAt: String?, hasPreview: Bool?, id: String, inputPreview: String?, outputPreview: String?, question: RemoteToolQuestion?, requestMessageId: String?, runId: String?, startedAt: String, status: RemoteToolCallStatus, title: String, toolName: String, truncated: Bool) {
         self.assistantMessageId = assistantMessageId
+        self.deckSummary = deckSummary
         self.error = error
         self.finishedAt = finishedAt
         self.hasPreview = hasPreview

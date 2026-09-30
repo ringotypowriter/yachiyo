@@ -1,0 +1,1 @@
+ALTER TABLE `tool_calls` ADD `deck_summary` text;

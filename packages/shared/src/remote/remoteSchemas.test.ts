@@ -5,7 +5,7 @@ import type { MessageRecord } from '../protocol.ts'
 
 import { remoteEventSchema, remotePushSchema } from './events.ts'
 import { buildRemoteProtocolJsonSchema } from './jsonSchema.ts'
-import { projectMessage } from './project.ts'
+import { projectMessage, projectToolCall } from './project.ts'
 import { mailboxPlaintextSchema } from './mailbox.ts'
 import { REMOTE_METHOD_NAMES, remoteMethods } from './methods.ts'
 import {
@@ -69,6 +69,29 @@ const message: RemoteMessage = {
   siblingIds: ['message-0', 'message-1'],
   isPlanDocument: false
 }
+
+test('tool deck summary survives projection and a summary-only remote event', () => {
+  const toolCall = projectToolCall({
+    id: 'tool-1',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolName: 'read',
+    status: 'completed',
+    inputSummary: '/tmp/a',
+    deckSummary: 'Reading files',
+    startedAt: '2026-09-22T12:00:00.000Z'
+  })
+  assert.equal(toolCall.deckSummary, 'Reading files')
+  const event = remoteEventSchema.parse({
+    type: 'tool.updated',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    summaryOnly: true,
+    toolCall
+  })
+  assert.equal(event.type === 'tool.updated' && event.summaryOnly, true)
+  assert.equal(event.type === 'tool.updated' && event.toolCall.deckSummary, 'Reading files')
+})
 
 test('remote message preserves assistant text blocks across a JSON round trip', () => {
   const blocks = [

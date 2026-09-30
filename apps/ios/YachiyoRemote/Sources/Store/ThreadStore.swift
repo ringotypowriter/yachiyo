@@ -451,9 +451,9 @@ final class ThreadStore: ChatMessageSource {
             rebuild(scrolling: true)
         case .toolUpdated:
             guard let toolCall = event.toolCall else { return }
-            observeRun(event.runId ?? toolCall.runId, responding: true)
+            if event.summaryOnly != true { observeRun(event.runId ?? toolCall.runId, responding: true) }
             if liveToolCalls[toolCall.id] != toolCall {
-                if liveToolCalls[toolCall.id] == nil,
+                if event.summaryOnly != true, liveToolCalls[toolCall.id] == nil,
                    let messageId = toolCall.assistantMessageId ?? streamingOrder.last,
                    streamingText[messageId] != nil,
                    !(streamingContentOrder[messageId]?.contains(toolCall.id) ?? false) {
@@ -461,7 +461,7 @@ final class ThreadStore: ChatMessageSource {
                     nextStreamingBlock.insert(messageId)
                 }
                 liveToolCalls[toolCall.id] = toolCall
-                scheduleDeltaRebuild()
+                scheduleDeltaRebuild(scrolling: event.summaryOnly != true)
             }
         case .runStatus:
             guard let runId = event.runId, let status = event.status else { return }
@@ -698,7 +698,8 @@ final class ThreadStore: ChatMessageSource {
                     id: call.id,
                     toolName: call.toolName,
                     parameters: call.title,
-                    state: call.status == .failed ? .failed : (call.status == .completed ? .succeeded : .running)
+                    state: call.status == .failed ? .failed : (call.status == .completed ? .succeeded : .running),
+                    deckSummary: call.deckSummary
                 )))
             }
         }
@@ -1172,7 +1173,8 @@ extension RemoteThreadDetail {
 extension RemoteToolCall {
     func answered(_ answer: String) -> RemoteToolCall {
         RemoteToolCall(
-            assistantMessageId: assistantMessageId, error: error, finishedAt: finishedAt, hasPreview: hasPreview, id: id,
+            assistantMessageId: assistantMessageId, deckSummary: deckSummary,
+            error: error, finishedAt: finishedAt, hasPreview: hasPreview, id: id,
             inputPreview: inputPreview, outputPreview: outputPreview,
             question: question.map { RemoteToolQuestion(answer: answer, choices: $0.choices, question: $0.question) },
             requestMessageId: requestMessageId, runId: runId, startedAt: startedAt, status: .running,

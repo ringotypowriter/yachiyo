@@ -498,6 +498,13 @@
       "when": 1788593919343,
       "tag": "0070_easy_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1790756209522,
+      "tag": "0071_lethal_mojo",
+      "breakpoints": true
     }
   ]
 }

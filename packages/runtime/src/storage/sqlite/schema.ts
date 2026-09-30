@@ -333,6 +333,7 @@ export const toolCallsTable = sqliteTable(
     status: text('status').$type<ToolCallRecord['status']>().notNull(),
     inputSummary: text('input_summary').notNull(),
     outputSummary: text('output_summary'),
+    deckSummary: text('deck_summary'),
     cwd: text('cwd'),
     error: text('error'),
     details: text('details'),

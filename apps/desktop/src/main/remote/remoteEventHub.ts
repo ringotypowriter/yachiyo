@@ -786,6 +786,7 @@ export class RemoteEventHub {
       type: 'tool.updated',
       threadId: event.threadId,
       ...(event.runId ? { runId: event.runId } : {}),
+      ...(event.summaryOnly ? { summaryOnly: true } : {}),
       toolCall: projectToolCall(event.toolCall)
     }
     const json = JSON.stringify(remote)

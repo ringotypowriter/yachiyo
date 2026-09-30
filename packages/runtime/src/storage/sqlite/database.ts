@@ -1316,6 +1316,7 @@ export function createSqliteYachiyoStorage(
         db
           .select({
             assistantMessageId: toolCallsTable.assistantMessageId,
+            deckSummary: toolCallsTable.deckSummary,
             cwd: toolCallsTable.cwd,
             details: toolCallsTable.details,
             error: toolCallsTable.error,
@@ -1357,6 +1358,7 @@ export function createSqliteYachiyoStorage(
     createToolCall(toolCall) {
       db.insert(toolCallsTable)
         .values({
+          deckSummary: toolCall.deckSummary ?? null,
           assistantMessageId: toolCall.assistantMessageId ?? null,
           cwd: toolCall.cwd ?? null,
           details: serializeToolCallDetails(toolCall.details),
@@ -1376,10 +1378,10 @@ export function createSqliteYachiyoStorage(
         })
         .run()
     },
-
     updateToolCall(toolCall) {
       db.update(toolCallsTable)
         .set({
+          deckSummary: toolCall.deckSummary ?? null,
           assistantMessageId: toolCall.assistantMessageId ?? null,
           cwd: toolCall.cwd ?? null,
           details: serializeToolCallDetails(toolCall.details),

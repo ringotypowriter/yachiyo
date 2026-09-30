@@ -525,6 +525,7 @@ export function collectDirectMessageRunOutput(
       }
 
       if (event.type === 'tool.updated') {
+        if (event.summaryOnly) return
         const toolCall = event.toolCall
         const runId = event.runId ?? toolCall.runId
         if (!runId || !toolCall.id) return

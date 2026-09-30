@@ -31,6 +31,7 @@ public final class MessageListView: UIView {
 
     var selectedToolCalls: [String: String] = [:]
     var expandedToolDecks: Set<String> = []
+    var expandedSummaryDecks: Set<String> = []
     var questionDrafts: [String: String] = [:]
 
     private var entryCount = 0
@@ -61,6 +62,7 @@ public final class MessageListView: UIView {
         didSet {
             selectedToolCalls.removeAll()
             expandedToolDecks.removeAll()
+            expandedSummaryDecks.removeAll()
             questionDrafts.removeAll()
             pendingUpdate = nil
             responseChunkCache.removeAll()

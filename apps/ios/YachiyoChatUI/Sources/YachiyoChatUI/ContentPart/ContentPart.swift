@@ -145,6 +145,8 @@ public struct ToolCallContentPart: Identifiable, Sendable {
     public var toolIcon: String?
     public var parameters: String
     public var state: ToolCallState
+    /// AI summary supplied on the first call of a tool deck, when available.
+    public var deckSummary: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -152,7 +154,8 @@ public struct ToolCallContentPart: Identifiable, Sendable {
         apiName: String = "",
         toolIcon: String? = nil,
         parameters: String = "{}",
-        state: ToolCallState = .running
+        state: ToolCallState = .running,
+        deckSummary: String? = nil
     ) {
         self.id = id
         self.toolName = toolName
@@ -160,6 +163,7 @@ public struct ToolCallContentPart: Identifiable, Sendable {
         self.toolIcon = toolIcon
         self.parameters = parameters
         self.state = state
+        self.deckSummary = deckSummary
     }
 }
 

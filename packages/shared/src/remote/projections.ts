@@ -133,6 +133,7 @@ export const remoteToolCallSchema = z
       'background'
     ]),
     title: z.string(),
+    deckSummary: z.string().optional(),
     inputPreview: z.string().max(REMOTE_TOOL_PREVIEW_LIMIT).optional(),
     outputPreview: z.string().max(REMOTE_TOOL_PREVIEW_LIMIT).optional(),
     truncated: z.boolean(),

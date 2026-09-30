@@ -629,6 +629,8 @@ export interface ToolCallRecord {
   status: ToolCallStatus
   inputSummary: string
   outputSummary?: string
+  /** UI-only summary of this tool deck, stored on its first tool call. */
+  deckSummary?: string
   cwd?: string
   error?: string
   details?: ToolCallDetailsSnapshot

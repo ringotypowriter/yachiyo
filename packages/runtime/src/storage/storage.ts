@@ -228,6 +228,7 @@ export interface StoredToolCallRow {
   status: ToolCallStatus
   inputSummary: string
   outputSummary: string | null
+  deckSummary: string | null
   cwd: string | null
   error: string | null
   details: string | null
@@ -879,7 +880,6 @@ export function toMessageRecord(row: StoredMessageRow): MessageRecord {
 
 export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
   const details = parseToolCallDetails(row.details)
-
   return {
     ...(row.assistantMessageId === null ? {} : { assistantMessageId: row.assistantMessageId }),
     ...(row.cwd === null ? {} : { cwd: row.cwd }),
@@ -887,6 +887,7 @@ export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
     ...(row.error === null ? {} : { error: row.error }),
     ...(row.finishedAt === null ? {} : { finishedAt: row.finishedAt }),
     ...(row.outputSummary === null ? {} : { outputSummary: row.outputSummary }),
+    ...(row.deckSummary === null ? {} : { deckSummary: row.deckSummary }),
     id: row.id,
     inputSummary: row.inputSummary,
     ...(row.requestMessageId === null ? {} : { requestMessageId: row.requestMessageId }),
@@ -899,7 +900,6 @@ export function toToolCallRecord(row: StoredToolCallRow): ToolCallRecord {
     toolName: row.toolName
   }
 }
-
 export function serializeToolCallDetails(details?: ToolCallDetailsSnapshot): string | null {
   return details ? JSON.stringify(details) : null
 }

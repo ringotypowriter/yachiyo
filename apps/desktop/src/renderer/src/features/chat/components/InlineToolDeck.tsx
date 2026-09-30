@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 
 import type { SubagentFinishedResult } from '@renderer/app/store/useAppStore'
 import type { ToolCall } from '@renderer/app/types'
@@ -93,6 +94,7 @@ export function InlineToolDeck({
   const t = useT()
   const detailsId = useId()
   const [selection, setSelection] = useState<DeckSelection>(null)
+  const [isDeckExpanded, setIsDeckExpanded] = useState(false)
   const [hoveredToolCallId, setHoveredToolCallId] = useState<string | null>(null)
   const [dismissedWaitingIds, setDismissedWaitingIds] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -122,6 +124,9 @@ export function InlineToolDeck({
         !dismissedWaitingIds.has(toolCall.id)
     ) ?? null
   const autoSelectedWaitingToolCallId = autoSelectedWaitingToolCall?.id ?? null
+  const deckSummary = toolCalls[0]?.deckSummary?.trim()
+  const showDeckContents =
+    !deckSummary || isDeckExpanded || selection !== null || Boolean(autoSelectedWaitingToolCallId)
   const selectedFromStateId =
     selection?.kind === 'latest' ? (summaryToolCall?.id ?? null) : (selection?.toolCallId ?? null)
   const selectedToolCallId = autoSelectedWaitingToolCallId ?? selectedFromStateId
@@ -159,7 +164,7 @@ export function InlineToolDeck({
   useLayoutEffect(() => {
     const deck = deckRef.current
     if (deck) onContentSizeChange?.(deck)
-  }, [onContentSizeChange, selectedToolCallId])
+  }, [onContentSizeChange, selectedToolCallId, showDeckContents, deckSummary])
 
   if (!summaryToolCall) return null
   const displayedSummaryToolCall = selectedToolCall ?? summaryToolCall
@@ -170,155 +175,189 @@ export function InlineToolDeck({
 
   return (
     <div ref={deckRef} className="px-6 py-1" data-tool-deck>
-      <div className="flex min-w-0 items-center gap-2">
-        <div
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1 py-0.5"
-          role="group"
-          aria-label={t('chat.tools.deckAria')}
-          style={{ paddingInlineEnd: iconStackOverlap }}
+      {deckSummary ? (
+        <button
+          type="button"
+          data-tool-deck-toggle
+          aria-expanded={showDeckContents}
+          className="flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left"
+          style={{ background: theme.background.hover, color: theme.text.secondary, border: 0 }}
+          onClick={() => {
+            setIsDeckExpanded(showDeckContents ? false : true)
+            if (showDeckContents) setSelection(null)
+          }}
         >
-          {displayedToolCalls.map((toolCall, index) => {
-            const Icon = getToolCallIcon(toolCall.toolName)
-            const isSelected = selectedToolCallId === toolCall.id
-            const isHovered = hoveredToolCallId === toolCall.id
-            const canExpand = canExpandToolCall(toolCall)
-            const showsSummary = displayedSummaryToolCall.id === toolCall.id
-            const stackItemWidth = TOOL_ICON_SIZE_PX - iconStackOverlap
-            const icon = (
-              <Icon
-                size={14}
-                strokeWidth={1.8}
-                aria-hidden="true"
-                className={isForegroundToolCall(toolCall) ? 'yachiyo-running-pulse' : undefined}
-              />
-            )
-            const toolItemStyle = {
-              appearance: 'none',
-              background: isSelected
-                ? theme.background.accentSoft
-                : isHovered
-                  ? theme.background.hoverStrong
-                  : theme.background.hover,
-              border: 'none',
-              color: getToolIconColor(toolCall),
-              cursor: 'default',
-              opacity: 1,
-              padding: 0
-            } as const
-            return (
-              <div
-                key={toolCall.id}
-                className={`relative flex h-7 shrink-0 items-center ${
-                  showsSummary ? 'mr-1 min-w-0 max-w-[70%]' : 'yachiyo-tool-deck-stack-item'
-                }`}
-                style={{
-                  width: showsSummary ? undefined : stackItemWidth,
-                  zIndex: isSelected
-                    ? displayedToolCalls.length + 2
-                    : isHovered
-                      ? displayedToolCalls.length + 1
-                      : index + 1
-                }}
-              >
-                {canExpand ? (
-                  <button
-                    type="button"
-                    className="yachiyo-tool-deck-button relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                    data-tool-call-id={toolCall.id}
-                    title={toolCall.toolName}
-                    aria-controls={detailsId}
-                    aria-expanded={isSelected}
-                    aria-label={
-                      isSelected
-                        ? t('chat.tools.collapseDetailsAria', { name: toolCall.toolName })
-                        : t('chat.tools.expandDetailsAria', { name: toolCall.toolName })
-                    }
-                    onPointerEnter={(event) => {
-                      if (event.pointerType !== 'mouse') return
-                      setHoveredToolCallId(toolCall.id)
-                      clearHoverSelectionTimer()
-                      if (isSelected) return
-                      hoverSelectionTimerRef.current = window.setTimeout(() => {
-                        hoverSelectionTimerRef.current = null
-                        dismissAutoSelectedWaitingToolCall()
-                        setSelection({ kind: 'fixed', toolCallId: toolCall.id })
-                      }, HOVER_SELECTION_DELAY_MS)
-                    }}
-                    onPointerLeave={(event) => {
-                      if (event.pointerType !== 'mouse') return
-                      setHoveredToolCallId((current) => (current === toolCall.id ? null : current))
-                      clearHoverSelectionTimer()
-                    }}
-                    onClick={() => {
-                      clearHoverSelectionTimer()
-                      dismissAutoSelectedWaitingToolCall()
-                      if (isSelected) {
-                        setSelection(null)
-                        return
+          <span
+            className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${displayedToolCalls.some(isForegroundToolCall) ? 'yachiyo-running-pulse' : ''}`}
+            style={{
+              background: displayedToolCalls.some(isForegroundToolCall)
+                ? theme.text.accent
+                : theme.text.muted
+            }}
+            aria-hidden="true"
+          />
+          <span className="min-w-0 flex-1 text-xs leading-5">{deckSummary}</span>
+          <ChevronDown
+            size={14}
+            className="mt-0.5 shrink-0"
+            style={{ transform: showDeckContents ? 'rotate(180deg)' : undefined }}
+            aria-hidden="true"
+          />
+        </button>
+      ) : null}
+      {showDeckContents ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <div
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1 py-0.5"
+            role="group"
+            aria-label={t('chat.tools.deckAria')}
+            style={{ paddingInlineEnd: iconStackOverlap }}
+          >
+            {displayedToolCalls.map((toolCall, index) => {
+              const Icon = getToolCallIcon(toolCall.toolName)
+              const isSelected = selectedToolCallId === toolCall.id
+              const isHovered = hoveredToolCallId === toolCall.id
+              const canExpand = canExpandToolCall(toolCall)
+              const showsSummary = displayedSummaryToolCall.id === toolCall.id
+              const stackItemWidth = TOOL_ICON_SIZE_PX - iconStackOverlap
+              const icon = (
+                <Icon
+                  size={14}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                  className={isForegroundToolCall(toolCall) ? 'yachiyo-running-pulse' : undefined}
+                />
+              )
+              const toolItemStyle = {
+                appearance: 'none',
+                background: isSelected
+                  ? theme.background.accentSoft
+                  : isHovered
+                    ? theme.background.hoverStrong
+                    : theme.background.hover,
+                border: 'none',
+                color: getToolIconColor(toolCall),
+                cursor: 'default',
+                opacity: 1,
+                padding: 0
+              } as const
+              return (
+                <div
+                  key={toolCall.id}
+                  className={`relative flex h-7 shrink-0 items-center ${
+                    showsSummary ? 'mr-1 min-w-0 max-w-[70%]' : 'yachiyo-tool-deck-stack-item'
+                  }`}
+                  style={{
+                    width: showsSummary ? undefined : stackItemWidth,
+                    zIndex: isSelected
+                      ? displayedToolCalls.length + 2
+                      : isHovered
+                        ? displayedToolCalls.length + 1
+                        : index + 1
+                  }}
+                >
+                  {canExpand ? (
+                    <button
+                      type="button"
+                      className="yachiyo-tool-deck-button relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      data-tool-call-id={toolCall.id}
+                      title={toolCall.toolName}
+                      aria-controls={detailsId}
+                      aria-expanded={isSelected}
+                      aria-label={
+                        isSelected
+                          ? t('chat.tools.collapseDetailsAria', { name: toolCall.toolName })
+                          : t('chat.tools.expandDetailsAria', { name: toolCall.toolName })
                       }
-                      setSelection(
-                        toolCall.id === summaryToolCall.id
-                          ? { kind: 'latest' }
-                          : { kind: 'fixed', toolCallId: toolCall.id }
-                      )
-                    }}
-                    style={toolItemStyle}
-                  >
-                    {icon}
-                  </button>
-                ) : (
-                  <span
-                    className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                    data-tool-call-id={toolCall.id}
-                    title={toolCall.toolName}
-                    role="img"
-                    aria-label={toolCall.toolName}
-                    style={toolItemStyle}
-                  >
-                    {icon}
-                  </span>
-                )}
-                {showsSummary ? (
-                  <div
-                    className="yachiyo-tool-deck-drawer ml-1 flex min-w-0 max-w-full flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1"
-                    data-tool-call-summary-id={toolCall.id}
-                    style={{
-                      color: theme.text.muted,
-                      fontSize: '11px',
-                      animation: animateSummary ? undefined : 'none'
-                    }}
-                  >
-                    <span className="shrink-0" style={{ color: theme.text.placeholder }}>
-                      {displayedSummaryToolCall.toolName}
+                      onPointerEnter={(event) => {
+                        if (event.pointerType !== 'mouse') return
+                        setHoveredToolCallId(toolCall.id)
+                        clearHoverSelectionTimer()
+                        if (isSelected) return
+                        hoverSelectionTimerRef.current = window.setTimeout(() => {
+                          hoverSelectionTimerRef.current = null
+                          dismissAutoSelectedWaitingToolCall()
+                          setSelection({ kind: 'fixed', toolCallId: toolCall.id })
+                        }, HOVER_SELECTION_DELAY_MS)
+                      }}
+                      onPointerLeave={(event) => {
+                        if (event.pointerType !== 'mouse') return
+                        setHoveredToolCallId((current) =>
+                          current === toolCall.id ? null : current
+                        )
+                        clearHoverSelectionTimer()
+                      }}
+                      onClick={() => {
+                        clearHoverSelectionTimer()
+                        dismissAutoSelectedWaitingToolCall()
+                        if (isSelected) {
+                          setSelection(null)
+                          return
+                        }
+                        setSelection(
+                          toolCall.id === summaryToolCall.id
+                            ? { kind: 'latest' }
+                            : { kind: 'fixed', toolCallId: toolCall.id }
+                        )
+                      }}
+                      style={toolItemStyle}
+                    >
+                      {icon}
+                    </button>
+                  ) : (
+                    <span
+                      className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      data-tool-call-id={toolCall.id}
+                      title={toolCall.toolName}
+                      role="img"
+                      aria-label={toolCall.toolName}
+                      style={toolItemStyle}
+                    >
+                      {icon}
                     </span>
-                    {summary.inputSummary ? (
-                      <span className="truncate" style={{ color: theme.text.secondary }}>
-                        · {summary.inputSummary}
+                  )}
+                  {showsSummary ? (
+                    <div
+                      className="yachiyo-tool-deck-drawer ml-1 flex min-w-0 max-w-full flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1"
+                      data-tool-call-summary-id={toolCall.id}
+                      style={{
+                        color: theme.text.muted,
+                        fontSize: '11px',
+                        animation: animateSummary ? undefined : 'none'
+                      }}
+                    >
+                      <span className="shrink-0" style={{ color: theme.text.placeholder }}>
+                        {displayedSummaryToolCall.toolName}
                       </span>
-                    ) : null}
-                    {displayedSummaryToolCall.cwd &&
-                    (!workspacePath || displayedSummaryToolCall.cwd !== workspacePath) ? (
-                      <span className="truncate">· cwd {displayedSummaryToolCall.cwd}</span>
-                    ) : null}
-                    {summary.outputSummary ? (
-                      <span
-                        className="truncate"
-                        style={{
-                          color: summaryIsFailed ? theme.text.danger : theme.text.placeholder
-                        }}
-                      >
-                        · {summary.outputSummary}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
+                      {summary.inputSummary ? (
+                        <span className="truncate" style={{ color: theme.text.secondary }}>
+                          · {summary.inputSummary}
+                        </span>
+                      ) : null}
+                      {displayedSummaryToolCall.cwd &&
+                      (!workspacePath || displayedSummaryToolCall.cwd !== workspacePath) ? (
+                        <span className="truncate">· cwd {displayedSummaryToolCall.cwd}</span>
+                      ) : null}
+                      {summary.outputSummary ? (
+                        <span
+                          className="truncate"
+                          style={{
+                            color: summaryIsFailed ? theme.text.danger : theme.text.placeholder
+                          }}
+                        >
+                          · {summary.outputSummary}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      {selectedToolCall && selectedCanExpand ? (
+      {showDeckContents && selectedToolCall && selectedCanExpand ? (
         selectedToolCall.toolName === 'askUser' ? (
           <div
             id={detailsId}

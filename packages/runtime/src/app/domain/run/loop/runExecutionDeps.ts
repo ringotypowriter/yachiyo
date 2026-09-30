@@ -67,6 +67,7 @@ export function buildRunExecutionDeps(
     timestamp: deps.timestamp,
     emit: input.emit,
     createModelRuntime: deps.createModelRuntime,
+    auxiliaryGeneration: deps.auxiliaryGeneration,
     processBroker: deps.processBroker,
     ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
     ...(deps.pyReplRunnerPath ? { pyReplRunnerPath: deps.pyReplRunnerPath } : {}),

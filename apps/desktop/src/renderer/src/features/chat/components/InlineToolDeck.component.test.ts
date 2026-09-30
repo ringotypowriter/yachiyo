@@ -119,3 +119,107 @@ test('mounting, remounting and updating a deck never scroll its ancestor convers
     await act(async () => root.unmount())
   }
 })
+
+test('a live deck summary collapses tool icons without hiding a waiting question', async () => {
+  const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    HTMLElement: window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true
+  })
+  const root = createRoot(document.getElementById('root')!)
+  const first = {
+    id: 'read-1',
+    threadId: 'thread',
+    toolName: 'read',
+    status: 'completed' as const,
+    inputSummary: '/workspace/example.ts',
+    deckSummary: 'Reading the workspace files',
+    startedAt: '2026-09-05T00:00:00.000Z'
+  }
+  const render = async (toolCalls: ToolCall[]): Promise<void> => {
+    await act(async () => root.render(React.createElement(InlineToolDeck, { toolCalls })))
+  }
+  try {
+    await render([first, { ...first, id: 'read-2', status: 'running' }])
+    const toggle = document.querySelector('[data-tool-deck-toggle]')!
+    assert.equal(toggle.textContent?.includes('Reading the workspace files'), true)
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    assert.equal(document.querySelector('[data-tool-call-id]'), null)
+    await act(async () => toggle.dispatchEvent(new window.Event('click', { bubbles: true })))
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+    assert.equal(document.querySelectorAll('[data-tool-call-id]').length, 2)
+    await render([
+      { ...first, deckSummary: 'Reading and comparing workspace files' },
+      { ...first, id: 'read-2', status: 'running' }
+    ])
+    assert.equal(
+      toggle.getAttribute('aria-expanded'),
+      'true',
+      'refreshes preserve manual expansion'
+    )
+    await act(async () => toggle.dispatchEvent(new window.Event('click', { bubbles: true })))
+    const question = {
+      ...first,
+      id: 'ask-1',
+      toolName: 'askUser',
+      status: 'waiting-for-user' as const
+    }
+    await render([first, question])
+    assert.ok(document.querySelector('[data-tool-call-id="ask-1"]'))
+    assert.ok(document.querySelector('.yachiyo-detail-reveal'))
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+test('an arriving summary does not close tool details the reader opened', async () => {
+  const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    HTMLElement: window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true
+  })
+  const root = createRoot(document.getElementById('root')!)
+  const call: ToolCall = {
+    id: 'read-1',
+    threadId: 'thread',
+    toolName: 'read',
+    status: 'completed',
+    inputSummary: '/workspace/example.ts',
+    startedAt: '2026-09-05T00:00:00.000Z',
+    details: {
+      path: '/workspace/example.ts',
+      startLine: 1,
+      endLine: 2,
+      totalLines: 2,
+      totalBytes: 12,
+      truncated: false
+    }
+  }
+  try {
+    await act(async () => root.render(React.createElement(InlineToolDeck, { toolCalls: [call] })))
+    await act(async () =>
+      document
+        .querySelector('[data-tool-call-id]')!
+        .dispatchEvent(new window.Event('click', { bubbles: true }))
+    )
+    assert.ok(document.querySelector('[data-tool-call-id]'))
+    await act(async () =>
+      root.render(
+        React.createElement(InlineToolDeck, {
+          toolCalls: [{ ...call, deckSummary: 'Reading the file' }]
+        })
+      )
+    )
+    assert.equal(
+      document.querySelector('[data-tool-deck-toggle]')?.getAttribute('aria-expanded'),
+      'true'
+    )
+    assert.ok(document.querySelector('[data-tool-call-id]'))
+  } finally {
+    await act(async () => root.unmount())
+  }
+})

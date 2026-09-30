@@ -999,6 +999,9 @@
               "minLength": 1,
               "maxLength": 200
             },
+            "summaryOnly": {
+              "type": "boolean"
+            },
             "toolCall": {
               "$ref": "#/$defs/RemoteToolCall"
             }
@@ -2549,6 +2552,9 @@
           ]
         },
         "title": {
+          "type": "string"
+        },
+        "deckSummary": {
           "type": "string"
         },
         "inputPreview": {

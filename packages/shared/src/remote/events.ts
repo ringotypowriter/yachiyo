@@ -80,6 +80,7 @@ export const remoteEventSchema = z
       type: z.literal('tool.updated'),
       threadId: idSchema,
       runId: idSchema.optional(),
+      summaryOnly: z.boolean().optional(),
       toolCall: remoteToolCallSchema
     }),
     z.object({

@@ -305,6 +305,7 @@ extension ToolCallContentPart: Hashable {
     public static func == (lhs: ToolCallContentPart, rhs: ToolCallContentPart) -> Bool {
         lhs.id == rhs.id && lhs.state == rhs.state && lhs.toolName == rhs.toolName
             && lhs.apiName == rhs.apiName && lhs.toolIcon == rhs.toolIcon && lhs.parameters == rhs.parameters
+            && lhs.deckSummary == rhs.deckSummary
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -314,6 +315,7 @@ extension ToolCallContentPart: Hashable {
         hasher.combine(apiName)
         hasher.combine(toolIcon)
         hasher.combine(parameters)
+        hasher.combine(deckSummary)
     }
 }
 

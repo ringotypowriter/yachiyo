@@ -227,6 +227,8 @@ export interface ToolCallUpdatedEvent extends ThreadEvent {
   type: 'tool.updated'
   runId?: string
   toolCall: ToolCallRecord
+  /** Summary-only metadata refresh; must not advance tool/text streaming state. */
+  summaryOnly?: boolean
 }
 
 export interface TodoUpdatedEvent extends RunEvent {

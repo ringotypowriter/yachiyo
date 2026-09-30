@@ -1145,6 +1145,34 @@ test('applyServerEvent upserts live tool activity for the current thread', () =>
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
 })
 
+test('summary-only tool updates do not stop live model output', () => {
+  resetStore()
+  useAppStore.setState({ receivingModelOutputByThread: { 'thread-1': true } })
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    summaryOnly: true,
+    eventId: 'event-deck-summary',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolName: 'read',
+      status: 'completed',
+      inputSummary: 'first',
+      deckSummary: 'Reading project files',
+      startedAt: TIMESTAMP
+    }
+  })
+  assert.equal(useAppStore.getState().receivingModelOutputByThread['thread-1'], true)
+  assert.equal(
+    useAppStore.getState().toolCalls['thread-1']?.[0]?.deckSummary,
+    'Reading project files'
+  )
+})
+
 test('applyServerEvent caps snapshot review metadata to recent runs', () => {
   resetStore()
 

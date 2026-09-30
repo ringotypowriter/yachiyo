@@ -880,6 +880,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     createToolCall(toolCall) {
       toolCalls.set(toolCall.id, {
+        deckSummary: toolCall.deckSummary ?? null,
         assistantMessageId: toolCall.assistantMessageId ?? null,
         cwd: toolCall.cwd ?? null,
         details: serializeToolCallDetails(toolCall.details),
@@ -905,6 +906,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
 
       toolCalls.set(toolCall.id, {
+        deckSummary: toolCall.deckSummary ?? null,
         assistantMessageId: toolCall.assistantMessageId ?? null,
         cwd: toolCall.cwd ?? null,
         details: serializeToolCallDetails(toolCall.details),

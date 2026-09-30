@@ -743,6 +743,14 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
   }
 
   if (event.type === 'tool.updated') {
+    if (event.summaryOnly) {
+      return {
+        toolCalls: {
+          ...state.toolCalls,
+          [event.threadId]: upsertToolCall(state.toolCalls[event.threadId] ?? [], event.toolCall)
+        }
+      }
+    }
     const eventRunId = event.runId
     const pending = eventRunId ? state.pendingAssistantMessages[eventRunId] : undefined
     const isCurrentActiveRun =

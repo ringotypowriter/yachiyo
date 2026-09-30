@@ -31,6 +31,7 @@ import type {
   ModelUsage
 } from '../../../../runtime/models/types.ts'
 import type { SoulDocument } from '../../../../runtime/profiles/soul.ts'
+import type { AuxiliaryGenerationService } from '../../../../runtime/models/auxiliaryGeneration.ts'
 import type { UserDocument } from '../../../../runtime/profiles/user.ts'
 import type {
   ListThreadMessagesOptions,
@@ -143,6 +144,7 @@ export interface RunExecutionDeps {
   timestamp: Timestamp
   emit: EmitServerEvent
   createModelRuntime: () => ModelRuntime
+  auxiliaryGeneration?: AuxiliaryGenerationService
   processBroker: ProcessBroker
   jsReplWorkerPath?: string | URL
   pyReplRunnerPath?: string | URL

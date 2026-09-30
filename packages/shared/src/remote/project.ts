@@ -173,6 +173,7 @@ export function projectToolCall(toolCall: ToolCallRecord): RemoteToolCall {
     toolName: toolCall.toolName,
     status: toolCall.status,
     title: toolCall.inputSummary.slice(0, 500),
+    ...(toolCall.deckSummary ? { deckSummary: toolCall.deckSummary } : {}),
     ...(input.text ? { inputPreview: input.text } : {}),
     ...(output.text ? { outputPreview: output.text } : {}),
     truncated: input.truncated || output.truncated,

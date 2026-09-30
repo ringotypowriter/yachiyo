@@ -142,8 +142,10 @@ extension MessageListView: ListViewAdapter {
                 .font: theme.fonts.body,
             ])).height
             return max(textHeight, ActivityReportingView.loadingSymbolSize.height + 16)
-        case let .toolCallHint(_, calls, selectedID, showsAll):
-            return ToolHintView.height(width: containerWidth, callCount: calls.count, isExpanded: selectedID != nil, showsAll: showsAll)
+        case let .toolCallHint(deckID, calls, selectedID, showsAll):
+            return ToolHintView.height(width: containerWidth, callCount: calls.count, isExpanded: selectedID != nil,
+                                       showsAll: showsAll, hasDeckSummary: calls.first?.deckSummary != nil,
+                                       isSummaryExpanded: expandedSummaryDecks.contains(deckID))
         case let .questionCard(_, question):
             return QuestionCardView.height(for: question, width: containerWidth)
         case let .planCard(_, plan):
@@ -283,7 +285,18 @@ extension MessageListView: ListViewAdapter {
         } else if let toolHintView = rowView as? ToolHintView {
             if case let .toolCallHint(messageID, calls, selectedID, showsAll) = entry {
                 toolHintView.theme = theme
-                toolHintView.configure(calls: calls, selectedID: selectedID, showsAll: showsAll)
+                toolHintView.configure(calls: calls, selectedID: selectedID, showsAll: showsAll,
+                                       isSummaryExpanded: expandedSummaryDecks.contains(messageID))
+                toolHintView.onToggleSummary = { [weak self] in
+                    guard let self else { return }
+                    if expandedSummaryDecks.contains(messageID) || selectedToolCalls[messageID] != nil {
+                        expandedSummaryDecks.remove(messageID)
+                        selectedToolCalls[messageID] = nil
+                    } else {
+                        expandedSummaryDecks.insert(messageID)
+                    }
+                    session?.notifyMessagesDidChange(scrolling: false)
+                }
                 toolHintView.onSelect = { [weak self] selectedID in
                     guard let self else { return }
                     selectedToolCalls[messageID] = selectedID

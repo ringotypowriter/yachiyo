@@ -63,6 +63,7 @@ import { extractRetryErrorMessage, handleRunFailure } from './runFailureHandling
 import { createRunOutputState } from './runOutputState.ts'
 import { createRunToolSet } from './runToolSetFactory.ts'
 import { createRunToolLifecycleState } from './runToolLifecycleState.ts'
+import { createDeckSummaryScheduler, DECK_SUMMARY_INSTRUCTION } from './deckSummary.ts'
 import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
 
 function throwIfAborted(signal: AbortSignal): void {
@@ -225,6 +226,54 @@ export async function executeServerRun(
     initialToolCalls: restoredToolCalls,
     priorToolFailLoopSteers: input.priorToolFailLoopSteers
   })
+  let deckModelUnavailable = false
+  const deckSummaries =
+    deps.auxiliaryGeneration &&
+    input.runTrigger === 'local' &&
+    (input.thread.source == null || input.thread.source === 'local') &&
+    !input.thread.channelGroupId &&
+    !input.thread.channelUserId
+      ? createDeckSummaryScheduler({
+          generate: async (calls) => {
+            if (deckModelUnavailable) return undefined
+            const result = await deps.auxiliaryGeneration!.generateText({
+              purpose: 'deck-summary',
+              max_token: 48,
+              messages: [
+                { role: 'system', content: DECK_SUMMARY_INSTRUCTION },
+                {
+                  role: 'user',
+                  content: calls
+                    .map(
+                      (call) =>
+                        `${call.toolName} [${call.status}] ${call.inputSummary.slice(0, 160)} ${call.cwd?.slice(0, 160) ?? ''} ${call.outputSummary?.slice(0, 160) ?? ''}`
+                    )
+                    .join('\n')
+                    .slice(0, 2400)
+                }
+              ]
+            })
+            if (result.status === 'unavailable') deckModelUnavailable = true
+            return result.status === 'success'
+              ? result.text.trim().split('\n')[0]?.slice(0, 160)
+              : undefined
+          },
+          update: (first) => {
+            const current = toolLifecycle.getToolCall(first.id)
+            if (!current) return
+            const updated = { ...current, deckSummary: first.deckSummary }
+            toolLifecycle.setToolCall(updated)
+            instrumentedUpdateToolCall(updated)
+            deps.emit<ToolCallUpdatedEvent>({
+              type: 'tool.updated',
+              threadId: input.thread.id,
+              runId: input.runId,
+              toolCall: updated,
+              summaryOnly: true
+            })
+          }
+        })
+      : undefined
   let agentStepCount = Math.max(input.priorAgentStepCount ?? 0, toolLifecycle.getStepCount())
   const advanceAgentStep = (options?: { notifyTodoReminder?: boolean }): number => {
     agentStepCount++
@@ -316,6 +365,7 @@ export async function executeServerRun(
   const textDeltaBatcher = createDeltaBatcher({
     intervalMs: DELTA_FLUSH_INTERVAL_MS,
     onFlush: (batch) => {
+      if (batch.trim()) deckSummaries?.textBoundary()
       outputState.appendTextDelta(batch)
       persistRecoveryCheckpointThrottled()
       perfCollector.recordDeltaEvent()
@@ -653,6 +703,7 @@ export async function executeServerRun(
 
         toolLifecycle.setToolCall(toolCall)
         instrumentedCreateToolCall(toolCall)
+        deckSummaries?.start(toolCall)
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
           threadId: input.thread.id,
@@ -666,6 +717,7 @@ export async function executeServerRun(
         }
 
         markProgress()
+        if (event.toolCall.toolName === 'askUser') deckSummaries?.textBoundary()
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
         toolLifecycle.markRunningToolCall(event.toolCall.toolCallId)
@@ -716,6 +768,7 @@ export async function executeServerRun(
           // Always create a new row under the canonical ID.
           instrumentedCreateToolCall(toolCall)
         }
+        deckSummaries?.start(toolCall, orphanedPreparingKey)
         outputState.appendToolCall({
           toolCallId: toolCall.id,
           toolName: toolCall.toolName,
@@ -828,6 +881,7 @@ export async function executeServerRun(
             toolInput: event.toolCall.input
           })
         }
+        deckSummaries?.start(toolCall)
         persistRecoveryCheckpoint()
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
@@ -835,6 +889,8 @@ export async function executeServerRun(
           runId: input.runId,
           toolCall
         })
+
+        deckSummaries?.complete(toolCall)
 
         return 'continue'
       },
@@ -976,6 +1032,9 @@ export async function executeServerRun(
             runId: input.runId,
             toolCall: reconciledToolCall
           })
+          if (reconciledToolCall.status === 'completed' || reconciledToolCall.status === 'failed') {
+            deckSummaries?.complete(reconciledToolCall)
+          }
 
           if (toolLifecycle.finishRunningToolCall(event.toolCall.toolCallId)) {
             setExecutionPhase('generating')
@@ -1054,6 +1113,7 @@ export async function executeServerRun(
       throw new RetryableRunError('Model output truncated (finishReason=length)')
     }
 
+    deckSummaries?.finish()
     return handleCompletedRun({
       bindCurrentRunToolCallsToAssistant,
       deps,
@@ -1069,6 +1129,7 @@ export async function executeServerRun(
       toolLifecycle
     })
   } catch (error) {
+    deckSummaries?.close()
     flushDeltas()
     recordModelStreamDuration()
     attachFirstTokenTiming()
