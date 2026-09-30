@@ -7,16 +7,21 @@
 
 import { execFileSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
 const KEEP_PER_CHANNEL = { stable: 1, nightly: 5 }
-const MANIFESTS = ['latest-mac.yml', 'latest.yml']
+const MANIFESTS = ['latest-mac.yml', 'latest.yml', 'latest-linux.yml']
 const PLATFORM_ARTIFACTS = {
+  all: {
+    binarySuffixes: ['.zip', '.zip.blockmap', '.exe', '.exe.blockmap', '.AppImage', '.deb'],
+    manifests: MANIFESTS
+  },
+  // Keep the previous macOS + Windows selection for existing manual callers.
   both: {
     binarySuffixes: ['.zip', '.zip.blockmap', '.exe', '.exe.blockmap'],
-    manifests: MANIFESTS
+    manifests: ['latest-mac.yml', 'latest.yml']
   },
   macos: {
     binarySuffixes: ['.zip', '.zip.blockmap'],
@@ -25,6 +30,10 @@ const PLATFORM_ARTIFACTS = {
   windows: {
     binarySuffixes: ['.exe', '.exe.blockmap'],
     manifests: ['latest.yml']
+  },
+  linux: {
+    binarySuffixes: ['.AppImage', '.deb'],
+    manifests: ['latest-linux.yml']
   }
 }
 const VERSION_PATTERN = /(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?/
@@ -32,16 +41,22 @@ const VERSION_PATTERN = /(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?/
 function getPlatformArtifacts(platform) {
   const artifacts = PLATFORM_ARTIFACTS[platform]
   if (!artifacts) {
-    throw new Error(`Unsupported platform "${platform}"; expected both, macos, or windows.`)
+    throw new Error(
+      `Unsupported platform "${platform}"; expected all, both, macos, windows, or linux.`
+    )
   }
   return artifacts
 }
 
-/** @type {(keys: string[], keep: number) => string[]} */
-export function selectStaleReleaseKeys(keys, keep) {
+/** @type {(keys: string[], keep: number, platform?: 'all'|'both'|'macos'|'windows'|'linux') => string[]} */
+export function selectStaleReleaseKeys(keys, keep, platform = 'all') {
+  const { binarySuffixes } = getPlatformArtifacts(platform)
   /** @type {Map<string, { sortKey: number[], keys: string[] }>} */
   const versions = new Map()
   for (const key of keys) {
+    // A platform-only nightly must not prune binaries still referenced by the
+    // other platforms' unchanged manifests.
+    if (!binarySuffixes.some((suffix) => basename(key).endsWith(suffix))) continue
     const match = key.match(VERSION_PATTERN)
     if (!match) continue
     const version = match[0]
@@ -62,8 +77,8 @@ export function selectStaleReleaseKeys(keys, keep) {
   return newestFirst.slice(keep).flatMap((entry) => entry.keys)
 }
 
-/** @type {(names: string[], platform?: 'both'|'macos'|'windows') => string[]} */
-export function selectReleaseArtifacts(names, platform = 'both') {
+/** @type {(names: string[], platform?: 'all'|'both'|'macos'|'windows'|'linux') => string[]} */
+export function selectReleaseArtifacts(names, platform = 'all') {
   const { binarySuffixes, manifests: platformManifests } = getPlatformArtifacts(platform)
   const binaries = names
     .filter((name) => binarySuffixes.some((suffix) => name.endsWith(suffix)))
@@ -73,7 +88,7 @@ export function selectReleaseArtifacts(names, platform = 'both') {
 }
 
 function parseArgs(argv) {
-  const args = { channel: '', dist: '', platform: 'both' }
+  const args = { channel: '', dist: '', platform: 'all' }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--channel') args.channel = argv[++i] ?? ''
     else if (argv[i] === '--dist') args.dist = argv[++i] ?? ''
@@ -81,7 +96,7 @@ function parseArgs(argv) {
   }
   if (!(args.channel in KEEP_PER_CHANNEL) || !args.dist || !(args.platform in PLATFORM_ARTIFACTS)) {
     throw new Error(
-      'Usage: sync-release-to-r2.mjs --channel <stable|nightly> --dist <dir> [--platform <both|macos|windows>]'
+      'Usage: sync-release-to-r2.mjs --channel <stable|nightly> --dist <dir> [--platform <all|both|macos|windows|linux>]'
     )
   }
   return args
@@ -148,7 +163,7 @@ function main() {
   ])
   const keys = JSON.parse(listed || 'null') ?? []
 
-  for (const key of selectStaleReleaseKeys(keys, KEEP_PER_CHANNEL[channel])) {
+  for (const key of selectStaleReleaseKeys(keys, KEEP_PER_CHANNEL[channel], platform)) {
     console.log(`Pruning ${key}`)
     aws(['s3', 'rm', `s3://${R2_BUCKET}/${key}`])
   }

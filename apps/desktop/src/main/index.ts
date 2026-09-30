@@ -1,5 +1,14 @@
 import log from 'electron-log/main'
-import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain, nativeTheme } from 'electron'
+import {
+  app,
+  dialog,
+  screen,
+  shell,
+  BrowserWindow,
+  globalShortcut,
+  ipcMain,
+  nativeTheme
+} from 'electron'
 import {
   DEFAULT_REMOTE_CONFIG,
   DEFAULT_THEME_APPEARANCE,
@@ -15,7 +24,7 @@ import {
   hydrateProcessEnvFromLoginShell,
   hydrateProxyFromSystemSettings
 } from './electron/userShellEnv'
-import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
+import { resolveYachiyoDataDir, resolveYachiyoSettingsPath } from '@yachiyo/runtime/config/paths'
 import {
   registerYachiyoGateway,
   type YachiyoGatewayHandle
@@ -25,9 +34,17 @@ import { setupCLI } from './cli/setup'
 import { setupCoreSkills } from './skills/coreSkillsSetup'
 import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
 import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
+import {
+  reportDesktopStartupFailure,
+  verifyNativeSqliteDependency
+} from './electron/desktopStartup'
 import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
-import { createElectronProviderCredentialVault } from './security/providerCredentials'
+import {
+  createElectronCliProviderCredentialVault,
+  prepareElectronProviderCredentials,
+  isPlaintextProviderCredentialMode
+} from './security/providerCredentials'
 import {
   buildAuxiliaryWindowOptions,
   buildMainWindowOptions,
@@ -53,7 +70,15 @@ log.errorHandler.startCatching({ showDialog: false })
 const APP_NAME = 'Yachiyo'
 const CLI_MARKER = '--yachiyo-cli'
 const cliMarkerIndex = process.argv.indexOf(CLI_MARKER)
-const headlessCliArgs = cliMarkerIndex >= 0 ? process.argv.slice(cliMarkerIndex + 1) : null
+const headlessCliArgs =
+  cliMarkerIndex >= 0
+    ? process.argv
+        .slice(cliMarkerIndex + 1)
+        .filter(
+          (arg) =>
+            arg !== '--yachiyo-plaintext-credentials' && arg !== '--yachiyo-encrypted-credentials'
+        )
+    : null
 
 app.setName(APP_NAME)
 
@@ -120,6 +145,9 @@ function openTranslatorWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      additionalArguments: isPlaintextProviderCredentialMode()
+        ? ['--yachiyo-plaintext-credentials']
+        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -173,6 +201,9 @@ function openJotdownWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      additionalArguments: isPlaintextProviderCredentialMode()
+        ? ['--yachiyo-plaintext-credentials']
+        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -233,6 +264,9 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      additionalArguments: isPlaintextProviderCredentialMode()
+        ? ['--yachiyo-plaintext-credentials']
+        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -282,14 +316,15 @@ if (!is.dev && !headlessCliArgs) {
   })
 }
 
-app.whenReady().then(async () => {
+async function startDesktop(): Promise<void> {
+  setLocale(resolveLocale('system', app.getLocale()))
   if (headlessCliArgs) {
     try {
       const { createDefaultConfigService, runYachiyoCli } = await import('@yachiyo/cli/yachiyoCli')
       await runYachiyoCli(headlessCliArgs, {
         createConfigService: (settingsPath) =>
           createDefaultConfigService(settingsPath, {
-            providerCredentialVault: createElectronProviderCredentialVault(settingsPath)
+            providerCredentialVault: createElectronCliProviderCredentialVault(settingsPath)
           })
       })
       app.exit(0)
@@ -298,6 +333,11 @@ app.whenReady().then(async () => {
       process.stderr.write(`Error: ${message}\n`)
       app.exit(1)
     }
+    return
+  }
+
+  if (!(await prepareElectronProviderCredentials(resolveYachiyoSettingsPath(), false))) {
+    app.quit()
     return
   }
 
@@ -361,6 +401,7 @@ app.whenReady().then(async () => {
   // yachiyo:* handler is registered before the first invoke is dispatched.
   createWindow()
   hydrateProcessEnvFromLoginShell()
+  verifyNativeSqliteDependency()
   const proxyHydration = hydrateProxyFromSystemSettings()
   setupCLI()
   setupCoreSkills()
@@ -489,7 +530,26 @@ app.whenReady().then(async () => {
     }
     createWindow()
   })
-})
+}
+
+void app
+  .whenReady()
+  .then(startDesktop)
+  .catch((error: unknown) =>
+    reportDesktopStartupFailure(error, {
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+      logError: (startupError) => console.error('[startup] failed:', startupError),
+      showMessageBox: (options) => {
+        if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+          mainWindowRef.show()
+          return dialog.showMessageBox(mainWindowRef, options)
+        }
+        return dialog.showMessageBox(options)
+      },
+      quit: () => app.quit()
+    })
+  )
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits

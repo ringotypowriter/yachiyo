@@ -4,6 +4,8 @@ export const shell = {
   wakingUp: 'Yachiyo 正在苏醒',
   unableToConnect: '无法连接',
   waitingForLocalServer: '正在等待本地服务',
+  plaintextCredentialsWarning:
+    '明文凭据模式：API 密钥未经加密存储，任何有文件访问权限的进程都能读取。Remote 需要加密模式和已解锁的系统钱包。',
   ok: '确定',
   processing: '处理中',
   whatsNew: 'v{version} 更新内容',

@@ -4,6 +4,8 @@ export const remote = {
   enableDescription: 'Let paired phones follow and drive chats on this computer.',
   tunnel: '隧道',
   tunnelDescription: 'How phones reach this computer away from its network.',
+  externalTunnelDescription: '此平台需要使用外部 HTTPS/WSS 代理或隧道，不支持内置隧道安装。',
+  useExternalEndpoint: '使用外部访问地址',
   tunnelQuick: '快速隧道',
   tunnelNamed: '命名隧道',
   tunnelNone: 'External endpoint',

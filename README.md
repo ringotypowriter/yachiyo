@@ -98,8 +98,11 @@ Download the latest release from the [Releases](https://github.com/ringotypowrit
 
 - **macOS** — use the macOS archive and move Yachiyo into `/Applications`.
 - **Windows 11 x64** — run `yachiyo-<version>-setup.exe`.
+- **Linux x64 (experimental)** — make `yachiyo-<version>.AppImage` executable and run it, or install `yachiyo-<version>.deb` on Debian/Ubuntu.
 
-Windows v1 supports chat, workspaces, providers, channels, schedules, Bash tools, ACP coding agents, browser features, notifications, updates, and OneDrive/custom-folder sync. Activity/OCR, launch at login, keep awake, Kagete, Ghostty control, macOS app automation, and macOS screenshots remain Mac-only. Linux is not supported.
+Windows v1 supports chat, workspaces, providers, channels, schedules, Bash tools, ACP coding agents, browser features, notifications, updates, and OneDrive/custom-folder sync. Activity/OCR, launch at login, keep awake, Kagete, Ghostty control, macOS app automation, and macOS screenshots remain Mac-only.
+
+Linux x64 builds are experimental and require a graphical desktop session. macOS-only integrations remain unavailable; Linux ARM builds are not provided. Stable and nightly releases include AppImage and Debian packages with a Linux update feed.
 
 ## Development
 

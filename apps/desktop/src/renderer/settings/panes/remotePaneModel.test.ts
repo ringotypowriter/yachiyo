@@ -3,7 +3,12 @@ import test from 'node:test'
 
 import type { RemoteStatusResult } from '@yachiyo/shared/remote/command'
 
-import { remoteAddressLabel, remoteStatusHint, withRemote } from './remotePaneModel'
+import {
+  remoteAddressLabel,
+  remoteStatusHint,
+  supportsManagedRemoteTunnel,
+  withRemote
+} from './remotePaneModel'
 
 function status(overrides: Partial<RemoteStatusResult> = {}): RemoteStatusResult {
   return {
@@ -77,4 +82,29 @@ test('withRemote patches only the remote section', () => {
   const next = withRemote({ providers: [] }, { enabled: true })
   assert.equal(next.remote?.enabled, true)
   assert.equal(next.remote?.tunnel, 'quick')
+})
+
+test('Linux only offers external ingress and explains incompatible saved tunnel modes', () => {
+  assert.equal(supportsManagedRemoteTunnel('linux'), false)
+  assert.equal(supportsManagedRemoteTunnel('darwin'), true)
+  assert.equal(supportsManagedRemoteTunnel('win32'), true)
+  for (const tunnel of ['quick', 'named'] as const) {
+    assert.equal(remoteStatusHint(status({ tunnel }), 'linux'), 'external-endpoint-required')
+    assert.equal(
+      remoteStatusHint(status({ tunnel, running: false }), 'linux'),
+      'external-endpoint-required'
+    )
+  }
+  assert.equal(remoteStatusHint(status({ enabled: false, running: false }), 'linux'), null)
+  assert.equal(
+    remoteStatusHint(
+      status({
+        tunnel: 'none',
+        icloudDrive: 'unavailable',
+        cloudflared: { ...status().cloudflared, agentRunning: false }
+      }),
+      'linux'
+    ),
+    null
+  )
 })

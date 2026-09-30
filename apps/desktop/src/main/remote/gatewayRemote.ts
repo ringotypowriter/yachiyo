@@ -15,21 +15,28 @@ import QRCode from 'qrcode'
 
 import { handleYachiyoIpc, tapYachiyoEvents } from '../yachiyoGateway/ipc.ts'
 import { IPC_CHANNELS } from '../yachiyoGateway/ipcChannels.ts'
+import { isPlaintextProviderCredentialMode } from '../security/providerCredentials.ts'
 import { createRemoteKeepAwake } from './keepAwake.ts'
 import { defaultICloudDriveRoot, detectICloudDrive, MailboxWriter } from './mailboxWriter.ts'
-import { PairingStore, type PairingRecord, type SecretBox } from './pairingStore.ts'
+import { PairingStore, type PairingRecord } from './pairingStore.ts'
 import { prunePairingQrImagesOnStartup, storePairingQrImage } from './pairingQrImage.ts'
 import { handleRemoteCommand } from './remoteCommands.ts'
 import { RemoteController } from './remoteController.ts'
 import type { RemoteHostPort, RemoteServerPort } from './remoteFacade.ts'
 import { defaultRemoteDirectories, RemoteService } from './remoteService.ts'
-import { defaultTunnelPaths, TunnelSupervisor } from './tunnelSupervisor.ts'
-import { WindowsTunnelSupervisor } from './windowsTunnelSupervisor.ts'
+import {
+  createRemoteCredentialSecretBox,
+  createUnavailableRemoteBinding
+} from './remoteCredentialMode.ts'
+import {
+  createPlatformTunnelSupervisor,
+  type RemoteTunnelSupervisor
+} from './platformTunnelSupervisor.ts'
 
-const safeStorageSecretBox: SecretBox = {
-  encrypt: (plaintext) => safeStorage.encryptString(plaintext.toString('base64')),
-  decrypt: (ciphertext) => Buffer.from(safeStorage.decryptString(ciphertext), 'base64')
-}
+const safeStorageSecretBox = createRemoteCredentialSecretBox({
+  isPlaintextMode: isPlaintextProviderCredentialMode,
+  safeStorage
+})
 
 type GatewayServerPort = RemoteServerPort &
   RpcMethods<Pick<YachiyoServer, 'getConfig' | 'saveConfig'>>
@@ -74,15 +81,36 @@ function deviceName(): string {
   return hostname().replace(/\.local$/i, '') || 'Yachiyo desktop'
 }
 
-/**
- * The gateway's single entry point to remote access. Nothing is constructed until remote is
- * enabled or a CLI/settings request needs it, so a disabled remote costs nothing.
- */
-export function createGatewayRemoteBinding(deps: {
+interface GatewayRemoteBindingDeps {
   /** Resolved per call: the runtime proxy is replaced when the utility process is reforked. */
   server: () => GatewayServerPort
   hostCall: (method: string, args: unknown[]) => Promise<unknown>
-}): GatewayRemoteBinding {
+}
+
+/** Credential mode is selected after module import, so resolve it before every operation. */
+export function createGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): GatewayRemoteBinding {
+  let encryptedBinding: GatewayRemoteBinding | null = null
+  const unavailableBinding = createUnavailableRemoteBinding()
+  const binding = (): GatewayRemoteBinding =>
+    isPlaintextProviderCredentialMode()
+      ? unavailableBinding
+      : (encryptedBinding ??= createEncryptedGatewayRemoteBinding(deps))
+
+  return {
+    apply: (config) => binding().apply(config),
+    handleCommand: (request) => binding().handleCommand(request),
+    createPairingUrl: () => binding().createPairingUrl(),
+    listPairings: () => binding().listPairings(),
+    revokePairing: (pairingId) => binding().revokePairing(pairingId),
+    stop: async () => {
+      await encryptedBinding?.stop()
+      encryptedBinding = null
+    }
+  }
+}
+
+/** Nothing below is constructed until credential selection permits Remote access. */
+function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): GatewayRemoteBinding {
   const server = new Proxy({} as RemoteServerPort, {
     get: (_target, method: string) => (input: unknown) =>
       (deps.server()[method as keyof RemoteServerPort] as (input: unknown) => Promise<unknown>)(
@@ -103,19 +131,16 @@ export function createGatewayRemoteBinding(deps: {
   )
   const directories = defaultRemoteDirectories(yachiyoHome)
   const icloudRoot = process.platform === 'darwin' ? defaultICloudDriveRoot() : null
-  let tunnel: TunnelSupervisor | null = null
+  let tunnel: RemoteTunnelSupervisor | null = null
   let controller: RemoteController<RemoteService> | null = null
   let offlineStore: PairingStore | null = null
 
-  const getTunnel = (): TunnelSupervisor =>
-    (tunnel ??=
-      process.platform === 'win32'
-        ? new WindowsTunnelSupervisor({ yachiyoHome, log: (line) => console.log(line) })
-        : new TunnelSupervisor({
-            paths: defaultTunnelPaths(yachiyoHome),
-            uid: process.getuid?.() ?? 501,
-            log: (line) => console.log(line)
-          }))
+  const getTunnel = (): RemoteTunnelSupervisor =>
+    (tunnel ??= createPlatformTunnelSupervisor({
+      platform: process.platform,
+      yachiyoHome,
+      log: (line) => console.log(line)
+    }))
 
   const getController = (): RemoteController<RemoteService> =>
     (controller ??= new RemoteController<RemoteService>({

@@ -4,6 +4,9 @@ export const remote = {
   enableDescription: 'Let paired phones follow and drive chats on this computer.',
   tunnel: 'Tunnel',
   tunnelDescription: 'How phones reach this computer away from its network.',
+  externalTunnelDescription:
+    'Use an external HTTPS/WSS proxy or tunnel on this platform. Built-in tunnel setup is unavailable.',
+  useExternalEndpoint: 'Use external endpoint',
   tunnelQuick: 'Quick tunnel',
   tunnelNamed: 'Named tunnel',
   tunnelNone: 'External endpoint',

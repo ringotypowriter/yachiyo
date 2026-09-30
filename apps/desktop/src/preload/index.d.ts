@@ -99,6 +99,7 @@ import type {
 declare global {
   interface Window {
     api: {
+      readonly plaintextCredentials: boolean
       process: {
         versions: { electron: string; chrome: string; node: string }
         platform: NodeJS.Platform

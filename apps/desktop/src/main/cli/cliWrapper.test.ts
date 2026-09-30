@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -32,6 +36,83 @@ test('packaged CLI wrapper starts the application executable in headless CLI mod
   assert.doesNotMatch(wrapper, /app\.asar/u)
   assert.doesNotMatch(wrapper, /ELECTRON_RUN_AS_NODE/u)
 })
+
+test('packaged Linux CLI wrapper uses the persistent AppImage path', () => {
+  const wrapper = buildCLIWrapperContent({
+    platform: 'linux',
+    developmentMode: false,
+    executablePath: '/tmp/.mount_Yachiyo123/yachiyo',
+    appImagePath: '/home/user/Applications/Yachiyo.AppImage',
+    appPath: '/tmp/.mount_Yachiyo123/resources/app.asar'
+  })
+
+  assert.match(
+    wrapper,
+    /^exec '\/home\/user\/Applications\/Yachiyo.AppImage' --yachiyo-cli "\$@"$/mu
+  )
+  assert.doesNotMatch(wrapper, /\.mount_|app\.asar/u)
+})
+
+test('packaged Linux CLI wrapper falls back to the installed executable outside AppImage', () => {
+  for (const appImagePath of [undefined, '']) {
+    const wrapper = buildCLIWrapperContent({
+      platform: 'linux',
+      developmentMode: false,
+      executablePath: '/opt/Yachiyo/yachiyo',
+      appImagePath,
+      appPath: '/opt/Yachiyo/resources/app.asar'
+    })
+
+    assert.match(wrapper, /^exec '\/opt\/Yachiyo\/yachiyo' --yachiyo-cli "\$@"$/mu)
+    assert.doesNotMatch(wrapper, /app\.asar/u)
+  }
+})
+
+test('AppImage paths are ignored during development and on other platforms', () => {
+  for (const platform of ['linux', 'darwin', 'win32'] as const) {
+    for (const developmentMode of [true, false]) {
+      if (platform === 'linux' && !developmentMode) continue
+      const input = {
+        platform,
+        developmentMode,
+        executablePath: '/installed/yachiyo',
+        appPath: '/workspace/yachiyo/apps/desktop'
+      }
+
+      assert.equal(
+        buildCLIWrapperContent({ ...input, appImagePath: '/unrelated/Yachiyo.AppImage' }),
+        buildCLIWrapperContent(input)
+      )
+    }
+  }
+})
+
+test(
+  'AppImage wrapper safely quotes paths and preserves arguments and exit status',
+  { skip: process.platform === 'win32' },
+  (t) => {
+    const directory = mkdtempSync(join(tmpdir(), 'yachiyo-cli-'))
+    t.after(() => rmSync(directory, { recursive: true, force: true }))
+    const appImagePath = join(directory, 'Yachiyo\'s "release" $(ignored).AppImage')
+    writeFileSync(appImagePath, '#!/bin/sh\nprintf "%s\\n" "$0" "$@"\nexit 23\n', {
+      mode: 0o755
+    })
+    const wrapper = buildCLIWrapperContent({
+      platform: 'linux',
+      developmentMode: false,
+      executablePath: '/tmp/.mount_Yachiyo123/yachiyo',
+      appImagePath,
+      appPath: '/tmp/.mount_Yachiyo123/resources/app.asar'
+    })
+    const args = ['chat', 'two words', '', 'a\'b"c', '$HOME', '$(ignored)']
+    const result = spawnSync('bash', ['-c', wrapper, 'yachiyo', ...args], { encoding: 'utf8' })
+
+    assert.ifError(result.error)
+    assert.equal(result.status, 23)
+    assert.equal(result.stderr, '')
+    assert.equal(result.stdout, [appImagePath, '--yachiyo-cli', ...args, ''].join('\n'))
+  }
+)
 
 test('Windows CLI wrapper preserves arguments and the Electron CLI exit code', () => {
   const wrapper = buildCLIWrapperContent({

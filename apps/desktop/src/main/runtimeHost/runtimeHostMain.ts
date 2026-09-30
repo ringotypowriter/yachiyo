@@ -20,7 +20,6 @@ import {
 import {
   resolveYachiyoDbPath,
   resolveYachiyoJotdownsDir,
-  resolveYachiyoProviderCredentialVaultPath,
   resolveYachiyoSettingsPath,
   resolveYachiyoTempWorkspaceRoot
 } from '@yachiyo/runtime/config/paths'
@@ -41,7 +40,7 @@ import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
 
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { createRuntimeHostServer } from './runtimeHostStartup.ts'
-import { createProviderCredentialVault } from '@yachiyo/runtime/settings/providerCredentialVault'
+import { createRuntimeProviderCredentialVault } from '../security/runtimeProviderCredentials'
 import { installRuntimeHostInterruptGuard } from './runtimeHostInterruptGuard.ts'
 
 installRuntimeHostInterruptGuard(process)
@@ -74,13 +73,11 @@ process.parentPort.on('message', (event) => {
       const mainServices = createRpcClient(transport)
       const developmentMode = process.env['YACHIYO_RUNTIME_DEV'] === '1'
       const message = event.data as {
+        providerCredentialMode?: unknown
         providerCredentialKey?: unknown
         runAdmissionOwnerId?: unknown
       }
-      const providerCredentialKey = message.providerCredentialKey
-      if (!(providerCredentialKey instanceof Uint8Array)) {
-        throw new Error('Runtime start message is missing the provider credential key')
-      }
+      const providerCredentialVault = createRuntimeProviderCredentialVault(message)
 
       const nextServer = await createRuntimeHostServer({
         createProcessBroker: () => new NativeProcessBroker(),
@@ -90,10 +87,7 @@ process.parentPort.on('message', (event) => {
             settingsPath: resolveYachiyoSettingsPath(),
             developmentMode,
             seedPresetProviders: true,
-            providerCredentialVault: createProviderCredentialVault({
-              vaultPath: resolveYachiyoProviderCredentialVaultPath(),
-              encryptionKey: providerCredentialKey
-            }),
+            providerCredentialVault,
             fetchImpl: createProviderFetch({ env: process.env, netFetch }),
             // The cert-relaxed web-external session only exists in the main process;
             // forward those requests there, streaming responses back over RPC.

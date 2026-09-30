@@ -11,7 +11,7 @@ description: 关于平台、供应商、隐私、技能，以及八千代刻意�
 
 ## 有 Windows 或 Linux 版本吗？
 
-八千代支持 macOS 和 Windows 11 x64。Windows NSIS 安装包不签名，所以 **Unknown publisher（未知发布者）**提示是预期行为。Windows 10、Windows ARM 和 Linux 不是发布目标。
+八千代支持 macOS 和 Windows 11 x64，并提供实验性的 Linux x64 AppImage 和 Debian 包。Linux 需要图形桌面会话，macOS 专属集成不可用。Windows NSIS 安装包不签名，所以 **Unknown publisher（未知发布者）**提示是预期行为。Windows 10、Windows ARM 和 Linux ARM 不是发布目标。
 
 Windows v1 不提供 Activity/OCR、开机自启、保持唤醒、Kagete、Ghostty 控制、macOS 应用自动化和 macOS 截图技能。这些入口会在 Windows 上被过滤掉，而不是显示成无法使用的工具。
 

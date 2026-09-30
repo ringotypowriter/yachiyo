@@ -5,7 +5,7 @@ description: 下载八千代、首次启动，并把 yachiyo 命令行接进你�
 
 ## 环境要求
 
-八千代支持 macOS 和 Windows 11 x64。Windows 10、Windows ARM 和 Linux 不是发布目标。
+八千代支持 macOS 和 Windows 11 x64，并提供实验性的 Linux x64 构建。Linux 需要图形桌面会话。Windows 10、Windows ARM 和 Linux ARM 不是发布目标。
 
 你还需要至少一家模型供应商的 API key。八千代不自带模型，也没有托管账号 —— 见[供应商与模型](/zh/docs/guides/providers/)。
 
@@ -15,12 +15,13 @@ description: 下载八千代、首次启动，并把 yachiyo 命令行接进你�
 
 - **macOS：**打开 macOS 发布包，把 **Yachiyo** 放进 `/Applications`。
 - **Windows 11 x64：**运行 `yachiyo-<version>-setup.exe`。
+- **Linux x64（实验性）：**给 `yachiyo-<version>.AppImage` 添加可执行权限后运行，或通过 Debian/Ubuntu 的软件包管理器安装 `yachiyo-<version>.deb`。AppImage 的运行依赖取决于发行版。
 
 Windows 安装包刻意不做代码签名，因此系统会显示 **Unknown publisher（未知发布者）**。继续之前先确认文件名和下载来源确实是八千代的官方 Release。这个提示是预期行为，不代表安装包伪装成了受信任发布者。
 
 ## 首次启动
 
-首次启动时，八千代会创建自己的主目录并写入数据。macOS 默认是 `~/.yachiyo`，Windows 默认是 `C:\Users\<你>\.yachiyo`。
+首次启动时，八千代会创建自己的主目录并写入数据。macOS/Linux 默认是 `~/.yachiyo`，Windows 默认是 `C:\Users\<你>\.yachiyo`。
 
 - `config.toml` —— 供应商、工具、技能、记忆和网页搜索设置
 - `channels.toml` —— Telegram / QQ / Discord 凭据，与 `config.toml` 分开存放，机器人 token 不会和其他设置混在一起
@@ -102,7 +103,7 @@ launchctl list | grep sh.ringo.yachiyo
 
 ## 更新
 
-使用应用内更新，或安装新版发布文件。macOS 替换 `/Applications` 里的应用；Windows 运行新版 `.exe`。更新不会碰八千代主目录 —— 设置、历史记录、工作区和自定义技能都会保留。`skills/core/` 下的内置核心技能每次启动都会重新解压，所以对它们的本地修改不会保留；自己写的东西请放进 `skills/custom/`。
+使用应用内更新，或安装新版发布文件。macOS 替换 `/Applications` 里的应用；Windows 运行新版 `.exe`；Linux 替换 AppImage 或安装新版 `.deb`。更新不会碰八千代主目录 —— 设置、历史记录、工作区和自定义技能都会保留。`skills/core/` 下的内置核心技能每次启动都会重新解压，所以对它们的本地修改不会保留；自己写的东西请放进 `skills/custom/`。
 
 ## 在 Windows 上卸载
 

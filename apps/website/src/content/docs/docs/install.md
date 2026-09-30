@@ -5,8 +5,9 @@ description: Download Yachiyo, launch it for the first time, and get the yachiyo
 
 ## Requirements
 
-Yachiyo supports macOS and Windows 11 x64. Windows 10, Windows on ARM, and Linux
-are not supported release targets.
+Yachiyo supports macOS and Windows 11 x64, with experimental Linux x64 builds.
+Linux requires a graphical desktop session. Windows 10, Windows on ARM, and
+Linux ARM are not supported release targets.
 
 You also need an API key for at least one model provider. Yachiyo does not ship
 with a bundled model or a hosted account — see [Providers and
@@ -19,6 +20,9 @@ Grab the matching artifact from the
 
 - **macOS:** open the macOS release and move **Yachiyo** into `/Applications`.
 - **Windows 11 x64:** run `yachiyo-<version>-setup.exe`.
+- **Linux x64 (experimental):** make `yachiyo-<version>.AppImage` executable and
+  launch it, or install `yachiyo-<version>.deb` with your Debian/Ubuntu package manager.
+  AppImage runtime requirements depend on your distribution.
 
 The Windows installer is intentionally unsigned. Windows therefore shows an
 **Unknown publisher** warning. Check that the filename and download source are
@@ -28,7 +32,7 @@ expected; it does not mean the installer silently gained a publisher identity.
 ## First launch
 
 On first launch Yachiyo creates its home directory and populates it. The default
-is `~/.yachiyo` on macOS and `C:\Users\<you>\.yachiyo` on Windows.
+is `~/.yachiyo` on macOS/Linux and `C:\Users\<you>\.yachiyo` on Windows.
 
 - `config.toml` — providers, tools, skills, memory, and web search settings
 - `channels.toml` — Telegram / QQ / Discord credentials, kept separate from
@@ -130,7 +134,8 @@ launchctl list | grep sh.ringo.yachiyo
 ## Updating
 
 Use the in-app updater or install the newer release artifact. On macOS, replace
-the app in `/Applications`; on Windows, run the newer `.exe`. Updates do not
+the app in `/Applications`; on Windows, run the newer `.exe`; on Linux, replace
+the AppImage or install the newer `.deb`. Updates do not
 touch your Yachiyo home — settings, history, workspaces, and custom skills all
 survive. Bundled core skills under `skills/core/` are re-extracted on each
 launch, so local edits to those are not preserved; put your own work in

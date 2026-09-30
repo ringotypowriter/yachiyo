@@ -15,9 +15,11 @@ breaks, when you want the underlying detail, or when you need it scripted.
 
 ## Is there a Windows or Linux build?
 
-Yachiyo supports macOS and Windows 11 x64. The Windows NSIS installer is
-unsigned, so an **Unknown publisher** warning is expected. Windows 10, Windows
-on ARM, and Linux are not supported release targets.
+Yachiyo supports macOS and Windows 11 x64, with experimental Linux x64 AppImage
+and Debian packages. Linux requires a graphical desktop session, and macOS-only
+integrations are unavailable. The Windows NSIS installer is unsigned, so an
+**Unknown publisher** warning is expected. Windows 10, Windows on ARM, and Linux
+ARM are not supported release targets.
 
 Windows v1 does not provide Activity/OCR, launch on login, keep awake, Kagete,
 Ghostty control, macOS app automation, or the macOS screenshot skill. Those

@@ -119,7 +119,7 @@ jobs:
 
       - name: Test Linux platform and Remote behavior
         run: |
-          node --experimental-strip-types --test packages/runtime/src/runtime/shell/shellRuntime.test.ts scripts/download-bundled-binaries.test.ts apps/desktop/src/main/electron/updateFeed.test.ts
+          node --experimental-strip-types --test packages/runtime/src/runtime/shell/shellRuntime.test.ts scripts/download-bundled-binaries.test.ts scripts/release-workflows.test.ts scripts/sync-release-to-r2.test.ts apps/desktop/src/main/electron/updateFeed.test.ts
           pnpm run test:remote
 
       - name: Build Linux desktop and native helpers
@@ -143,4 +143,5 @@ jobs:
           path: |
             apps/desktop/dist/*.AppImage
             apps/desktop/dist/*.deb
+            apps/desktop/dist/latest-linux.yml
           if-no-files-found: error
