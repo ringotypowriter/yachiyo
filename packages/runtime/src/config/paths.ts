@@ -12,6 +12,8 @@ export const YACHIYO_CHANNELS_FILE_NAME = 'channels.toml'
 export const YACHIYO_ACTIVITY_SOURCE_KEY_FILE_NAME = 'activity-source.key'
 export const YACHIYO_PROVIDER_CREDENTIAL_KEY_FILE_NAME = 'provider-credentials.key'
 export const YACHIYO_PROVIDER_CREDENTIAL_VAULT_FILE_NAME = 'provider-credentials.enc'
+export const YACHIYO_PLAINTEXT_PROVIDER_CREDENTIAL_VAULT_FILE_NAME =
+  'provider-credentials.plaintext.json'
 export const YACHIYO_SOCKET_FILE_NAME = 'yachiyo.sock'
 export const YACHIYO_TEMP_WORKSPACE_DIR_NAME = 'temp-workspace'
 export const YACHIYO_WEB_SEARCH_DIR_NAME = 'web-search'
@@ -66,6 +68,12 @@ export function resolveYachiyoProviderCredentialVaultPath(
   baseDir = resolveYachiyoDataDir()
 ): string {
   return join(baseDir, YACHIYO_PROVIDER_CREDENTIAL_VAULT_FILE_NAME)
+}
+
+export function resolveYachiyoPlaintextProviderCredentialVaultPath(
+  baseDir = resolveYachiyoDataDir()
+): string {
+  return join(baseDir, YACHIYO_PLAINTEXT_PROVIDER_CREDENTIAL_VAULT_FILE_NAME)
 }
 
 export function resolveYachiyoCommandEndpoint(): CommandEndpoint {

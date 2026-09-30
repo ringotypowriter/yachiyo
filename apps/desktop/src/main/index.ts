@@ -24,7 +24,7 @@ import {
   hydrateProcessEnvFromLoginShell,
   hydrateProxyFromSystemSettings
 } from './electron/userShellEnv'
-import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
+import { resolveYachiyoDataDir, resolveYachiyoSettingsPath } from '@yachiyo/runtime/config/paths'
 import {
   registerYachiyoGateway,
   type YachiyoGatewayHandle
@@ -40,7 +40,11 @@ import {
 } from './electron/desktopStartup'
 import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
-import { createElectronProviderCredentialVault } from './security/providerCredentials'
+import {
+  createElectronCliProviderCredentialVault,
+  prepareElectronProviderCredentials,
+  isPlaintextProviderCredentialMode
+} from './security/providerCredentials'
 import {
   buildAuxiliaryWindowOptions,
   buildMainWindowOptions,
@@ -66,7 +70,15 @@ log.errorHandler.startCatching({ showDialog: false })
 const APP_NAME = 'Yachiyo'
 const CLI_MARKER = '--yachiyo-cli'
 const cliMarkerIndex = process.argv.indexOf(CLI_MARKER)
-const headlessCliArgs = cliMarkerIndex >= 0 ? process.argv.slice(cliMarkerIndex + 1) : null
+const headlessCliArgs =
+  cliMarkerIndex >= 0
+    ? process.argv
+        .slice(cliMarkerIndex + 1)
+        .filter(
+          (arg) =>
+            arg !== '--yachiyo-plaintext-credentials' && arg !== '--yachiyo-encrypted-credentials'
+        )
+    : null
 
 app.setName(APP_NAME)
 
@@ -133,6 +145,9 @@ function openTranslatorWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      additionalArguments: isPlaintextProviderCredentialMode()
+        ? ['--yachiyo-plaintext-credentials']
+        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -186,6 +201,9 @@ function openJotdownWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      additionalArguments: isPlaintextProviderCredentialMode()
+        ? ['--yachiyo-plaintext-credentials']
+        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -246,6 +264,9 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      additionalArguments: isPlaintextProviderCredentialMode()
+        ? ['--yachiyo-plaintext-credentials']
+        : [],
       sandbox: true,
       contextIsolation: true
     }
@@ -303,7 +324,7 @@ async function startDesktop(): Promise<void> {
       await runYachiyoCli(headlessCliArgs, {
         createConfigService: (settingsPath) =>
           createDefaultConfigService(settingsPath, {
-            providerCredentialVault: createElectronProviderCredentialVault(settingsPath)
+            providerCredentialVault: createElectronCliProviderCredentialVault(settingsPath)
           })
       })
       app.exit(0)
@@ -312,6 +333,11 @@ async function startDesktop(): Promise<void> {
       process.stderr.write(`Error: ${message}\n`)
       app.exit(1)
     }
+    return
+  }
+
+  if (!(await prepareElectronProviderCredentials(resolveYachiyoSettingsPath(), false))) {
+    app.quit()
     return
   }
 

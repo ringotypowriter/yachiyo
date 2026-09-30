@@ -4,6 +4,8 @@ export const shell = {
   wakingUp: 'Yachiyo is waking up',
   unableToConnect: 'Unable to connect',
   waitingForLocalServer: 'Waiting for the local server',
+  plaintextCredentialsWarning:
+    'Plaintext credential mode: API keys are stored unencrypted and readable by any process with file access. Remote requires encrypted mode and an unlocked system wallet.',
   ok: 'OK',
   processing: 'Processing',
   whatsNew: "What's new in v{version}",

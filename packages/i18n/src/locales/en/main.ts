@@ -13,6 +13,15 @@ export const main = {
       'The SQLite native module is missing or incompatible with Electron. Use the pinned Node/pnpm toolchain, install dependencies, and run pnpm run native:prepare from the repository before starting Yachiyo.',
     quit: 'Quit'
   },
+  credentialStorage: {
+    title: 'Provider credential storage',
+    message: 'Continue with unencrypted provider credentials?',
+    existing: 'Separate plaintext credentials exist. Choose storage for this session.',
+    detail:
+      'Plaintext mode stores API keys and provider private keys unencrypted in provider-credentials.plaintext.json. Anyone or any process with access to that file can read them. Existing encrypted credentials stay untouched and are unavailable in plaintext mode. The two stores are never merged automatically. Remote access is unavailable in plaintext mode. Quit is the default.',
+    plaintext: 'Use plaintext for this session',
+    encrypted: 'Use encrypted credentials'
+  },
   menu: {
     settings: 'Settings...',
     file: 'File',

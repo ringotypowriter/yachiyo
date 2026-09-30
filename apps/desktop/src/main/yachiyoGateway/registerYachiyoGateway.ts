@@ -127,7 +127,7 @@ import pyReplRunnerPath from '@yachiyo/runtime/tools/agentTools/pyReplRunner.py?
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import {
   createElectronProviderCredentialVault,
-  unlockElectronProviderCredentialKey
+  getProviderCredentialRuntimeStartupData
 } from '../security/providerCredentials.ts'
 import {
   generateDiffForRun,
@@ -646,7 +646,7 @@ function startUtilityRuntime(): void {
     entryPath: join(__dirname, 'runtime-host.js'),
     isDev: is.dev,
     startupData: {
-      providerCredentialKey: unlockElectronProviderCredentialKey(resolveYachiyoSettingsPath()),
+      ...getProviderCredentialRuntimeStartupData(resolveYachiyoSettingsPath()),
       runAdmissionOwnerId: getRunAdmissionOwnerId()
     },
     mainServicesTarget: {
