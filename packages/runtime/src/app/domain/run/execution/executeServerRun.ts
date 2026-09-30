@@ -186,7 +186,8 @@ function buildActualToolReminder(input: {
       input.executionInput.previousEnabledTools
         ? buildToolAvailabilityReminderSection({
             previousEnabledTools: input.executionInput.previousEnabledTools,
-            enabledTools: input.enabledTools
+            enabledTools: input.enabledTools,
+            runMode: input.preparedContext.runMode
           })
         : null,
       input.executionInput.previousRunMode
@@ -196,7 +197,10 @@ function buildActualToolReminder(input: {
             enabledTools: input.enabledTools
           })
         : null,
-      buildDisabledToolsReminderSection({ enabledTools: input.enabledTools })
+      buildDisabledToolsReminderSection({
+        enabledTools: input.enabledTools,
+        runMode: input.preparedContext.runMode
+      })
     ].flatMap((section) => (section ? [section] : []))
   )
 }

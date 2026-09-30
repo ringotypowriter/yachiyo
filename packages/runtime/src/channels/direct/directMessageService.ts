@@ -82,7 +82,7 @@ export function resolveChannelToolPreset(
   }
   const mode = thread.runMode
   const resolved =
-    mode === 'auto' || mode === 'explore' || mode === 'plan' || mode === 'chat'
+    mode === 'auto' || mode === 'code' || mode === 'explore' || mode === 'plan' || mode === 'chat'
       ? mode
       : OWNER_DEFAULT_CHANNEL_MODE
   return resolveRunModeEnabledTools(resolved)

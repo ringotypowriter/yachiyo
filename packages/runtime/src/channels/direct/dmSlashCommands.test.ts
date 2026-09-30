@@ -670,7 +670,7 @@ describe('handleDmSlashCommand', () => {
       assert.equal(sent.length, 1)
       assert.match(sent[0], /Current mode: Auto/)
       assert.ok(sent[0].includes('auto (current)'))
-      for (const modeId of ['auto', 'explore', 'plan', 'chat']) {
+      for (const modeId of ['auto', 'code', 'explore', 'plan', 'chat']) {
         assert.ok(sent[0].includes(modeId), `reply should list ${modeId}, got: ${sent[0]}`)
       }
       assert.ok(sent[0].includes('Send /mode <name> to switch.'))

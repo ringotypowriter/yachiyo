@@ -26,8 +26,10 @@ import type { MemoryService } from '../services/memory/memoryService.ts'
 import type { ProcessBroker, ProcessJob } from '../services/processBroker/processBroker.ts'
 import { NodeProcessBrokerTestAdapter } from '../services/processBroker/nodeProcessBroker.testSupport.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
+import { createSearchService } from '../services/search/searchService.ts'
 import { ThingDomain } from '../app/domain/things/thingDomain.ts'
 import { buildBashCommand } from '../runtime/shell/shellRuntime.ts'
+import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void): Promise<void> {
   const workspacePath = await realpath(await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-')))
@@ -505,6 +507,64 @@ test('createAgentToolSet exposes sendThreadMessage only when local delivery is a
     { targetThreadId: 'thread-target', message: 'Please review the result.' }
   ])
   assert.equal(result?.error, undefined)
+})
+
+test('Code mode exposes file tools only through jsRepl', async () => {
+  await withWorkspace(async (workspacePath) => {
+    await writeFile(join(workspacePath, 'notes.txt'), 'hello code mode', 'utf8')
+    const tools = createAgentToolSet(
+      {
+        workspacePath,
+        runMode: 'code',
+        enabledTools: resolveRunModeEnabledTools('code')
+      },
+      { searchService: createSearchService() }
+    )
+    assert.ok(tools?.jsRepl)
+    for (const name of ['read', 'grep', 'glob', 'write', 'edit']) {
+      assert.equal(tools[name], undefined, `${name} must not have a top-level schema`)
+    }
+    const repl = tools.jsRepl as unknown as {
+      execute(input: { code: string }): Promise<{ details: { result?: string }; error?: string }>
+      dispose(): Promise<void>
+    }
+    try {
+      const result = await repl.execute({
+        code: `const results = await Promise.all([
+  tool.read({path: 'notes.txt'}),
+  tool.grep({pattern: 'hello code mode', path: '.'}),
+  tool.glob({pattern: '*.txt', path: '.'}),
+  tool.write({path: 'new.txt', content: 'before'}),
+]);
+results.push(await tool.edit({path: 'new.txt', mode: 'inline', oldText: 'before', newText: 'after'}));
+return JSON.stringify(results)`
+      })
+      assert.equal(result.error, undefined)
+      assert.match(result.details.result!, /hello code mode/)
+      assert.equal(await readFile(join(workspacePath, 'new.txt'), 'utf8'), 'after')
+    } finally {
+      await repl.dispose()
+    }
+  })
+})
+
+test('Code mode cannot bypass a restrictive tool preset through jsRepl', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const tools = createAgentToolSet({ workspacePath, runMode: 'code', enabledTools: ['jsRepl'] })
+    const repl = tools?.jsRepl as unknown as {
+      execute(input: { code: string }): Promise<{ details: { result?: string }; error?: string }>
+      dispose(): Promise<void>
+    }
+    try {
+      const result = await repl.execute({
+        code: `return await tool.write({path: 'blocked.txt', content: 'no'})`
+      })
+      assert.match(result.error ?? '', /not available/)
+      await assert.rejects(readFile(join(workspacePath, 'blocked.txt'), 'utf8'), /ENOENT/)
+    } finally {
+      await repl.dispose()
+    }
+  })
 })
 
 test('createAgentToolSet passes configured fetch into jsRepl', async () => {

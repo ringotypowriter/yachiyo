@@ -19,7 +19,7 @@ export const reasoningSelectionSchema = z
   .meta({ id: 'RemoteReasoningSelection' })
 
 export const runModeSchema = z
-  .enum(['auto', 'explore', 'plan', 'chat'])
+  .enum(['auto', 'code', 'explore', 'plan', 'chat'])
   .meta({ id: 'RemoteRunMode' })
 
 export const modelOverrideSchema = z

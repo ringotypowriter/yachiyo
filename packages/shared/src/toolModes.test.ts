@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { DEFAULT_ENABLED_TOOL_NAMES } from './protocol.ts'
+import { runModeSchema } from './remote/common.ts'
 import {
   EXPLORE_MODE_TOOL_NAMES,
   PLAN_MODE_TOOL_NAMES,
@@ -18,8 +19,24 @@ test('run mode definitions expose expected tool sets', () => {
   assert.deepEqual(resolveRunModeEnabledTools('chat'), [])
 })
 
-test('only Auto mode includes pyRepl', () => {
+test('Code mode hides direct file tools but keeps them accessible through jsRepl', () => {
+  const tools = resolveRunModeEnabledTools('code')
+  assert.deepEqual(
+    tools,
+    DEFAULT_ENABLED_TOOL_NAMES.filter(
+      (name) => !['read', 'grep', 'glob', 'write', 'edit'].includes(name)
+    )
+  )
+  assert.ok(tools.includes('jsRepl'))
+  assert.ok(tools.includes('bash'))
+  assert.equal(deriveRunModeId(tools), 'code')
+  assert.equal(normalizeRunModeId('code'), 'code')
+  assert.equal(runModeSchema.parse('code'), 'code')
+})
+
+test('Auto and Code modes include pyRepl', () => {
   assert.ok(resolveRunModeEnabledTools('auto').includes('pyRepl'))
+  assert.ok(resolveRunModeEnabledTools('code').includes('pyRepl'))
   assert.equal(resolveRunModeEnabledTools('explore').includes('pyRepl'), false)
   assert.equal(resolveRunModeEnabledTools('plan').includes('pyRepl'), false)
   assert.equal(resolveRunModeEnabledTools('chat').includes('pyRepl'), false)

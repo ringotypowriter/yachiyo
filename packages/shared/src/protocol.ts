@@ -197,7 +197,7 @@ export const CORE_TOOL_NAMES = [
   'exitPlanMode'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
-export type SelectableRunModeId = 'auto' | 'explore' | 'plan' | 'chat'
+export type SelectableRunModeId = 'auto' | 'code' | 'explore' | 'plan' | 'chat'
 export type RunModeId = SelectableRunModeId | 'custom'
 export type ToolCallStatus =
   | 'preparing'

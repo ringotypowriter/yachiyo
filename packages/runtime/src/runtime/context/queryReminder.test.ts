@@ -136,6 +136,28 @@ test('buildDisabledToolsReminderSection lists tools unavailable in the current m
   }
 })
 
+test('Code mode reminds the model that file tools remain available inside jsRepl', () => {
+  const section = buildDisabledToolsReminderSection({
+    runMode: 'code',
+    enabledTools: resolveRunModeEnabledTools('code')
+  })
+  assert.ok(section)
+  assert.match(section.lines.join('\n'), /read, grep, glob, write, edit.*jsRepl/)
+  assert.doesNotMatch(section.lines.join('\n'), /unavailable.*read, grep, glob, write, edit/)
+  const changed = buildRunModeChangedReminderSection({
+    previousRunMode: 'auto',
+    runMode: 'code',
+    enabledTools: resolveRunModeEnabledTools('code')
+  })
+  assert.match(changed?.lines.join('\n') ?? '', /Unavailable top-level tools:/)
+  const availability = buildToolAvailabilityReminderSection({
+    previousEnabledTools: resolveRunModeEnabledTools('auto'),
+    enabledTools: resolveRunModeEnabledTools('code'),
+    runMode: 'code'
+  })
+  assert.match(availability?.lines.join('\n') ?? '', /Unavailable top-level tools:/)
+})
+
 test('buildDisabledToolsReminderSection returns null when all default tools are enabled', () => {
   const section = buildDisabledToolsReminderSection({
     enabledTools: [...DEFAULT_ENABLED_TOOL_NAMES]

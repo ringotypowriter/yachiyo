@@ -14,6 +14,11 @@ export const chat = {
       shortLabel: '自动',
       description: '使用全部已启用的工具进行编码、浏览、上下文与自动化。'
     },
+    code: {
+      label: '代码模式',
+      shortLabel: '代码',
+      description: '优先使用 Shell 和 REPL；文件工具仅可通过 jsRepl 调用。'
+    },
     explore: {
       label: '探索模式',
       shortLabel: '探索',

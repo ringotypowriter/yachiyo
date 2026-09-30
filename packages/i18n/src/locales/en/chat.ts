@@ -14,6 +14,11 @@ export const chat = {
       shortLabel: 'Auto',
       description: 'Use every enabled tool for coding, browsing, context, and automation.'
     },
+    code: {
+      label: 'Code Mode',
+      shortLabel: 'Code',
+      description: 'Prefer shell and REPL; file tools are available through jsRepl, not directly.'
+    },
     explore: {
       label: 'Explore Mode',
       shortLabel: 'Explore',

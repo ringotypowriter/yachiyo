@@ -1,5 +1,9 @@
 import { USER_MANAGED_TOOL_NAMES, type RunModeId } from '@yachiyo/shared/protocol'
-import { RUN_MODE_DEFINITIONS } from '@yachiyo/shared/toolModes'
+import {
+  CODE_MODE_NESTED_TOOL_NAMES,
+  RUN_MODE_DEFINITIONS,
+  canUseCodeModeNestedFileTools
+} from '@yachiyo/shared/toolModes'
 
 export interface QueryReminderSection {
   key: string
@@ -11,19 +15,23 @@ function formatToolList(toolNames: readonly string[]): string {
   return toolNames.length > 0 ? toolNames.join(', ') : 'none'
 }
 
-function buildToolStateLines(input: { enabledTools: readonly string[] }): string[] {
+function buildToolStateLines(input: {
+  enabledTools: readonly string[]
+  runMode?: RunModeId
+}): string[] {
   const enabledTools = [...new Set(input.enabledTools)]
   const enabledToolSet = new Set(enabledTools)
   const disabledTools = USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
   return [
     `Enabled tools: ${formatToolList(enabledTools)}.`,
-    `Disabled tools: ${formatToolList(disabledTools)}.`
+    `${canUseCodeModeNestedFileTools(input.runMode, enabledTools) ? 'Unavailable top-level tools' : 'Disabled tools'}: ${formatToolList(disabledTools)}.`
   ]
 }
 
 export function buildToolAvailabilityReminderSection(input: {
   previousEnabledTools: readonly string[]
   enabledTools: readonly string[]
+  runMode?: RunModeId
 }): QueryReminderSection | null {
   const previousEnabledToolSet = new Set(input.previousEnabledTools)
   const enabledToolSet = new Set(input.enabledTools)
@@ -55,7 +63,7 @@ export function buildRunModeChangedReminderSection(input: {
   return {
     key: 'run-mode',
     title: `Mode changed to ${mode.label} for this turn`,
-    lines: [mode.description, ...buildToolStateLines({ enabledTools: input.enabledTools })]
+    lines: [mode.description, ...buildToolStateLines(input)]
   }
 }
 
@@ -80,11 +88,17 @@ export function buildWorkspaceChangedReminderSection(input: {
 
 export function buildDisabledToolsReminderSection(input: {
   enabledTools: readonly string[]
+  runMode?: RunModeId
 }): QueryReminderSection | null {
   const enabledToolSet = new Set(input.enabledTools)
-  const disabledTools = USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
+  const nestedFileTools = canUseCodeModeNestedFileTools(input.runMode, input.enabledTools)
+  const disabledTools = USER_MANAGED_TOOL_NAMES.filter(
+    (toolName) =>
+      !enabledToolSet.has(toolName) &&
+      !(nestedFileTools && CODE_MODE_NESTED_TOOL_NAMES.some((nested) => nested === toolName))
+  )
 
-  if (disabledTools.length === 0) {
+  if (disabledTools.length === 0 && !nestedFileTools) {
     return null
   }
 
@@ -92,8 +106,17 @@ export function buildDisabledToolsReminderSection(input: {
     key: 'disabled-tools',
     title: 'Unavailable tools',
     lines: [
-      `The following tools are unavailable in this turn's mode or context and will reject calls: ${disabledTools.join(', ')}.`,
-      'Do not attempt to use them unless the mode or context changes.'
+      ...(disabledTools.length > 0
+        ? [
+            `The following tools are unavailable in this turn's mode or context and will reject calls: ${disabledTools.join(', ')}.`,
+            'Do not attempt to use them unless the mode or context changes.'
+          ]
+        : []),
+      ...(nestedFileTools
+        ? [
+            `Direct read, grep, glob, write, edit tools are hidden; call them through jsRepl as tool.<name> instead.`
+          ]
+        : [])
     ]
   }
 }

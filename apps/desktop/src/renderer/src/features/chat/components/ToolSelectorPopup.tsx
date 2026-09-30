@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Map, MessageSquare, Telescope, Wrench, Zap } from 'lucide-react'
+import { Check, Code2, Map, MessageSquare, Telescope, Wrench, Zap } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -18,6 +18,7 @@ const MODE_LIST_MAX_HEIGHT = 320
 // be added here (unknown names fall back to Wrench, which shows up in review).
 const MODE_ICONS: Record<string, React.ElementType> = {
   Zap,
+  Code2,
   Telescope,
   Map,
   MessageSquare

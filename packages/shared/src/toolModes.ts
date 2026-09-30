@@ -35,6 +35,23 @@ export const PLAN_MODE_TOOL_NAMES: readonly ToolCallName[] = [
   'bash'
 ]
 
+export const CODE_MODE_NESTED_TOOL_NAMES = ['read', 'grep', 'glob', 'write', 'edit'] as const
+export const CODE_MODE_TOOL_NAMES: readonly ToolCallName[] = DEFAULT_ENABLED_TOOL_NAMES.filter(
+  (name) => !CODE_MODE_NESTED_TOOL_NAMES.some((nested) => nested === name)
+)
+
+export function canUseCodeModeNestedFileTools(
+  runMode: RunModeId | undefined,
+  enabledTools: readonly string[]
+): boolean {
+  const enabled = new Set(enabledTools)
+  return (
+    runMode === 'code' &&
+    enabled.has('jsRepl') &&
+    CODE_MODE_TOOL_NAMES.every((name) => name === 'pyRepl' || enabled.has(name))
+  )
+}
+
 export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition> = {
   auto: {
     id: 'auto',
@@ -44,6 +61,15 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
     seasoningKey: 'auto',
     iconName: 'Zap'
+  },
+  code: {
+    id: 'code',
+    label: 'Code Mode',
+    shortLabel: 'Code',
+    description: 'Prefer shell and REPL; file tools are available through jsRepl, not directly.',
+    enabledTools: CODE_MODE_TOOL_NAMES,
+    seasoningKey: 'code',
+    iconName: 'Code2'
   },
   explore: {
     id: 'explore',
@@ -76,6 +102,7 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
 
 export const SELECTABLE_RUN_MODE_IDS: readonly SelectableRunModeId[] = [
   'auto',
+  'code',
   'explore',
   'plan',
   'chat'
@@ -107,7 +134,11 @@ export function normalizeRunModeId(
   value: unknown,
   fallback: SelectableRunModeId = 'auto'
 ): SelectableRunModeId {
-  return value === 'auto' || value === 'explore' || value === 'plan' || value === 'chat'
+  return value === 'auto' ||
+    value === 'code' ||
+    value === 'explore' ||
+    value === 'plan' ||
+    value === 'chat'
     ? value
     : fallback
 }
@@ -120,6 +151,7 @@ export function resolveRunModeId(input: {
 }): RunModeId {
   if (
     input.runMode === 'auto' ||
+    input.runMode === 'code' ||
     input.runMode === 'explore' ||
     input.runMode === 'plan' ||
     input.runMode === 'chat'

@@ -1,4 +1,8 @@
 import type { Tool, ToolSet } from 'ai'
+import {
+  CODE_MODE_NESTED_TOOL_NAMES,
+  canUseCodeModeNestedFileTools
+} from '@yachiyo/shared/toolModes'
 
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
@@ -927,6 +931,21 @@ export function createAgentToolSet(
     normalizeEnabledTools(context.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   )
   const enabledToolNames = new Set<string>(enabledTools)
+  // A partial tool preset is a restriction, not a request to restore hidden Code tools.
+  const codeFileToolsAvailable = canUseCodeModeNestedFileTools(context.runMode, [...enabledTools])
+  const nestedFileTools: ToolSet = codeFileToolsAvailable
+    ? {
+        read: createReadTool(context),
+        write: createWriteTool(context),
+        edit: createEditTool(context),
+        ...(dependencies.searchService
+          ? {
+              grep: createGrepTool(context, { searchService: dependencies.searchService }),
+              glob: createGlobTool(context, { searchService: dependencies.searchService })
+            }
+          : {})
+      }
+    : {}
   const registerOnlyEnabledToolSchemas = context.registerOnlyEnabledToolSchemas === true
   const shouldRegisterTool = (toolName: ToolCallName): boolean =>
     !registerOnlyEnabledToolSchemas || enabledTools.has(toolName)
@@ -934,11 +953,13 @@ export function createAgentToolSet(
   const tools: ToolSet = {}
   const canCallReplTool = (name: string): boolean =>
     !isReplToolName(name) &&
-    enabledToolNames.has(name) &&
+    (enabledToolNames.has(name) ||
+      (codeFileToolsAvailable && CODE_MODE_NESTED_TOOL_NAMES.some((nested) => nested === name))) &&
     (context.jsReplMode !== 'orchestration' || isOrchestrationTool(name))
   const resolveReplTool = (name: string): unknown =>
-    canCallReplTool(name) ? tools[name] : undefined
-  const listReplToolNames = (): string[] => Object.keys(tools).filter(canCallReplTool)
+    canCallReplTool(name) ? (nestedFileTools[name] ?? tools[name]) : undefined
+  const listReplToolNames = (): string[] =>
+    [...Object.keys(tools), ...Object.keys(nestedFileTools)].filter(canCallReplTool)
 
   // --- User-managed tools: always registered for cache stability ---
   // When no user-managed tools are enabled the run is intentionally tool-free
@@ -947,13 +968,13 @@ export function createAgentToolSet(
   const hasAnyUserTool = USER_MANAGED_TOOL_NAMES.some((name) => enabledTools.has(name))
 
   if (hasAnyUserTool) {
-    if (shouldRegisterTool('read')) {
+    if (context.runMode !== 'code' && shouldRegisterTool('read')) {
       tools.read = wrapDisabledTool(createReadTool(context), 'read', enabledTools)
     }
-    if (shouldRegisterTool('write')) {
+    if (context.runMode !== 'code' && shouldRegisterTool('write')) {
       tools.write = wrapDisabledTool(createWriteTool(context), 'write', enabledTools)
     }
-    if (shouldRegisterTool('edit')) {
+    if (context.runMode !== 'code' && shouldRegisterTool('edit')) {
       tools.edit = wrapDisabledTool(createEditTool(context), 'edit', enabledTools)
     }
     if (shouldRegisterTool('bash')) {
@@ -1017,14 +1038,14 @@ export function createAgentToolSet(
     // Service-gated tools: only registered when the backing service is available.
     // Service availability is stable within a session so omitting them doesn't
     // cause cache churn — unlike user toggles which the wrapDisabledTool handles.
-    if (dependencies.searchService && shouldRegisterTool('grep')) {
+    if (context.runMode !== 'code' && dependencies.searchService && shouldRegisterTool('grep')) {
       tools.grep = wrapDisabledTool(
         createGrepTool(context, { searchService: dependencies.searchService }),
         'grep',
         enabledTools
       )
     }
-    if (dependencies.searchService && shouldRegisterTool('glob')) {
+    if (context.runMode !== 'code' && dependencies.searchService && shouldRegisterTool('glob')) {
       tools.glob = wrapDisabledTool(
         createGlobTool(context, { searchService: dependencies.searchService }),
         'glob',

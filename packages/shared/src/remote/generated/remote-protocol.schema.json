@@ -1949,6 +1949,7 @@
       "type": "string",
       "enum": [
         "auto",
+        "code",
         "explore",
         "plan",
         "chat"

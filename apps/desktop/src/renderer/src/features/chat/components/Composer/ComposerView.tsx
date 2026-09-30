@@ -5,6 +5,7 @@ import {
   Brain,
   ChevronDown,
   CircleCheck,
+  Code2,
   Cpu,
   Folder,
   LoaderCircle,
@@ -58,6 +59,7 @@ import {
 
 const MODE_ICON_MAP: Record<string, React.ElementType> = {
   auto: Zap,
+  code: Code2,
   explore: Telescope,
   plan: Map,
   chat: MessageSquare

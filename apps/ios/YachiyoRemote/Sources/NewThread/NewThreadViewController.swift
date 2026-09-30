@@ -390,12 +390,12 @@ final class NewThreadViewController: UIViewController {
         })
 
         var mode = UIButton.Configuration.gray()
-        mode.image = .lucide(["auto": "zap", "explore": "telescope", "plan": "map", "chat": "message-square"][runMode] ?? "zap")
+        mode.image = .lucide(["auto": "zap", "code": "file-code", "explore": "telescope", "plan": "map", "chat": "message-square"][runMode] ?? "zap")
         mode.imagePadding = 4
         mode.title = runMode.capitalized
         mode.cornerStyle = .capsule
         modeButton.configuration = mode
-        modeButton.menu = UIMenu(children: ["auto", "explore", "plan", "chat"].map { option in
+        modeButton.menu = UIMenu(children: ["auto", "code", "explore", "plan", "chat"].map { option in
             UIAction(title: option.capitalized, state: option == runMode ? .on : .off) { [weak self] _ in
                 self?.runMode = option
                 self?.updateButtons()

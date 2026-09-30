@@ -879,6 +879,7 @@ public struct RemoteModelOverride: Codable, Equatable, Sendable {
 public enum RemoteRunMode: String, Codable, Equatable, Sendable {
     case auto = "auto"
     case chat = "chat"
+    case code = "code"
     case explore = "explore"
     case plan = "plan"
 }
