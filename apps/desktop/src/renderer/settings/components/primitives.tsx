@@ -112,6 +112,7 @@ interface SimpleSelectOption<T extends string> {
 }
 
 interface SimpleSelectProps<T extends string> {
+  ariaLabel?: string
   value: T
   options: SimpleSelectOption<T>[]
   onChange: (value: T) => void
@@ -123,6 +124,7 @@ interface SimpleSelectProps<T extends string> {
 }
 
 export function SimpleSelect<T extends string>({
+  ariaLabel,
   value,
   options,
   onChange,
@@ -190,6 +192,7 @@ export function SimpleSelect<T extends string>({
         ref={triggerRef}
         type="button"
         onClick={() => (open ? handleClose() : handleOpen())}
+        aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
         style={{

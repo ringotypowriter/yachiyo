@@ -7,12 +7,19 @@ import {
   type SelectableRunModeId,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
+import { SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
 import { getToolModelConfig, resolveToolModelProvider } from '@yachiyo/shared/providerConfig'
 import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
 import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
 import { canOpenToolModelPicker } from '../../src/features/chat/lib/composer/modelSelectorState'
 import { RECAP_IDLE_LABEL } from '../../src/features/layout/lib/recapIdle'
-import { SettingItem, SettingLabel, SettingSection, SettingSwitch } from '../components/primitives'
+import {
+  SettingItem,
+  SettingLabel,
+  SettingSection,
+  SettingSwitch,
+  SimpleSelect
+} from '../components/primitives'
 import { inputStyle } from '../components/styles'
 
 interface ChatPaneProps {
@@ -189,27 +196,18 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
           label={t('settings.chat.defaultRunModeLabel')}
           description={t('settings.chat.defaultRunModeDesc')}
           control={
-            <select
+            <SimpleSelect<SelectableRunModeId>
               value={draft.chat?.defaultRunMode ?? 'auto'}
-              onChange={(event) =>
-                onChange({
-                  ...draft,
-                  chat: {
-                    ...draft.chat,
-                    defaultRunMode: event.target.value as SelectableRunModeId
-                  }
-                })
+              options={SELECTABLE_RUN_MODE_IDS.map((mode) => ({
+                value: mode,
+                label: t(`chat.modes.${mode}.shortLabel`)
+              }))}
+              onChange={(defaultRunMode) =>
+                onChange({ ...draft, chat: { ...draft.chat, defaultRunMode } })
               }
-              aria-label={t('settings.chat.defaultRunModeAria')}
-              className="rounded-lg px-2 py-1 text-xs"
-              style={inputStyle()}
-            >
-              {(['auto', 'code', 'explore', 'plan', 'chat'] as const).map((mode) => (
-                <option key={mode} value={mode}>
-                  {mode[0].toUpperCase() + mode.slice(1)}
-                </option>
-              ))}
-            </select>
+              ariaLabel={t('settings.chat.defaultRunModeAria')}
+              width={150}
+            />
           }
         />
 
