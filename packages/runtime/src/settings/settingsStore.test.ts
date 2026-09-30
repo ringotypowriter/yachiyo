@@ -629,6 +629,7 @@ test('toToolModelSettings resolves the configured auxiliary model snapshot', () 
 
 test('normalizeSettingsConfig falls back to the default active-run input behavior', () => {
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).chat, {
+    defaultRunMode: 'auto',
     minimalPrompt: false,
     activeRunEnterBehavior: 'enter-steers',
     stripCompact: true,
@@ -646,6 +647,7 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
       providers: []
     }).chat,
     {
+      defaultRunMode: 'auto',
       minimalPrompt: false,
       activeRunEnterBehavior: 'enter-steers',
       stripCompact: true,

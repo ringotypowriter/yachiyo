@@ -961,7 +961,7 @@ export function AppMainPanel({
             } ${isInspectionPanelOpen ? 'work-chat-shell--inspecting' : ''}`}
           >
             <motion.div
-              layout
+              layout={!readerOpen}
               className="work-chat-shell__timeline-row"
               transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             >

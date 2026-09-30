@@ -10,8 +10,8 @@ const tool = (id: string, status: ToolCallRecord['status'] = 'completed'): ToolC
   requestMessageId: 'request',
   toolName: 'read',
   status,
-  inputSummary: `/tmp/${id}`,
-  outputSummary: 'Read file',
+  inputSummary: status === 'preparing' ? '' : `/tmp/${id}`,
+  ...(status === 'completed' ? { outputSummary: 'Read file' } : {}),
   startedAt: new Date().toISOString()
 })
 const tick = async (): Promise<void> => {
@@ -31,7 +31,7 @@ test('summarizes the first completed tool early and persists only on deck head',
   scheduler.close()
 })
 
-test('coalesces in-flight results and never writes stale summaries after a text boundary', async () => {
+test('publishes an in-flight snapshot despite later calls and refreshes sealed decks', async () => {
   const pending: Array<(text: string) => void> = []
   const updates: ToolCallRecord[] = []
   const scheduler = createDeckSummaryScheduler({
@@ -47,15 +47,133 @@ test('coalesces in-flight results and never writes stale summaries after a text 
   assert.equal(pending.length, 1)
   pending[0]('Old deck')
   await tick()
-  assert.equal(updates.length, 0)
+  assert.equal(updates[0]?.id, 'a')
+  assert.equal(updates[0]?.deckSummary, 'Old deck')
   assert.equal(pending.length, 2)
   pending[1]('Refreshed old deck')
   await tick()
-  assert.equal(updates[0]?.id, 'a')
+  assert.equal(updates[1]?.id, 'a')
   assert.equal(pending.length, 3)
   pending[2]('New deck')
   await tick()
-  assert.equal(updates[1]?.id, 'c')
+  assert.equal(updates[2]?.id, 'c')
+  scheduler.close()
+})
+
+test('starts at first input-bearing running call, never at blank preparing state', async () => {
+  const prompts: ToolCallRecord[][] = []
+  const updates: ToolCallRecord[] = []
+  const scheduler = createDeckSummaryScheduler({
+    generate: async (calls) => {
+      prompts.push(calls)
+      return 'Reading source'
+    },
+    update: (call) => updates.push(call)
+  })
+  scheduler.start(tool('provisional', 'preparing'))
+  scheduler.start(tool('second', 'preparing'))
+  await tick()
+  assert.equal(prompts.length, 0)
+  scheduler.start(tool('canonical', 'running'), 'provisional')
+  assert.equal(prompts.length, 1)
+  assert.equal(prompts[0][0].id, 'canonical')
+  assert.equal(prompts[0][0].inputSummary, '/tmp/canonical')
+  assert.equal(prompts[0][0].outputSummary, undefined)
+  await tick()
+  assert.equal(updates[0]?.id, 'canonical')
+  scheduler.close()
+})
+
+test('fourteen rapid completions cannot starve the initial summary or bypass refresh throttle', async () => {
+  const pending: Array<(text: string) => void> = []
+  const prompts: string[] = []
+  const updates: ToolCallRecord[] = []
+  const scheduler = createDeckSummaryScheduler({
+    generate: (calls) => {
+      prompts.push(calls.map((call) => call.id).join(','))
+      return new Promise((resolve) => pending.push(resolve))
+    },
+    update: (call) => updates.push(call),
+    throttleMs: 80
+  })
+  scheduler.start(tool('first', 'preparing'))
+  scheduler.start(tool('first', 'running'))
+  assert.deepEqual(prompts, ['first'])
+  for (let index = 0; index < 14; index++) scheduler.complete(tool(`call-${index}`))
+  pending[0]('Reading source')
+  await tick()
+  assert.deepEqual(
+    updates.map((call) => call.deckSummary),
+    ['Reading source']
+  )
+  assert.equal(updates[0].id, 'first')
+  assert.equal(prompts.length, 1)
+  scheduler.finish()
+  assert.equal(prompts.length, 2)
+  assert.equal(prompts[1].split(',').length, 15)
+  pending[1]('Reviewing files')
+  await tick()
+  assert.equal(updates[1]?.deckSummary, 'Reviewing files')
+  scheduler.close()
+})
+
+test('subsequent rapid revisions coalesce into one throttled refresh', async () => {
+  const prompts: string[] = []
+  const updates: ToolCallRecord[] = []
+  const scheduler = createDeckSummaryScheduler({
+    generate: async (calls) => {
+      prompts.push(calls.map((call) => call.id).join(','))
+      return 'Work'
+    },
+    update: (call) => updates.push(call),
+    throttleMs: 60
+  })
+  scheduler.start(tool('first', 'running'))
+  await tick()
+  for (let index = 0; index < 14; index++) scheduler.complete(tool(`call-${index}`))
+  assert.deepEqual(prompts, ['first'])
+  await new Promise((resolve) => setTimeout(resolve, 90))
+  assert.equal(prompts.length, 2)
+  assert.equal(prompts[1].split(',').length, 15)
+  assert.deepEqual(
+    updates.map((call) => call.id),
+    ['first', 'first']
+  )
+  scheduler.close()
+})
+
+test('empty model output is not published or retried without a new revision', async () => {
+  let requests = 0
+  const updates: ToolCallRecord[] = []
+  const scheduler = createDeckSummaryScheduler({
+    generate: async () => {
+      requests++
+      return undefined
+    },
+    update: (call) => updates.push(call),
+    throttleMs: 20
+  })
+  scheduler.start(tool('first', 'running'))
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  assert.equal(requests, 1)
+  assert.deepEqual(updates, [])
+  scheduler.close()
+})
+
+test('a remapped preparing head retains its canonical ID when a prior snapshot resolves', async () => {
+  const pending: Array<(text: string) => void> = []
+  const updates: ToolCallRecord[] = []
+  const scheduler = createDeckSummaryScheduler({
+    generate: () => new Promise((resolve) => pending.push(resolve)),
+    update: (call) => updates.push(call),
+    throttleMs: 80
+  })
+  scheduler.start(tool('provisional', 'preparing'))
+  scheduler.start(tool('second', 'running'))
+  scheduler.start(tool('canonical', 'running'), 'provisional')
+  pending[0]('Reading files')
+  await tick()
+  assert.equal(updates[0]?.id, 'canonical')
   scheduler.close()
 })
 

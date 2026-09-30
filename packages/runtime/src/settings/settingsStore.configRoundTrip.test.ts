@@ -743,6 +743,7 @@ test('minimal prompt defaults off and survives TOML round trips', () => {
 
 test('normalization preserves every ChatConfig key', () => {
   const sentinel: Required<ChatConfig> = {
+    defaultRunMode: 'plan',
     minimalPrompt: true,
     activeRunEnterBehavior: 'enter-queues-follow-up',
     stripCompact: false,
@@ -999,4 +1000,19 @@ test('invalid remote values fall back to defaults field by field', () => {
     enabled: true,
     metricsPort: 9000
   })
+})
+
+test('default run mode round-trips and rejects invalid values', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-default-mode-'))
+  try {
+    const store = createSettingsStore(join(root, 'config.toml'))
+    store.write({ providers: [], chat: { defaultRunMode: 'explore' } })
+    assert.equal(store.read().chat?.defaultRunMode, 'explore')
+    assert.equal(
+      normalizeSettingsConfig({ chat: { defaultRunMode: 'custom' } }).chat?.defaultRunMode,
+      'auto'
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

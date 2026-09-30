@@ -142,9 +142,13 @@ test('a live deck summary collapses tool icons without hiding a waiting question
     await act(async () => root.render(React.createElement(InlineToolDeck, { toolCalls })))
   }
   try {
-    await render([first, { ...first, id: 'read-2', status: 'running' }])
+    await render([first, { ...first, id: 'read-2', toolName: 'bash', status: 'running' }])
     const toggle = document.querySelector('[data-tool-deck-toggle]')!
     assert.equal(toggle.textContent?.includes('Reading the workspace files'), true)
+    assert.equal((toggle as HTMLElement).style.background, 'transparent')
+    assert.equal(toggle.textContent?.includes('Work'), false)
+    assert.equal(toggle.querySelectorAll('[data-tool-deck-icons] svg').length, 2)
+    assert.ok(toggle.classList.contains('items-center'))
     assert.equal(toggle.getAttribute('aria-expanded'), 'false')
     assert.equal(document.querySelector('[data-tool-call-id]'), null)
     await act(async () => toggle.dispatchEvent(new window.Event('click', { bubbles: true })))

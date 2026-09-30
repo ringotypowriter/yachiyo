@@ -3,13 +3,10 @@
  *
  * Validates shell commands before execution to detect injection attacks
  * via misparsing differentials (control characters, carriage returns,
- * quote desync, etc.) that could allow an attacker to execute arbitrary
- * commands by exploiting how our validators parse commands differently
- * from how the shell actually executes them.
+ * quote desync, etc.) outside Code Mode.
  *
- * Design: only **misparsing-class** threats are blocked. The reference
- * implementation's "ask" category (suspicious but not misparsing) is
- * auto-accepted since the backend handles user approval externally.
+ * Code Mode blocks only the hard blacklist (self-launch and catastrophic rm).
+ * Other modes also reject parser ambiguities and overly broad scans.
  *
  * The main entry point is {@link validateBashCommand}.
  */
@@ -307,32 +304,12 @@ function findContainingTextRange(index: number, ranges: TextRange[]): TextRange 
   return ranges.find((range) => index >= range.start && index < range.end)
 }
 
-function removeTextRanges(content: string, ranges: TextRange[]): string {
-  let result = ''
-  let cursor = 0
-  for (const range of ranges) {
-    result += content.slice(cursor, range.start)
-    cursor = Math.max(cursor, range.end)
-  }
-  return result + content.slice(cursor)
-}
-
 function stripSafeRedirections(content: string): string {
   // SECURITY: All patterns MUST have a trailing boundary (?=\s|$).
   return content
     .replace(/\s+2\s*>&\s*1(?=\s|$)/g, '')
     .replace(/[012]?\s*>\s*\/dev\/null(?=\s|$)/g, '')
     .replace(/\s*<\s*\/dev\/null(?=\s|$)/g, '')
-}
-
-function isEscapedAtPosition(content: string, pos: number): boolean {
-  let backslashCount = 0
-  let i = pos - 1
-  while (i >= 0 && content[i] === '\\') {
-    backslashCount++
-    i--
-  }
-  return backslashCount % 2 === 1
 }
 
 function buildContext(command: string): ValidationContext {
@@ -589,87 +566,6 @@ function validateQuotedNewline(ctx: ValidationContext): SecurityResult {
         )
       }
     }
-  }
-
-  return ok
-}
-
-/**
- * Block brace expansion that could alter command parsing.
- * Bash expands `{a,b}` and `{1..5}` but regex parsers treat them as literal.
- */
-function validateBraceExpansion(ctx: ValidationContext): SecurityResult {
-  const heredocBodyRanges = findHeredocBodyRanges(ctx.originalCommand, {
-    requireQuotedDelimiter: true
-  })
-  let originalCommand = ctx.originalCommand
-  let content = ctx.fullyUnquotedPreStrip
-  if (heredocBodyRanges.length > 0) {
-    originalCommand = removeTextRanges(ctx.originalCommand, heredocBodyRanges)
-    content = extractQuotedContent(originalCommand, ctx.baseCommand === 'jq').fullyUnquoted
-  }
-
-  let unescapedOpenBraces = 0
-  let unescapedCloseBraces = 0
-  for (let i = 0; i < content.length; i++) {
-    if (content[i] === '{' && !isEscapedAtPosition(content, i)) unescapedOpenBraces++
-    else if (content[i] === '}' && !isEscapedAtPosition(content, i)) unescapedCloseBraces++
-  }
-
-  // Excess } means a quoted { was stripped → depth matching is unreliable
-  if (unescapedOpenBraces > 0 && unescapedCloseBraces > unescapedOpenBraces) {
-    return refused(
-      'Command has excess closing braces after quote stripping (possible brace expansion obfuscation).'
-    )
-  }
-
-  // Quoted brace inside an unquoted brace context
-  if (unescapedOpenBraces > 0 && /['"][{}]['"]/.test(originalCommand)) {
-    return refused(
-      'Command contains quoted brace character inside brace context (potential obfuscation).'
-    )
-  }
-
-  // Scan for actual brace expansion: {a,b} or {1..5}
-  for (let i = 0; i < content.length; i++) {
-    if (content[i] !== '{') continue
-    if (isEscapedAtPosition(content, i)) continue
-
-    let depth = 1
-    let matchingClose = -1
-    for (let j = i + 1; j < content.length; j++) {
-      const ch = content[j]!
-      if (ch === '{' && !isEscapedAtPosition(content, j)) depth++
-      else if (ch === '}' && !isEscapedAtPosition(content, j)) {
-        depth--
-        if (depth === 0) {
-          matchingClose = j
-          break
-        }
-      }
-    }
-
-    if (matchingClose === -1) continue
-
-    let innerDepth = 0
-    let looksLikeDict = false
-    for (let k = i + 1; k < matchingClose; k++) {
-      const ch = content[k]!
-      if (ch === '{' && !isEscapedAtPosition(content, k)) innerDepth++
-      else if (ch === '}' && !isEscapedAtPosition(content, k)) innerDepth--
-      else if (innerDepth === 0) {
-        // Top-level ':' means Python/JSON dict or bash ${var:-default} — not brace expansion.
-        // Real bash brace expansions ({a,b}, {1..5}) never have a colon at top level.
-        if (ch === ':') {
-          looksLikeDict = true
-          break
-        }
-        if (ch === ',' || (ch === '.' && k + 1 < matchingClose && content[k + 1] === '.')) {
-          return refused('Command contains brace expansion that could alter command parsing.')
-        }
-      }
-    }
-    if (looksLikeDict) continue
   }
 
   return ok
@@ -1356,14 +1252,11 @@ export function isBlockedBashCommand(command: string): boolean {
  * Returns a {@link SecurityResult}. When `blocked` is true, the command
  * must NOT be executed — the `message` explains why.
  *
- * Only misparsing-class threats (where our validator would parse the command
- * differently from bash) are blocked. Suspicious-but-correctly-parsed
- * patterns are auto-accepted.
+ * Code Mode only checks the hard blacklist. Other modes additionally reject
+ * misparsing-class commands and overly broad recursive scans.
  */
-export function validateBashCommand(command: string): SecurityResult {
+export function validateBashCommand(command: string, runMode?: 'code'): SecurityResult {
   if (!command.trim()) return ok
-
-  const ctx = buildContext(command)
 
   // --- Self-launch prevention ---
   if (isSelfLaunchCommand(command)) {
@@ -1379,6 +1272,11 @@ export function validateBashCommand(command: string): SecurityResult {
     return refused('Blocked an obviously catastrophic destructive command.')
   }
 
+  // Code Mode uses only the hard blacklist; parsing and scan-policy guards apply elsewhere.
+  if (runMode === 'code') return ok
+
+  const ctx = buildContext(command)
+
   // --- Misparsing-class validators (hard block) ---
   const misparsingValidators = [
     validateControlCharacters,
@@ -1387,8 +1285,7 @@ export function validateBashCommand(command: string): SecurityResult {
     validateBackslashEscapedWhitespace,
     validateBackslashEscapedOperators,
     validateMidWordHash,
-    validateQuotedNewline,
-    validateBraceExpansion
+    validateQuotedNewline
   ]
 
   for (const validator of misparsingValidators) {

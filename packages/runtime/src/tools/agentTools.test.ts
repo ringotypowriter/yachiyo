@@ -1174,6 +1174,37 @@ test('runBashTool refuses chained sleep commands that outlive the timeout', asyn
   })
 })
 
+test('Code Mode Bash skips syntax, scan, and chained-sleep guards but keeps the hard blacklist', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const commands: string[] = []
+    const runCommand = async ({
+      command
+    }: {
+      command: string
+    }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+      commands.push(command)
+      return { exitCode: 0, stdout: 'ok', stderr: '' }
+    }
+    for (const command of ['echo {a,b}', 'find /', 'sleep 90 && echo done']) {
+      const result = await runBashTool(
+        { command, description: 'check Code Mode policy', timeout: 60, background: false },
+        { workspacePath, runMode: 'code' },
+        { runCommand }
+      )
+      assert.equal(result.details.blocked, undefined)
+    }
+    assert.deepEqual(commands, ['echo {a,b}', 'find /', 'sleep 90 && echo done'])
+
+    const blocked = await runBashTool(
+      { command: 'rm -rf /', description: 'check blacklist', timeout: 60, background: false },
+      { workspacePath, runMode: 'code' },
+      { runCommand }
+    )
+    assert.equal(blocked.details.blocked, true)
+    assert.equal(commands.length, 3)
+  })
+})
+
 test('runBashTool lifts a timed-out command into a background task when adoption hook is provided', async () => {
   await withWorkspace(async (workspacePath) => {
     const adopted: Array<{ taskId: string; command: string; initialOutput: string }> = []

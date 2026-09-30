@@ -44,7 +44,7 @@ export function createDeckSummaryScheduler(input: {
     if (stopped || inFlight) return
     for (const deck of decks) {
       if (
-        !deck.calls.some((call) => call.status === 'completed' || call.status === 'failed') ||
+        !deck.calls.some((call) => call.status !== 'preparing') ||
         deck.revision === deck.summarizedRevision
       )
         continue
@@ -71,12 +71,15 @@ export function createDeckSummaryScheduler(input: {
     deck.timer = undefined
     inFlight = true
     deck.lastStartedAt = Date.now()
-    const snapshot = [...deck.calls]
+    // Preparing records have no input yet; the first running call can be summarized immediately.
+    const snapshot = deck.calls.filter((call) => call.status !== 'preparing')
     const revision = deck.revision
     try {
       const summary = (await input.generate(snapshot))?.trim()
-      if (!stopped && revision === deck.revision && summary) {
-        input.update({ ...snapshot[0], deckSummary: summary })
+      if (!stopped && summary && deck.calls[0]) {
+        // The snapshot is still valid after newer calls arrive. Use the current head so
+        // a provisional preparing ID remapped during generation is never published.
+        input.update({ ...deck.calls[0], deckSummary: summary })
       }
     } catch {
       // Optional UI metadata must not interrupt tool execution or the main answer.

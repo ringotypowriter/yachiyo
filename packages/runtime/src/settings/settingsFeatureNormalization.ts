@@ -22,6 +22,7 @@ import {
   type WebSearchConfig,
   type WorkspaceConfig
 } from '@yachiyo/shared/protocol'
+import { normalizeRunModeId } from '@yachiyo/shared/toolModes'
 import { DEFAULT_SETTINGS_CONFIG } from './settingsDefaults.ts'
 import {
   asRecord,
@@ -150,6 +151,7 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
   const input = asRecord(value)
 
   return {
+    defaultRunMode: normalizeRunModeId(input['defaultRunMode']),
     minimalPrompt: normalizeOptionalBool(input['minimalPrompt'], false),
     activeRunEnterBehavior: normalizeActiveRunEnterBehavior(
       input['activeRunEnterBehavior'],

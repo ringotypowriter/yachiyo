@@ -517,3 +517,28 @@ test('setActiveThread restores each thread tool mode independently', () => {
     'webSearch'
   ])
 })
+
+test('new composer and new threads use configured mode without changing old threads', async () => {
+  resetStore()
+  const created: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      created.push(input)
+      return { id: 'thread-new', title: 'New Chat', updatedAt: TIMESTAMP }
+    }
+  })
+  try {
+    useAppStore.setState({
+      config: { providers: [], chat: { defaultRunMode: 'explore' } },
+      threads: [{ id: 'thread-old', title: 'Old', updatedAt: TIMESTAMP }]
+    })
+    assert.equal(getComposerToolMode(useAppStore.getState(), null).runMode, 'explore')
+    assert.equal(getComposerToolMode(useAppStore.getState(), 'thread-old').runMode, 'auto')
+    await useAppStore.getState().createNewThread()
+    assert.equal(useAppStore.getState().runMode, 'explore')
+    assert.deepEqual(useAppStore.getState().enabledTools, resolveRunModeEnabledTools('explore'))
+    assert.deepEqual(created, [{ runMode: 'explore' }])
+  } finally {
+    restoreWindow()
+  }
+})

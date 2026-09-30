@@ -32,8 +32,8 @@ runtime-managed and never appear here. See the [tool list](/docs/concepts/#tools
 runMode = "auto"
 ```
 
-Default run mode: `auto`, `explore`, `plan`, `chat`, or `custom`. Defaults to
-`auto`. See [run modes](/docs/concepts/#run-modes).
+Legacy field read from older files, but not saved or used as the default for new threads.
+Set `[chat].defaultRunMode` instead. See [run modes](/docs/concepts/#run-modes).
 
 ## `[general]`
 
@@ -68,15 +68,16 @@ Default run mode: `auto`, `explore`, `plan`, `chat`, or `custom`. Defaults to
 
 ## `[chat]`
 
-| Key                           | Type                                           | Default        | Description                                             |
-| ----------------------------- | ---------------------------------------------- | -------------- | ------------------------------------------------------- |
-| `activeRunEnterBehavior`      | `"enter-steers"` \| `"enter-queues-follow-up"` | `enter-steers` | What Enter does while a run is streaming                |
-| `stripCompact`                | `boolean`                                      | `true`         | Compact long thread history                             |
-| `stripCompactThresholdTokens` | `number`                                       | —              | Token count that triggers compaction                    |
-| `autoMemoryDistillation`      | `boolean`                                      | `true`         | Save memories automatically                             |
-| `inputBufferEnabled`          | `boolean`                                      | `false`        | Buffer typing before sending                            |
-| `recapEnabled`                | `boolean`                                      | `true`         | Recap context on resume                                 |
-| `imageToTextModel`            | `object`                                       | —              | `{ providerName, model }`; falls back to the tool model |
+| Key                           | Type                                                        | Default        | Description                                                                 |
+| ----------------------------- | ----------------------------------------------------------- | -------------- | --------------------------------------------------------------------------- |
+| `defaultRunMode`              | `"auto"` \| `"code"` \| `"explore"` \| `"plan"` \| `"chat"` | `auto`         | Default for new threads on Mac and iPhone; existing threads keep their mode |
+| `activeRunEnterBehavior`      | `"enter-steers"` \| `"enter-queues-follow-up"`              | `enter-steers` | What Enter does while a run is streaming                                    |
+| `stripCompact`                | `boolean`                                                   | `true`         | Compact long thread history                                                 |
+| `stripCompactThresholdTokens` | `number`                                                    | —              | Token count that triggers compaction                                        |
+| `autoMemoryDistillation`      | `boolean`                                                   | `true`         | Save memories automatically                                                 |
+| `inputBufferEnabled`          | `boolean`                                                   | `false`        | Buffer typing before sending                                                |
+| `recapEnabled`                | `boolean`                                                   | `true`         | Recap context on resume                                                     |
+| `imageToTextModel`            | `object`                                                    | —              | `{ providerName, model }`; falls back to the tool model                     |
 
 ## `[workspace]`
 

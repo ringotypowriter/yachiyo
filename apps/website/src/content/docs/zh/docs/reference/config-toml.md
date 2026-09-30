@@ -21,7 +21,7 @@ enabledTools = ["read", "write", "edit", "bash", "grep", "glob", "webSearch"]
 runMode = "auto"
 ```
 
-默认运行模式：`auto`、`explore`、`plan`、`chat` 或 `custom`。默认为 `auto`。见[运行模式](/zh/docs/concepts/#运行模式)。
+旧配置字段：仍可读取，但不会保存，也不决定新会话的默认模式。请改用 `[chat].defaultRunMode`。见[运行模式](/zh/docs/concepts/#运行模式)。
 
 ## `[general]`
 
@@ -56,15 +56,16 @@ runMode = "auto"
 
 ## `[chat]`
 
-| 键                            | 类型                                           | 默认           | 说明                                      |
-| ----------------------------- | ---------------------------------------------- | -------------- | ----------------------------------------- |
-| `activeRunEnterBehavior`      | `"enter-steers"` \| `"enter-queues-follow-up"` | `enter-steers` | 运行流式输出时回车做什么                  |
-| `stripCompact`                | `boolean`                                      | `true`         | 压缩过长的线程历史                        |
-| `stripCompactThresholdTokens` | `number`                                       | ——             | 触发压缩的 token 数                       |
-| `autoMemoryDistillation`      | `boolean`                                      | `true`         | 自动保存记忆                              |
-| `inputBufferEnabled`          | `boolean`                                      | `false`        | 发送前缓冲输入                            |
-| `recapEnabled`                | `boolean`                                      | `true`         | 恢复时回顾上下文                          |
-| `imageToTextModel`            | `object`                                       | ——             | `{ providerName, model }`；回落到工具模型 |
+| 键                            | 类型                                                        | 默认           | 说明                                           |
+| ----------------------------- | ----------------------------------------------------------- | -------------- | ---------------------------------------------- |
+| `defaultRunMode`              | `"auto"` \| `"code"` \| `"explore"` \| `"plan"` \| `"chat"` | `auto`         | Mac 与手机新会话的默认模式；已有会话保留原模式 |
+| `activeRunEnterBehavior`      | `"enter-steers"` \| `"enter-queues-follow-up"`              | `enter-steers` | 运行流式输出时回车做什么                       |
+| `stripCompact`                | `boolean`                                                   | `true`         | 压缩过长的线程历史                             |
+| `stripCompactThresholdTokens` | `number`                                                    | ——             | 触发压缩的 token 数                            |
+| `autoMemoryDistillation`      | `boolean`                                                   | `true`         | 自动保存记忆                                   |
+| `inputBufferEnabled`          | `boolean`                                                   | `false`        | 发送前缓冲输入                                 |
+| `recapEnabled`                | `boolean`                                                   | `true`         | 恢复时回顾上下文                               |
+| `imageToTextModel`            | `object`                                                    | ——             | `{ providerName, model }`；回落到工具模型      |
 
 ## `[workspace]`
 

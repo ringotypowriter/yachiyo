@@ -172,6 +172,7 @@ export function InlineToolDeck({
   const summary = buildToolCallRowSummary(displayedSummaryToolCall, workspacePath)
   const summaryIsFailed = displayedSummaryToolCall.status === 'failed'
   const iconStackOverlap = getToolIconStackOverlap(displayedToolCalls.length)
+  const deckIconNames = [...new Set(displayedToolCalls.map((call) => call.toolName))].slice(0, 2)
 
   return (
     <div ref={deckRef} className="px-6 py-1" data-tool-deck>
@@ -180,26 +181,34 @@ export function InlineToolDeck({
           type="button"
           data-tool-deck-toggle
           aria-expanded={showDeckContents}
-          className="flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left"
-          style={{ background: theme.background.hover, color: theme.text.secondary, border: 0 }}
+          className="inline-flex max-w-full min-w-0 items-center gap-2 py-0.5 text-left"
+          style={{ background: 'transparent', color: theme.text.secondary, border: 0 }}
           onClick={() => {
             setIsDeckExpanded(showDeckContents ? false : true)
             if (showDeckContents) setSelection(null)
           }}
         >
           <span
-            className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${displayedToolCalls.some(isForegroundToolCall) ? 'yachiyo-running-pulse' : ''}`}
+            data-tool-deck-icons
+            className="flex shrink-0 items-center gap-1"
             style={{
-              background: displayedToolCalls.some(isForegroundToolCall)
-                ? theme.text.accent
-                : theme.text.muted
+              color: displayedToolCalls.some((call) => call.status === 'failed')
+                ? theme.text.danger
+                : displayedToolCalls.some(isForegroundToolCall)
+                  ? theme.text.accent
+                  : theme.text.muted
             }}
             aria-hidden="true"
-          />
-          <span className="min-w-0 flex-1 text-xs leading-5">{deckSummary}</span>
+          >
+            {deckIconNames.map((toolName) => {
+              const Icon = getToolCallIcon(toolName)
+              return <Icon key={toolName} size={13} strokeWidth={1.8} />
+            })}
+          </span>
+          <span className="min-w-0 truncate text-xs leading-5">{deckSummary}</span>
           <ChevronDown
             size={14}
-            className="mt-0.5 shrink-0"
+            className="shrink-0"
             style={{ transform: showDeckContents ? 'rotate(180deg)' : undefined }}
             aria-hidden="true"
           />

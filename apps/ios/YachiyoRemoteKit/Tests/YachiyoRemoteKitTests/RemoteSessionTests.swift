@@ -157,7 +157,9 @@ final class RemoteSessionTests: XCTestCase {
                                        remoteStaticKey: NoiseKeyPair.publicKey(forPrivate: desktopPrivateKey))
         try await channel.send(Data([0x01]) + noise.writeMessage1(payload: Data("{}".utf8)))
         _ = try noise.readMessage2(try await channel.receive())
-        let client = RemoteClient(channel: channel, transport: try noise.split(), callTimeout: .milliseconds(150))
+        // Keep the idle limit below the 600 ms reply, with room for CI scheduling jitter
+        // between the 50 ms frames.
+        let client = RemoteClient(channel: channel, transport: try noise.split(), callTimeout: .milliseconds(300))
         defer { client.close() }
         let drain = Task { for await _ in client.pushes {} }
         defer { drain.cancel() }

@@ -137,7 +137,10 @@ export const remoteMethods = {
   },
   'models.listSelectable': {
     input: z.object({}),
-    output: z.object({ models: z.array(remoteSelectableModelSchema) })
+    output: z.object({
+      models: z.array(remoteSelectableModelSchema),
+      defaultRunMode: runModeSchema.optional()
+    })
   },
   'chat.send': {
     input: z.object({

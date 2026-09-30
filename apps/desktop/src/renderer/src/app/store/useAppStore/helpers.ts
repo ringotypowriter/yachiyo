@@ -22,7 +22,11 @@ import {
   type SubagentSnapshot
 } from '@yachiyo/shared/protocol'
 import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
-import { deriveRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import {
+  deriveRunModeId,
+  normalizeRunModeId,
+  resolveRunModeEnabledTools
+} from '@yachiyo/shared/toolModes'
 import { getReasoningSelectorState } from '@yachiyo/shared/reasoningEffort'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
 import {
@@ -870,7 +874,7 @@ export function getComposerDraft(
 }
 
 export function getComposerToolMode(
-  state: Pick<AppState, 'activeThreadId' | 'threads' | 'toolModeByThread'>,
+  state: Pick<AppState, 'activeThreadId' | 'threads' | 'toolModeByThread' | 'config'>,
   threadId: string | null = state.activeThreadId
 ): ComposerToolMode {
   const key = getComposerDraftKey(threadId)
@@ -885,9 +889,11 @@ export function getComposerToolMode(
   }
 
   const thread = threadId ? findThread(state, threadId) : undefined
+  const defaultMode = threadId
+    ? DEFAULT_RUN_MODE_ID
+    : normalizeRunModeId(state.config?.chat?.defaultRunMode)
   const storedRunMode =
-    thread?.runMode ??
-    (thread?.enabledTools ? deriveRunModeId(thread.enabledTools) : DEFAULT_RUN_MODE_ID)
+    thread?.runMode ?? (thread?.enabledTools ? deriveRunModeId(thread.enabledTools) : defaultMode)
   const runMode = storedRunMode === 'custom' ? DEFAULT_RUN_MODE_ID : storedRunMode
   return {
     enabledTools: resolveRunModeEnabledTools(runMode),

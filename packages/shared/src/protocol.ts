@@ -696,6 +696,7 @@ export interface ProviderConfig {
 }
 
 export interface ChatConfig {
+  defaultRunMode?: SelectableRunModeId
   minimalPrompt?: boolean
   activeRunEnterBehavior?: ActiveRunEnterBehavior
   stripCompact?: boolean
@@ -706,7 +707,6 @@ export interface ChatConfig {
   /** Model override for image-to-text descriptions. Falls back to tool model when unset. */
   imageToTextModel?: ThreadModelOverride
 }
-
 export type ActivityTrackingMode = 'off' | 'simple' | 'full'
 
 export interface ActivityOcrConfig {

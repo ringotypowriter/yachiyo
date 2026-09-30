@@ -209,6 +209,71 @@ test('buildConversationGroupRows splits streaming content and tools without a st
   assert.deepEqual(rowKinds(rows), ['group-user', 'group-assistant-text-block', 'group-tool-call'])
 })
 
+for (const toolCallDisplayMode of ['work-summary', 'tool-deck'] as const) {
+  for (const toolCount of [1, 2]) {
+    test(`stable text stays completed across tool updates (${toolCallDisplayMode}, ${toolCount} tools)`, () => {
+      const textBlock = { id: 'text-1', content: 'Already written', createdAt: TIMESTAMP }
+      const assistant = createAssistantMessage({
+        id: 'assistant-1',
+        content: '',
+        status: 'streaming',
+        textBlocks: [textBlock]
+      })
+      const group = createGroup({ activeAssistant: assistant })
+      const tools: ToolCall[] = Array.from({ length: toolCount }, (_, index) => ({
+        id: `tool-${index}`,
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: assistant.id,
+        toolName: 'read',
+        status: 'preparing',
+        inputSummary: 'file.ts',
+        startedAt: '2026-04-18T00:00:01.000Z'
+      }))
+      const input = {
+        group,
+        inlineToolCalls: tools,
+        runs: [],
+        activeRunId: 'run-1',
+        isActiveGroup: true,
+        subagentActive: false,
+        toolCallDisplayMode
+      }
+      for (const status of ['preparing', 'running', 'completed', 'failed'] as const) {
+        tools.forEach((tool) => {
+          tool.status = status
+        })
+        const textRows = buildConversationGroupRows(input).filter(
+          (row) => row.kind === 'group-assistant-text-block'
+        )
+        assert.equal(textRows.length, 1)
+        assert.equal(textRows[0]!.textBlock.content, textBlock.content)
+        assert.equal(textRows[0]!.isStreaming, false, `tool status: ${status}`)
+      }
+
+      tools.forEach((tool) => {
+        tool.status = 'completed'
+      })
+      assistant.textBlocks = [
+        textBlock,
+        {
+          id: 'text-2',
+          content: 'New output',
+          createdAt: '2026-04-18T00:00:02.000Z'
+        }
+      ]
+      const textRows = buildConversationGroupRows(input).filter(
+        (row) => row.kind === 'group-assistant-text-block'
+      )
+      assert.deepEqual(
+        textRows.map((row) => row.isStreaming),
+        [false, true]
+      )
+    })
+  }
+}
+
 test('buildConversationGroupRows keeps generating after a completed tool call even before text arrives', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({

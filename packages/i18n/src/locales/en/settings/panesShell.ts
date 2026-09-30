@@ -162,6 +162,9 @@ export const behavior = {
 } as const
 
 export const chat = {
+  defaultRunModeLabel: 'Default run mode',
+  defaultRunModeDesc: 'Used for new threads on Mac and iPhone. Existing threads keep their mode.',
+  defaultRunModeAria: 'Default run mode',
   conversationSection: 'Conversation',
   enterSteersLabel: 'Enter steers during active runs',
   enterSteersDesc: 'Off queues your message as a follow-up instead. Alt+Enter does the opposite.',
