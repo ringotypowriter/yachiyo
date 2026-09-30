@@ -1,5 +1,13 @@
 # @yachiyo/cli
 
+## 1.7.1
+
+### Patch Changes
+
+- Updated dependencies [[`267cc56`](https://github.com/ringotypowriter/yachiyo/commit/267cc565d72fac8a07fc5992081d1358f4651f3a), [`267cc56`](https://github.com/ringotypowriter/yachiyo/commit/267cc565d72fac8a07fc5992081d1358f4651f3a)]:
+  - @yachiyo/runtime@1.7.1
+  - @yachiyo/shared@1.7.1
+
 ## 1.7.0
 
 ### Patch Changes
