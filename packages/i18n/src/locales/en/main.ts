@@ -1,4 +1,18 @@
 export const main = {
+  startupFailure: {
+    title: 'Yachiyo could not start',
+    message: 'The local runtime could not be started.',
+    genericDetail: 'Check the application log for details, then restart Yachiyo.',
+    linuxCredentialDetail:
+      'A secure credential store is unavailable. Start Yachiyo in a Linux desktop session with D-Bus and an unlocked GNOME Keyring or KWallet, then restart the app. Plain-text credential storage is not supported.',
+    credentialDetail:
+      'The system credential store is unavailable or locked. Unlock it in your desktop session, then restart Yachiyo.',
+    nativePackagedDetail:
+      'The SQLite native module is missing or incompatible with this Electron build. Reinstall the Yachiyo package for your system and architecture.',
+    nativeDevelopmentDetail:
+      'The SQLite native module is missing or incompatible with Electron. Use the pinned Node/pnpm toolchain, install dependencies, and run pnpm run native:prepare from the repository before starting Yachiyo.',
+    quit: 'Quit'
+  },
   menu: {
     settings: 'Settings...',
     file: 'File',

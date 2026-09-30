@@ -23,8 +23,10 @@ import { handleRemoteCommand } from './remoteCommands.ts'
 import { RemoteController } from './remoteController.ts'
 import type { RemoteHostPort, RemoteServerPort } from './remoteFacade.ts'
 import { defaultRemoteDirectories, RemoteService } from './remoteService.ts'
-import { defaultTunnelPaths, TunnelSupervisor } from './tunnelSupervisor.ts'
-import { WindowsTunnelSupervisor } from './windowsTunnelSupervisor.ts'
+import {
+  createPlatformTunnelSupervisor,
+  type RemoteTunnelSupervisor
+} from './platformTunnelSupervisor.ts'
 
 const safeStorageSecretBox: SecretBox = {
   encrypt: (plaintext) => safeStorage.encryptString(plaintext.toString('base64')),
@@ -103,19 +105,16 @@ export function createGatewayRemoteBinding(deps: {
   )
   const directories = defaultRemoteDirectories(yachiyoHome)
   const icloudRoot = process.platform === 'darwin' ? defaultICloudDriveRoot() : null
-  let tunnel: TunnelSupervisor | null = null
+  let tunnel: RemoteTunnelSupervisor | null = null
   let controller: RemoteController<RemoteService> | null = null
   let offlineStore: PairingStore | null = null
 
-  const getTunnel = (): TunnelSupervisor =>
-    (tunnel ??=
-      process.platform === 'win32'
-        ? new WindowsTunnelSupervisor({ yachiyoHome, log: (line) => console.log(line) })
-        : new TunnelSupervisor({
-            paths: defaultTunnelPaths(yachiyoHome),
-            uid: process.getuid?.() ?? 501,
-            log: (line) => console.log(line)
-          }))
+  const getTunnel = (): RemoteTunnelSupervisor =>
+    (tunnel ??= createPlatformTunnelSupervisor({
+      platform: process.platform,
+      yachiyoHome,
+      log: (line) => console.log(line)
+    }))
 
   const getController = (): RemoteController<RemoteService> =>
     (controller ??= new RemoteController<RemoteService>({

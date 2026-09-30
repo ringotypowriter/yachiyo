@@ -131,9 +131,61 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build_linux:
+    name: Build and publish Linux x64
+    needs: build_macos
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux packages
+        run: pnpm --filter @yachiyo/desktop run build:linux
+
+      - name: Publish Linux artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          shopt -s nullglob
+          files=(
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/latest-linux.yml
+          )
+          if [ "${#files[@]}" -ne 3 ] || [ ! -f apps/desktop/dist/latest-linux.yml ]; then
+            echo "Expected the Linux AppImage, deb, and latest-linux.yml; found ${#files[@]} files." >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+
+      - name: Preserve Linux release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-x64
+          path: |
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/latest-linux.yml
+          if-no-files-found: error
+          retention-days: 7
+
   mirror:
     name: Sync aggregated release artifacts to R2
-    needs: [build_macos, build_windows]
+    needs: [build_macos, build_windows, build_linux]
     runs-on: ubuntu-latest
     environment: Mac Distribution
     steps:

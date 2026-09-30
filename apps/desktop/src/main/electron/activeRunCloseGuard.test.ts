@@ -53,28 +53,22 @@ async function flushPromises(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
-test('shouldGuardActiveRunClose guards supported desktop user close attempts with active runs', () => {
-  assert.equal(
-    shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: false, platform: 'darwin' }),
-    true
-  )
-  assert.equal(
-    shouldGuardActiveRunClose({ activeRunCount: 0, isBypassed: false, platform: 'darwin' }),
-    false
-  )
-  assert.equal(
-    shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: true, platform: 'darwin' }),
-    false
-  )
-  assert.equal(
-    shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: false, platform: 'win32' }),
-    true
-  )
-  assert.equal(
-    shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: false, platform: 'linux' }),
-    false
-  )
-})
+for (const platform of ['darwin', 'win32', 'linux'] as const) {
+  test(`shouldGuardActiveRunClose protects active runs on ${platform}`, () => {
+    assert.equal(
+      shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: false, platform }),
+      true
+    )
+    assert.equal(
+      shouldGuardActiveRunClose({ activeRunCount: 0, isBypassed: false, platform }),
+      false
+    )
+    assert.equal(
+      shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: true, platform }),
+      false
+    )
+  })
+}
 
 test('createActiveRunCloseDialogOptions names the destructive and cancel choices', () => {
   const options = createActiveRunCloseDialogOptions(1)
@@ -86,47 +80,82 @@ test('createActiveRunCloseDialogOptions names the destructive and cancel choices
   assert.equal(options.cancelId, 1)
 })
 
-test('installActiveRunCloseGuard keeps the window open when the user cancels', async () => {
-  const mock = createMockWindow()
-  let cancelRequests = 0
+for (const platform of ['darwin', 'win32', 'linux'] as const) {
+  test(`installActiveRunCloseGuard keeps the window open after cancellation on ${platform}`, async () => {
+    const mock = createMockWindow()
+    let cancelRequests = 0
 
+    installActiveRunCloseGuard(mock.window, {
+      cancelActiveRuns: () => {
+        cancelRequests++
+      },
+      isBypassed: () => false,
+      listActiveRunIds: () => ['run-1'],
+      platform,
+      showMessageBox: async () => ({ response: 1 })
+    })
+
+    const event = mock.emitClose()
+    await flushPromises()
+
+    assert.equal(event.prevented, true)
+    assert.equal(cancelRequests, 0)
+    assert.equal(mock.closeRequests, 0)
+  })
+
+  test(`installActiveRunCloseGuard stops active runs before the confirmed close on ${platform}`, async () => {
+    const mock = createMockWindow()
+    let cancelRequests = 0
+
+    installActiveRunCloseGuard(mock.window, {
+      cancelActiveRuns: () => {
+        cancelRequests++
+      },
+      isBypassed: () => false,
+      listActiveRunIds: () => ['run-1'],
+      platform,
+      showMessageBox: async () => ({ response: STOP_ACTIVE_RUN_AND_CLOSE_RESPONSE })
+    })
+
+    const firstClose = mock.emitClose()
+    await flushPromises()
+
+    assert.equal(firstClose.prevented, true)
+    assert.equal(cancelRequests, 1)
+    assert.equal(mock.closeRequests, 1)
+    assert.equal(mock.closeEvents[1]?.prevented, false)
+  })
+}
+
+test('repeated Linux closes share one confirmation and cancellation permits a later attempt', async () => {
+  const mock = createMockWindow()
+  let confirmations = 0
+  let cancelRequests = 0
+  let answer = Promise.withResolvers<{ response: number }>()
   installActiveRunCloseGuard(mock.window, {
     cancelActiveRuns: () => {
       cancelRequests++
     },
     isBypassed: () => false,
     listActiveRunIds: () => ['run-1'],
-    platform: 'darwin',
-    showMessageBox: async () => ({ response: 1 })
+    platform: 'linux',
+    showMessageBox: () => {
+      confirmations++
+      return answer.promise
+    }
   })
-
-  const event = mock.emitClose()
+  assert.equal(mock.emitClose().prevented, true)
+  assert.equal(mock.emitClose().prevented, true)
+  assert.equal(confirmations, 1)
+  answer.resolve({ response: 1 })
   await flushPromises()
-
-  assert.equal(event.prevented, true)
   assert.equal(cancelRequests, 0)
-  assert.equal(mock.closeRequests, 0)
-})
-
-test('installActiveRunCloseGuard stops active runs and allows the confirmed close', async () => {
-  const mock = createMockWindow()
-  let cancelRequests = 0
-
-  installActiveRunCloseGuard(mock.window, {
-    cancelActiveRuns: () => {
-      cancelRequests++
-    },
-    isBypassed: () => false,
-    listActiveRunIds: () => ['run-1'],
-    platform: 'darwin',
-    showMessageBox: async () => ({ response: STOP_ACTIVE_RUN_AND_CLOSE_RESPONSE })
-  })
-
-  const firstClose = mock.emitClose()
+  answer = Promise.withResolvers<{ response: number }>()
+  assert.equal(mock.emitClose().prevented, true)
+  assert.equal(confirmations, 2)
+  answer.resolve({ response: STOP_ACTIVE_RUN_AND_CLOSE_RESPONSE })
   await flushPromises()
-
-  assert.equal(firstClose.prevented, true)
   assert.equal(cancelRequests, 1)
   assert.equal(mock.closeRequests, 1)
-  assert.equal(mock.closeEvents[1]?.prevented, false)
+  assert.equal(mock.closeEvents.at(-1)?.prevented, false)
 })

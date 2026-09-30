@@ -2,10 +2,19 @@
 
 The Linux x64 desktop build provides the same Remote WebSocket service and pairing flow as the macOS app. Run it in a Linux desktop session with a working system credential store (for example, GNOME Keyring or KWallet). Yachiyo refuses to save provider and pairing secrets with Electron's insecure `basic_text` storage backend.
 
+## Desktop prerequisites
+
+- Use an x64 Linux desktop session with its session D-Bus available. Installing `libsecret` alone does not provide a working credential store: GNOME Keyring or KWallet must also be configured and unlocked in that session. A fresh wallet may require first-time setup by the user.
+- If the credential store is unavailable, Yachiyo shows a startup diagnostic and exits when dismissed. Unlock the wallet in the desktop session and restart the app; do not substitute plain-text credential storage.
+- Source builds require the pinned Node/pnpm versions, a Rust toolchain, and a C/C++ build toolchain. Run `pnpm install`, then `pnpm build:linux` for AppImage and deb packages. The build prepares Electron-native dependencies and both Rust helpers.
+- Native SQLite modules must match Electron's ABI, not the host Node ABI. For a source checkout, `pnpm run native:prepare` repairs those bindings. For an installed package, reinstall the matching system/architecture package if the native-module startup diagnostic appears.
+
+## Remote access
+
 1. Start Yachiyo on the VM and configure a model/provider. In **Settings → Remote**, enable Remote access, choose **External endpoint**, and set **Public address** to the externally reachable HTTPS address (or full WSS WebSocket address). The address is saved in `config.toml` as `remote.publicEndpoint` and embedded in new pairing codes. Keep the local listener on its default port `47831` unless you need another port.
 2. Provide one of these ingress routes:
    - **Public IP:** terminate TLS with a publicly trusted certificate at a reverse proxy on the VM. Forward `/remote/v1` with WebSocket Upgrade support to `http://127.0.0.1:47831`. A hostname with a valid certificate is the simplest option; a bare IP works only if the certificate is trusted by iOS **and covers that IP address**. Set the public address to the proxy's `https://` URL. Do not expose unencrypted `ws://` to the internet.
-   - **Cloudflare Named Tunnel:** run `cloudflared` as a Linux service outside Yachiyo, route your hostname to `http://127.0.0.1:47831`, and set the public address to `https://<your-hostname>`. This also works when the VM has no inbound public IP. The built-in tunnel installer uses macOS `launchctl`; do not invoke it on Linux.
+   - **Cloudflare Named Tunnel:** run `cloudflared` as a Linux service outside Yachiyo, route your hostname to `http://127.0.0.1:47831`, and set the public address to `https://<your-hostname>`. This also works when the VM has no inbound public IP. Built-in tunnel installation is unavailable on Linux and returns external-ingress setup guidance. If settings were copied from another platform, use **Use external endpoint** to replace the saved quick/named mode; Yachiyo does not manage or stop externally configured tunnels.
 3. Save settings and confirm **Server address** shows `wss://<your-host>/remote/v1`. Generate a fresh pairing code and scan it with the iPhone app. Test on cellular data, not just the VM's local network: a code can contain a syntactically valid address even when the proxy, firewall, DNS, or certificate is wrong.
 
 The Remote listener remains bound to `127.0.0.1` unless **Local network** is separately enabled. If the reverse proxy runs on another host, enable Local network and restrict port `47831` to that proxy at the firewall. iCloud address recovery is macOS-only; use a stable public hostname on Linux because phones need to rescan after an endpoint change.

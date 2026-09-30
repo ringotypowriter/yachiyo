@@ -52,6 +52,7 @@ function buildWrapperContent(): string {
     platform: process.platform,
     developmentMode: is.dev,
     executablePath: process.execPath,
+    appImagePath: process.env.APPIMAGE,
     appPath: app.getAppPath()
   })
 }

@@ -4,6 +4,13 @@ import { dirname } from 'node:path'
 
 const PROVIDER_CREDENTIAL_KEY_BYTES = 32
 
+export class ProviderCredentialStoreUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ProviderCredentialStoreUnavailableError'
+  }
+}
+
 export interface SafeStorageEncryption {
   isEncryptionAvailable: () => boolean
   encryptString: (plaintext: string) => Buffer
@@ -28,10 +35,12 @@ export function unlockProviderCredentialKey(input: {
     (input.platform ?? process.platform) === 'linux' &&
     input.safeStorage.getSelectedStorageBackend?.() === 'basic_text'
   ) {
-    throw new Error('A secure credential store is unavailable on this system')
+    throw new ProviderCredentialStoreUnavailableError(
+      'A secure credential store is unavailable on this system'
+    )
   }
   if (!input.safeStorage.isEncryptionAvailable()) {
-    throw new Error('System credential encryption is unavailable')
+    throw new ProviderCredentialStoreUnavailableError('System credential encryption is unavailable')
   }
 
   if (existsSync(input.keyPath)) {

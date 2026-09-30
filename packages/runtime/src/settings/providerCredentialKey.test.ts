@@ -1,12 +1,44 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { unlockProviderCredentialKey, type SafeStorageEncryption } from './providerCredentialKey.ts'
+import {
+  ProviderCredentialStoreUnavailableError,
+  unlockProviderCredentialKey,
+  type SafeStorageEncryption
+} from './providerCredentialKey.ts'
 
 const XOR_MASK = 0xa7
+
+test('unavailable encryption fails before creating or reading a credential key', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-provider-key-unavailable-'))
+  const keyPath = join(root, 'provider-credentials.key')
+  try {
+    assert.throws(
+      () =>
+        unlockProviderCredentialKey({
+          keyPath,
+          platform: 'linux',
+          safeStorage: {
+            isEncryptionAvailable: () => false,
+            getSelectedStorageBackend: () => 'gnome_libsecret',
+            encryptString: () => {
+              throw new Error('must not encrypt')
+            },
+            decryptString: () => {
+              throw new Error('must not decrypt')
+            }
+          }
+        }),
+      ProviderCredentialStoreUnavailableError
+    )
+    await assert.rejects(access(keyPath), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 function createSafeStorageEncryption(): SafeStorageEncryption {
   return {

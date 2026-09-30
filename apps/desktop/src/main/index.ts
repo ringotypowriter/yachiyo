@@ -1,5 +1,14 @@
 import log from 'electron-log/main'
-import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain, nativeTheme } from 'electron'
+import {
+  app,
+  dialog,
+  screen,
+  shell,
+  BrowserWindow,
+  globalShortcut,
+  ipcMain,
+  nativeTheme
+} from 'electron'
 import {
   DEFAULT_REMOTE_CONFIG,
   DEFAULT_THEME_APPEARANCE,
@@ -25,6 +34,10 @@ import { setupCLI } from './cli/setup'
 import { setupCoreSkills } from './skills/coreSkillsSetup'
 import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
 import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
+import {
+  reportDesktopStartupFailure,
+  verifyNativeSqliteDependency
+} from './electron/desktopStartup'
 import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
 import { createElectronProviderCredentialVault } from './security/providerCredentials'
@@ -282,7 +295,8 @@ if (!is.dev && !headlessCliArgs) {
   })
 }
 
-app.whenReady().then(async () => {
+async function startDesktop(): Promise<void> {
+  setLocale(resolveLocale('system', app.getLocale()))
   if (headlessCliArgs) {
     try {
       const { createDefaultConfigService, runYachiyoCli } = await import('@yachiyo/cli/yachiyoCli')
@@ -361,6 +375,7 @@ app.whenReady().then(async () => {
   // yachiyo:* handler is registered before the first invoke is dispatched.
   createWindow()
   hydrateProcessEnvFromLoginShell()
+  verifyNativeSqliteDependency()
   const proxyHydration = hydrateProxyFromSystemSettings()
   setupCLI()
   setupCoreSkills()
@@ -489,7 +504,26 @@ app.whenReady().then(async () => {
     }
     createWindow()
   })
-})
+}
+
+void app
+  .whenReady()
+  .then(startDesktop)
+  .catch((error: unknown) =>
+    reportDesktopStartupFailure(error, {
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+      logError: (startupError) => console.error('[startup] failed:', startupError),
+      showMessageBox: (options) => {
+        if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+          mainWindowRef.show()
+          return dialog.showMessageBox(mainWindowRef, options)
+        }
+        return dialog.showMessageBox(options)
+      },
+      quit: () => app.quit()
+    })
+  )
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits

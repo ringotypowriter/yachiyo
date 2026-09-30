@@ -13,6 +13,10 @@ export function withRemote(config: SettingsConfig, patch: Partial<RemoteConfig>)
   return { ...config, remote: { ...remoteConfigOf(config), ...patch } }
 }
 
+export function supportsManagedRemoteTunnel(platform: string): boolean {
+  return platform === 'darwin' || platform === 'win32'
+}
+
 /** Preserve the complete endpoint when displaying or copying the server address. */
 export function remoteAddressLabel(status: RemoteStatusResult | null): string | null {
   const endpoint =
@@ -22,6 +26,7 @@ export function remoteAddressLabel(status: RemoteStatusResult | null): string | 
 
 export type RemoteStatusHint =
   | 'cloudflared-stopped'
+  | 'external-endpoint-required'
   | 'icloud-unavailable'
   | 'quick-address-changes'
   | null
@@ -31,6 +36,9 @@ export function remoteStatusHint(
   status: RemoteStatusResult | null,
   platform = 'darwin'
 ): RemoteStatusHint {
+  if (status?.enabled && !supportsManagedRemoteTunnel(platform) && status.tunnel !== 'none') {
+    return 'external-endpoint-required'
+  }
   if (!status?.running) return null
   if (status.tunnel !== 'none' && !status.cloudflared.agentRunning) return 'cloudflared-stopped'
   if (platform === 'win32' && status.tunnel === 'quick') return 'quick-address-changes'
