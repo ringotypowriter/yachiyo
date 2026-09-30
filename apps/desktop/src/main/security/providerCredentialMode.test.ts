@@ -1,128 +1,91 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ProviderCredentialStoreUnavailableError } from '@yachiyo/runtime/settings/providerCredentialKey'
-import {
-  selectProviderCredentialMode,
-  selectCliProviderCredentialMode
-} from './providerCredentialMode.ts'
+import { selectProviderCredentialMode } from './providerCredentialMode.ts'
 
-test('explicit plaintext mode never touches a hanging wallet', async () => {
-  let reason: string | undefined
+test('explicit plaintext mode never touches a hanging wallet', () => {
   assert.equal(
-    await selectProviderCredentialMode({
-      plaintextRequested: true,
+    selectProviderCredentialMode({
+      args: ['--yachiyo-plaintext-credentials'],
       plaintextExists: false,
-      headless: false,
       unlockEncrypted: () => {
         throw new Error('must not call wallet')
-      },
-      choose: async (value) => {
-        reason = value
-        return 'plaintext'
-      }
-    }),
-    'plaintext'
-  )
-  assert.equal(reason, 'requested')
-})
-
-test('unavailable wallet requires explicit consent and allows cancellation', async () => {
-  assert.equal(
-    await selectProviderCredentialMode({
-      plaintextRequested: false,
-      plaintextExists: false,
-      headless: false,
-      unlockEncrypted: () => {
-        throw new ProviderCredentialStoreUnavailableError('unavailable')
-      },
-      choose: async (reason) => {
-        assert.equal(reason, 'unavailable')
-        return null
-      }
-    }),
-    null
-  )
-})
-
-test('existing plaintext data asks for a mode before opening encrypted storage', async () => {
-  assert.equal(
-    await selectProviderCredentialMode({
-      plaintextRequested: false,
-      plaintextExists: true,
-      headless: false,
-      unlockEncrypted: () => {
-        throw new Error('must not call wallet')
-      },
-      choose: async (reason) => {
-        assert.equal(reason, 'existing')
-        return 'plaintext'
       }
     }),
     'plaintext'
   )
 })
 
-test('corruption and headless failure never silently downgrade', async () => {
-  for (const [headless, error] of [
-    [false, new Error('corrupt')],
-    [true, new ProviderCredentialStoreUnavailableError('locked')]
-  ] as const) {
-    await assert.rejects(
+test('unavailable wallet fails with opt-in guidance instead of silently downgrading', () => {
+  assert.throws(
+    () =>
       selectProviderCredentialMode({
-        plaintextRequested: false,
+        args: [],
         plaintextExists: false,
-        headless,
         unlockEncrypted: () => {
-          throw error
-        },
-        choose: async () => {
-          throw new Error('must not prompt')
+          throw new ProviderCredentialStoreUnavailableError('unavailable')
         }
       }),
-      (actual) => actual === error
-    )
-  }
+    (error: unknown) =>
+      error instanceof ProviderCredentialStoreUnavailableError &&
+      error.message.includes('--yachiyo-plaintext-credentials')
+  )
 })
 
-test('headless plaintext flag is explicit and secure mode remains default', async () => {
+test('existing plaintext data requires an explicit mode for every entry point', () => {
   let unlocks = 0
   const base = {
-    plaintextExists: false,
-    headless: true,
+    plaintextExists: true,
     unlockEncrypted: () => {
       unlocks++
-    },
-    choose: async () => null
+    }
   }
+  assert.throws(() => selectProviderCredentialMode({ ...base, args: [] }), /Choose/)
+  assert.equal(unlocks, 0)
   assert.equal(
-    await selectProviderCredentialMode({ ...base, plaintextRequested: true }),
+    selectProviderCredentialMode({ ...base, args: ['--yachiyo-plaintext-credentials'] }),
     'plaintext'
   )
   assert.equal(unlocks, 0)
   assert.equal(
-    await selectProviderCredentialMode({ ...base, plaintextRequested: false }),
+    selectProviderCredentialMode({ ...base, args: ['--yachiyo-encrypted-credentials'] }),
     'encrypted'
   )
   assert.equal(unlocks, 1)
 })
 
-test('CLI requires a deliberate store choice when plaintext data exists', () => {
-  assert.throws(() => selectCliProviderCredentialMode([], true), /Choose/)
-  assert.equal(
-    selectCliProviderCredentialMode(['--yachiyo-plaintext-credentials'], true),
-    'plaintext'
-  )
-  assert.equal(
-    selectCliProviderCredentialMode(['--yachiyo-encrypted-credentials'], true),
-    'encrypted'
-  )
-  assert.equal(selectCliProviderCredentialMode([], false), 'encrypted')
+test('corruption is propagated without fallback', () => {
+  const error = new Error('corrupt')
   assert.throws(
     () =>
-      selectCliProviderCredentialMode(
-        ['--yachiyo-encrypted-credentials', '--yachiyo-plaintext-credentials'],
-        true
-      ),
+      selectProviderCredentialMode({
+        args: [],
+        plaintextExists: false,
+        unlockEncrypted: () => {
+          throw error
+        }
+      }),
+    (actual) => actual === error
+  )
+})
+
+test('secure mode remains default and conflicting flags are rejected before wallet access', () => {
+  let unlocks = 0
+  const base = {
+    plaintextExists: false,
+    unlockEncrypted: () => {
+      unlocks++
+    }
+  }
+  assert.equal(selectProviderCredentialMode({ ...base, args: [] }), 'encrypted')
+  assert.equal(unlocks, 1)
+  assert.throws(
+    () =>
+      selectProviderCredentialMode({
+        ...base,
+        args: ['--yachiyo-encrypted-credentials', '--yachiyo-plaintext-credentials']
+      }),
     /only one/
   )
+  assert.equal(unlocks, 1)
 })

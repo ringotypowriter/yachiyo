@@ -1,7 +1,5 @@
 import { createRequire } from 'node:module'
-import { t } from '@yachiyo/i18n/index'
 import { resolveRuntimeNodeModule } from '@yachiyo/runtime/config/runtimeNodeModules'
-import { ProviderCredentialStoreUnavailableError } from '@yachiyo/runtime/settings/providerCredentialKey'
 
 const require = createRequire(import.meta.url)
 
@@ -14,7 +12,10 @@ function openNativeSqliteDatabase(): { close: () => void } {
 
 export class DesktopNativeDependencyError extends Error {
   constructor(cause: unknown) {
-    super('The SQLite native module could not be loaded by Electron', { cause })
+    super(
+      'The SQLite native module could not be loaded by Electron. Reinstall the matching package, or use the pinned toolchain and run pnpm run native:prepare in a source checkout.',
+      { cause }
+    )
     this.name = 'DesktopNativeDependencyError'
   }
 }
@@ -30,56 +31,27 @@ export function verifyNativeSqliteDependency(
   }
 }
 
-export function desktopStartupFailureOptions(
-  error: unknown,
-  platform: NodeJS.Platform,
-  isPackaged: boolean
-): Electron.MessageBoxOptions {
-  let detail = t('main.startupFailure.genericDetail')
-  if (error instanceof ProviderCredentialStoreUnavailableError) {
-    detail = t(
-      platform === 'linux'
-        ? 'main.startupFailure.linuxCredentialDetail'
-        : 'main.startupFailure.credentialDetail'
-    )
-  } else if (error instanceof DesktopNativeDependencyError) {
-    detail = t(
-      isPackaged
-        ? 'main.startupFailure.nativePackagedDetail'
-        : 'main.startupFailure.nativeDevelopmentDetail'
-    )
-  }
-
-  return {
-    type: 'error',
-    title: t('main.startupFailure.title'),
-    message: t('main.startupFailure.message'),
-    detail,
-    buttons: [t('main.startupFailure.quit')],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true
-  }
-}
-
-export async function reportDesktopStartupFailure(
+/** Keep startup failure handling independent of the renderer or any added dialogs. */
+export function reportDesktopStartupFailure(
   error: unknown,
   dependencies: {
-    platform: NodeJS.Platform
-    isPackaged: boolean
     logError: (error: unknown) => void
-    showMessageBox: (options: Electron.MessageBoxOptions) => Promise<unknown>
     quit: () => void
   }
-): Promise<void> {
-  dependencies.logError(error)
+): void {
   try {
-    await dependencies.showMessageBox(
-      desktopStartupFailureOptions(error, dependencies.platform, dependencies.isPackaged)
-    )
-  } catch (dialogError) {
-    dependencies.logError(dialogError)
+    dependencies.logError(error)
   } finally {
     dependencies.quit()
   }
+}
+
+/** Shell-derived YACHIYO_HOME must be final before selecting a credential store. */
+export function prepareDesktopCredentialStorage(dependencies: {
+  hydrateEnvironment: () => void
+  resolveSettingsPath: () => string
+  prepareCredentials: (settingsPath: string) => void
+}): void {
+  dependencies.hydrateEnvironment()
+  dependencies.prepareCredentials(dependencies.resolveSettingsPath())
 }

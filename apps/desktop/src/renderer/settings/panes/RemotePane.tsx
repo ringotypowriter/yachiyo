@@ -14,13 +14,7 @@ import {
   SimpleSelect
 } from '../components/primitives'
 import { inputStyle } from '../components/styles'
-import {
-  remoteAddressLabel,
-  remoteConfigOf,
-  remoteStatusHint,
-  supportsManagedRemoteTunnel,
-  withRemote
-} from './remotePaneModel'
+import { remoteAddressLabel, remoteConfigOf, remoteStatusHint, withRemote } from './remotePaneModel'
 
 const STATUS_POLL_MS = 5_000
 
@@ -151,7 +145,6 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
   const t = useT()
   const dialog = useAppDialog()
   const remote = remoteConfigOf(draft)
-  const managedTunnelSupported = supportsManagedRemoteTunnel(window.api.process.platform)
   const [status, setStatus] = useState<RemoteStatusResult | null>(null)
   const [pairings, setPairings] = useState<RemotePairingInfo[]>([])
   const [qr, setQr] = useState<PairingQr | null>(null)
@@ -233,32 +226,16 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
         />
         <SettingItem
           label={t('settings.remote.tunnel')}
-          description={
-            managedTunnelSupported
-              ? t('settings.remote.tunnelDescription')
-              : t('settings.remote.externalTunnelDescription')
-          }
+          description={t('settings.remote.tunnelDescription')}
           control={
-            managedTunnelSupported ? (
-              <SimpleSelect
-                value={remote.tunnel}
-                options={tunnelOptions}
-                onChange={(tunnel) => onChange(withRemote(draft, { tunnel }))}
-              />
-            ) : remote.tunnel === 'none' ? (
-              <span className="text-sm">{t('settings.remote.tunnelNone')}</span>
-            ) : (
-              <button
-                type="button"
-                style={buttonStyle(false)}
-                onClick={() => onChange(withRemote(draft, { tunnel: 'none' }))}
-              >
-                {t('settings.remote.useExternalEndpoint')}
-              </button>
-            )
+            <SimpleSelect
+              value={remote.tunnel}
+              options={tunnelOptions}
+              onChange={(tunnel) => onChange(withRemote(draft, { tunnel }))}
+            />
           }
         />
-        {managedTunnelSupported && remote.tunnel === 'named' ? (
+        {remote.tunnel === 'named' ? (
           <SettingItem
             label={t('settings.remote.namedHostname')}
             description={t('settings.remote.namedHostnameDescription')}
@@ -327,15 +304,13 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
           }
           hint={
             error ??
-            (hint === 'external-endpoint-required'
-              ? t('settings.remote.externalTunnelDescription')
-              : hint === 'cloudflared-stopped'
-                ? t('settings.remote.cloudflaredStopped')
-                : hint === 'icloud-unavailable'
-                  ? t('settings.remote.icloudUnavailable')
-                  : hint === 'quick-address-changes'
-                    ? t('settings.remote.quickAddressChanges')
-                    : undefined)
+            (hint === 'cloudflared-stopped'
+              ? t('settings.remote.cloudflaredStopped')
+              : hint === 'icloud-unavailable'
+                ? t('settings.remote.icloudUnavailable')
+                : hint === 'quick-address-changes'
+                  ? t('settings.remote.quickAddressChanges')
+                  : undefined)
           }
           control={
             status?.running && address ? (

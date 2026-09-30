@@ -1,12 +1,6 @@
-import { safeStorage, dialog } from 'electron'
+import { safeStorage } from 'electron'
 import { existsSync } from 'node:fs'
-import { t } from '@yachiyo/i18n/index'
-import {
-  selectProviderCredentialMode,
-  requestedProviderCredentialMode,
-  selectCliProviderCredentialMode,
-  type ProviderCredentialMode
-} from './providerCredentialMode'
+import { selectProviderCredentialMode, type ProviderCredentialMode } from './providerCredentialMode'
 import { createPlaintextProviderCredentialVault } from '@yachiyo/runtime/settings/plaintextProviderCredentialVault'
 import { dirname } from 'node:path'
 
@@ -27,65 +21,27 @@ export function isPlaintextProviderCredentialMode(): boolean {
   return credentialMode === 'plaintext'
 }
 
-export async function prepareElectronProviderCredentials(
-  settingsPath: string,
-  headless: boolean
-): Promise<boolean> {
-  const mode = await selectProviderCredentialMode({
-    plaintextRequested: requestedProviderCredentialMode(process.argv) === 'plaintext',
+export function prepareElectronProviderCredentials(settingsPath: string): void {
+  credentialMode = selectProviderCredentialMode({
+    args: process.argv,
     plaintextExists: existsSync(
       resolveYachiyoPlaintextProviderCredentialVaultPath(dirname(settingsPath))
     ),
-    headless,
     unlockEncrypted: () => {
       unlockElectronProviderCredentialKey(settingsPath)
-    },
-    choose: async (reason) => {
-      const existing = reason === 'existing'
-      const result = await dialog.showMessageBox({
-        type: 'warning',
-        title: t('main.credentialStorage.title'),
-        message: t(existing ? 'main.credentialStorage.existing' : 'main.credentialStorage.message'),
-        detail: t('main.credentialStorage.detail'),
-        buttons: existing
-          ? [
-              t('main.startupFailure.quit'),
-              t('main.credentialStorage.plaintext'),
-              t('main.credentialStorage.encrypted')
-            ]
-          : [t('main.startupFailure.quit'), t('main.credentialStorage.plaintext')],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true
-      })
-      return result.response === 1
-        ? 'plaintext'
-        : existing && result.response === 2
-          ? 'encrypted'
-          : null
     }
   })
-  if (!mode) return false
-  credentialMode = mode
-  if (mode === 'plaintext')
+  if (credentialMode === 'plaintext')
     console.warn(
-      '[credentials] Plaintext mode: provider secrets are stored unencrypted in a separate local file. Existing encrypted credentials are not used or changed.'
+      '[credentials] Plaintext mode: provider credentials are stored unencrypted in a separate local file, readable by anyone with file access. Existing encrypted credentials are unchanged. Remote access is unavailable.'
     )
-  return true
 }
 
 /** CLI commands without a config service never need to access credentials. */
 export function createElectronCliProviderCredentialVault(
   settingsPath: string
 ): ProviderCredentialVault {
-  credentialMode = selectCliProviderCredentialMode(
-    process.argv,
-    existsSync(resolveYachiyoPlaintextProviderCredentialVaultPath(dirname(settingsPath)))
-  )
-  if (credentialMode === 'plaintext')
-    console.warn(
-      '[credentials] Plaintext mode: provider credentials are stored unencrypted in a separate local file.'
-    )
+  prepareElectronProviderCredentials(settingsPath)
   return createElectronProviderCredentialVault(settingsPath)
 }
 

@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from 'react'
-import { LoaderCircle, TriangleAlert } from 'lucide-react'
+import { LoaderCircle } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
@@ -220,7 +220,6 @@ function RuntimeCrashOverlay(): React.JSX.Element {
 }
 
 function App(): React.JSX.Element {
-  const t = useT()
   const {
     isDragging,
     isConfigLoaded,
@@ -496,155 +495,130 @@ function App(): React.JSX.Element {
 
   return (
     <div
-      className="relative flex h-full flex-col overflow-hidden"
+      className="flex h-full overflow-hidden relative"
       style={{
         background: windowBackdrop,
         userSelect: isDragging ? 'none' : undefined
       }}
     >
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <AppTabRail
-          activeTab={activeAppTab}
-          onSelectTab={handleSelectAppTab}
-          onOpenSettingsRoute={handleOpenSettingsRoute}
-        />
-        <div className="relative h-full min-w-0 flex-1 overflow-hidden">
-          {renderTabLayer({
-            active: shouldRenderWorkTabFrame(activeAppTab),
-            children: isThingsTabActive ? (
-              renderTabFrame({
-                content: (
-                  <ThingsPage
-                    showHeader={false}
-                    onContinueThing={handleContinueThingInNewChat}
-                    onMergeThing={handleMergeThingInNewChat}
-                    onOpenSettingsRoute={handleOpenSettingsRoute}
-                    onOpenThread={handleOpenThingSourceThread}
-                  />
-                ),
-                contentTopControls: (
-                  <ThingsPanelTopControls headerPaddingLeft={mainHeaderPaddingLeft} />
-                ),
-                sidebar: (
-                  <AppSidebarContent
-                    mode={threadSidebarMode}
-                    isSearchOpen={isSidebarSearchOpen}
-                    onCloseSearch={() => setIsSidebarSearchOpen(false)}
-                    onSearchSelect={(query) => setPendingFindQuery(query)}
-                    onThreadSelect={passiveThreadSelect}
-                    threadActivationEnabled={threadSidebarActivatesThreads}
-                  />
-                ),
-                sidebarTopControls: (
-                  <AppSidebarTopControls
-                    mode={threadSidebarMode}
-                    isSearchOpen={isSidebarSearchOpen}
-                    isToggleDisabled={!isConfigLoaded}
-                    onOpenSearch={() => setIsSidebarSearchOpen(true)}
-                    onToggle={() => void toggleSidebar()}
-                    threadActivationEnabled={threadSidebarActivatesThreads}
-                    toggleTitle={sidebarLayout.toggleTitle}
-                  />
-                )
-              })
-            ) : (
-              <AppMainPanel
-                headerPaddingLeft={mainHeaderPaddingLeft}
-                isSidebarToggleDisabled={!isConfigLoaded}
-                showSidebarToggle={!isSidebarOpen}
-                onToggleSidebar={() => void openSidebar()}
-                toggleSidebarTitle={sidebarLayout.toggleTitle}
-                pendingFindQuery={pendingFindQuery}
-                onPendingFindQueryApplied={() => setPendingFindQuery(null)}
-                shortcutsEnabled={shouldHandleWorkShortcut(activeAppTab)}
-              >
-                {(slots) =>
-                  renderTabFrame({
-                    content: slots.content,
-                    contentTopControls: slots.contentTopControls,
-                    sidebar: (
-                      <AppSidebarContent
-                        mode={threadSidebarMode}
-                        isSearchOpen={isSidebarSearchOpen}
-                        onCloseSearch={() => setIsSidebarSearchOpen(false)}
-                        onSearchSelect={(query) => setPendingFindQuery(query)}
-                        onThreadSelect={passiveThreadSelect}
-                        threadActivationEnabled={threadSidebarActivatesThreads}
-                      />
-                    ),
-                    sidebarTopControls: (
-                      <AppSidebarTopControls
-                        mode={threadSidebarMode}
-                        isSearchOpen={isSidebarSearchOpen}
-                        isToggleDisabled={!isConfigLoaded}
-                        onOpenSearch={() => setIsSidebarSearchOpen(true)}
-                        onToggle={() => void toggleSidebar()}
-                        threadActivationEnabled={threadSidebarActivatesThreads}
-                        toggleTitle={sidebarLayout.toggleTitle}
-                      />
-                    )
-                  })
-                }
-              </AppMainPanel>
-            )
-          })}
+      <AppTabRail
+        activeTab={activeAppTab}
+        onSelectTab={handleSelectAppTab}
+        onOpenSettingsRoute={handleOpenSettingsRoute}
+      />
+      <div className="relative h-full min-w-0 flex-1 overflow-hidden">
+        {renderTabLayer({
+          active: shouldRenderWorkTabFrame(activeAppTab),
+          children: isThingsTabActive ? (
+            renderTabFrame({
+              content: (
+                <ThingsPage
+                  showHeader={false}
+                  onContinueThing={handleContinueThingInNewChat}
+                  onMergeThing={handleMergeThingInNewChat}
+                  onOpenSettingsRoute={handleOpenSettingsRoute}
+                  onOpenThread={handleOpenThingSourceThread}
+                />
+              ),
+              contentTopControls: (
+                <ThingsPanelTopControls headerPaddingLeft={mainHeaderPaddingLeft} />
+              ),
+              sidebar: (
+                <AppSidebarContent
+                  mode={threadSidebarMode}
+                  isSearchOpen={isSidebarSearchOpen}
+                  onCloseSearch={() => setIsSidebarSearchOpen(false)}
+                  onSearchSelect={(query) => setPendingFindQuery(query)}
+                  onThreadSelect={passiveThreadSelect}
+                  threadActivationEnabled={threadSidebarActivatesThreads}
+                />
+              ),
+              sidebarTopControls: (
+                <AppSidebarTopControls
+                  mode={threadSidebarMode}
+                  isSearchOpen={isSidebarSearchOpen}
+                  isToggleDisabled={!isConfigLoaded}
+                  onOpenSearch={() => setIsSidebarSearchOpen(true)}
+                  onToggle={() => void toggleSidebar()}
+                  threadActivationEnabled={threadSidebarActivatesThreads}
+                  toggleTitle={sidebarLayout.toggleTitle}
+                />
+              )
+            })
+          ) : (
+            <AppMainPanel
+              headerPaddingLeft={mainHeaderPaddingLeft}
+              isSidebarToggleDisabled={!isConfigLoaded}
+              showSidebarToggle={!isSidebarOpen}
+              onToggleSidebar={() => void openSidebar()}
+              toggleSidebarTitle={sidebarLayout.toggleTitle}
+              pendingFindQuery={pendingFindQuery}
+              onPendingFindQueryApplied={() => setPendingFindQuery(null)}
+              shortcutsEnabled={shouldHandleWorkShortcut(activeAppTab)}
+            >
+              {(slots) =>
+                renderTabFrame({
+                  content: slots.content,
+                  contentTopControls: slots.contentTopControls,
+                  sidebar: (
+                    <AppSidebarContent
+                      mode={threadSidebarMode}
+                      isSearchOpen={isSidebarSearchOpen}
+                      onCloseSearch={() => setIsSidebarSearchOpen(false)}
+                      onSearchSelect={(query) => setPendingFindQuery(query)}
+                      onThreadSelect={passiveThreadSelect}
+                      threadActivationEnabled={threadSidebarActivatesThreads}
+                    />
+                  ),
+                  sidebarTopControls: (
+                    <AppSidebarTopControls
+                      mode={threadSidebarMode}
+                      isSearchOpen={isSidebarSearchOpen}
+                      isToggleDisabled={!isConfigLoaded}
+                      onOpenSearch={() => setIsSidebarSearchOpen(true)}
+                      onToggle={() => void toggleSidebar()}
+                      threadActivationEnabled={threadSidebarActivatesThreads}
+                      toggleTitle={sidebarLayout.toggleTitle}
+                    />
+                  )
+                })
+              }
+            </AppMainPanel>
+          )
+        })}
 
-          {hasOpenedSettings || isSettingsTabActive
-            ? renderTabLayer({
-                active: isSettingsTabActive,
-                children: (
-                  <Suspense fallback={<SettingsLoadingFallback />}>
-                    <SettingsPanel
-                      active={isSettingsTabActive}
-                      route={settingsRoute}
-                      onActivateChat={handleActivateChat}
-                      onRouteChange={setSettingsRoute}
-                    >
-                      {(slots) =>
-                        renderTabFrame({
-                          content: slots.content,
-                          contentSubControls: slots.contentSubControls,
-                          contentTopControls: slots.contentTopControls,
-                          sidebar: (
-                            <SettingsSidebarContent
-                              route={settingsRoute}
-                              onRouteChange={setSettingsRoute}
-                              dirtyPanels={slots.dirtyPanels}
-                            />
-                          ),
-                          sidebarTopControls: null
-                        })
-                      }
-                    </SettingsPanel>
-                  </Suspense>
-                )
-              })
-            : null}
-        </div>
+        {hasOpenedSettings || isSettingsTabActive
+          ? renderTabLayer({
+              active: isSettingsTabActive,
+              children: (
+                <Suspense fallback={<SettingsLoadingFallback />}>
+                  <SettingsPanel
+                    active={isSettingsTabActive}
+                    route={settingsRoute}
+                    onActivateChat={handleActivateChat}
+                    onRouteChange={setSettingsRoute}
+                  >
+                    {(slots) =>
+                      renderTabFrame({
+                        content: slots.content,
+                        contentSubControls: slots.contentSubControls,
+                        contentTopControls: slots.contentTopControls,
+                        sidebar: (
+                          <SettingsSidebarContent
+                            route={settingsRoute}
+                            onRouteChange={setSettingsRoute}
+                            dirtyPanels={slots.dirtyPanels}
+                          />
+                        ),
+                        sidebarTopControls: null
+                      })
+                    }
+                  </SettingsPanel>
+                </Suspense>
+              )
+            })
+          : null}
       </div>
-      {window.api.plaintextCredentials && (
-        <div
-          role="alert"
-          className="no-drag flex shrink-0 items-center gap-2 px-4 py-2"
-          style={{
-            position: 'relative',
-            zIndex: 10001,
-            background: theme.background.canvas,
-            borderTop: `1px solid ${theme.text.warning}`,
-            color: theme.text.primary,
-            fontSize: 12,
-            lineHeight: 1.5
-          }}
-        >
-          <TriangleAlert
-            aria-hidden="true"
-            size={16}
-            className="shrink-0"
-            color={theme.text.warning}
-          />
-          <span>{t('shell.plaintextCredentialsWarning')}</span>
-        </div>
-      )}
       <ToastPresenter />
       <GlobalProcessingModal />
 

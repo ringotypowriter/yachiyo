@@ -1,54 +1,31 @@
 import { ProviderCredentialStoreUnavailableError } from '@yachiyo/runtime/settings/providerCredentialKey'
 
 export const PLAINTEXT_CREDENTIALS_FLAG = '--yachiyo-plaintext-credentials'
+export const ENCRYPTED_CREDENTIALS_FLAG = '--yachiyo-encrypted-credentials'
 export type ProviderCredentialMode = 'encrypted' | 'plaintext'
 
-/** No storage writes or fallback happen until the explicit choice has completed. */
-export async function selectProviderCredentialMode(input: {
-  plaintextRequested: boolean
+/** Explicit startup flags are the only way to opt into plaintext storage. */
+export function selectProviderCredentialMode(input: {
+  args: readonly string[]
   plaintextExists: boolean
-  headless: boolean
   unlockEncrypted: () => void
-  choose: (
-    reason: 'requested' | 'existing' | 'unavailable'
-  ) => Promise<ProviderCredentialMode | null>
-}): Promise<ProviderCredentialMode | null> {
-  if (input.plaintextRequested) {
-    return input.headless ? 'plaintext' : input.choose('requested')
-  }
-  if (input.plaintextExists && !input.headless) {
-    const choice = await input.choose('existing')
-    if (choice !== 'encrypted') return choice
+}): ProviderCredentialMode {
+  const plaintext = input.args.includes(PLAINTEXT_CREDENTIALS_FLAG)
+  const encrypted = input.args.includes(ENCRYPTED_CREDENTIALS_FLAG)
+  if (plaintext && encrypted) throw new Error('Choose only one provider credential storage mode')
+  if (plaintext) return 'plaintext'
+  if (input.plaintextExists && !encrypted) {
+    throw new Error(
+      `Separate plaintext credentials exist. Choose ${PLAINTEXT_CREDENTIALS_FLAG} or ${ENCRYPTED_CREDENTIALS_FLAG} explicitly. Plaintext credentials are unencrypted and readable by anyone with file access.`
+    )
   }
   try {
     input.unlockEncrypted()
-    return 'encrypted'
   } catch (error) {
-    if (input.headless || !(error instanceof ProviderCredentialStoreUnavailableError)) throw error
-    return input.choose('unavailable')
-  }
-}
-
-export const ENCRYPTED_CREDENTIALS_FLAG = '--yachiyo-encrypted-credentials'
-
-export function requestedProviderCredentialMode(
-  args: readonly string[]
-): ProviderCredentialMode | undefined {
-  const plaintext = args.includes(PLAINTEXT_CREDENTIALS_FLAG)
-  const encrypted = args.includes(ENCRYPTED_CREDENTIALS_FLAG)
-  if (plaintext && encrypted) throw new Error('Choose only one provider credential storage mode')
-  return plaintext ? 'plaintext' : encrypted ? 'encrypted' : undefined
-}
-
-export function selectCliProviderCredentialMode(
-  args: readonly string[],
-  plaintextExists: boolean
-): ProviderCredentialMode {
-  const requested = requestedProviderCredentialMode(args)
-  if (plaintextExists && !requested) {
-    throw new Error(
-      `Separate plaintext credentials exist. Choose ${PLAINTEXT_CREDENTIALS_FLAG} or ${ENCRYPTED_CREDENTIALS_FLAG} explicitly.`
+    if (!(error instanceof ProviderCredentialStoreUnavailableError)) throw error
+    throw new ProviderCredentialStoreUnavailableError(
+      `System credential storage is unavailable. Unlock your system wallet and restart, or explicitly start with ${PLAINTEXT_CREDENTIALS_FLAG}. Plaintext mode stores provider credentials unencrypted in a separate local file and cannot use existing encrypted credentials or Remote access.`
     )
   }
-  return requested ?? 'encrypted'
+  return 'encrypted'
 }
