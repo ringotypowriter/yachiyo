@@ -63,7 +63,11 @@ import { extractRetryErrorMessage, handleRunFailure } from './runFailureHandling
 import { createRunOutputState } from './runOutputState.ts'
 import { createRunToolSet } from './runToolSetFactory.ts'
 import { createRunToolLifecycleState } from './runToolLifecycleState.ts'
-import { createDeckSummaryScheduler, DECK_SUMMARY_INSTRUCTION } from './deckSummary.ts'
+import {
+  createDeckSummaryScheduler,
+  DECK_SUMMARY_INSTRUCTION,
+  findDeckSummaryLanguageCue
+} from './deckSummary.ts'
 import type { ExecuteRunInput, ExecuteRunResult, RunExecutionDeps } from './runExecutionTypes.ts'
 
 function throwIfAborted(signal: AbortSignal): void {
@@ -231,6 +235,7 @@ export async function executeServerRun(
     priorToolFailLoopSteers: input.priorToolFailLoopSteers
   })
   let deckModelUnavailable = false
+  let deckSummaryLanguageCue: string | undefined
   const deckSummaries =
     deps.auxiliaryGeneration &&
     input.runTrigger === 'local' &&
@@ -240,6 +245,10 @@ export async function executeServerRun(
       ? createDeckSummaryScheduler({
           generate: async (calls) => {
             if (deckModelUnavailable) return undefined
+            deckSummaryLanguageCue ??= findDeckSummaryLanguageCue(
+              (messageId) => deps.storage.getMessage(messageId),
+              input.requestMessageId
+            )
             const result = await deps.auxiliaryGeneration!.generateText({
               purpose: 'deck-summary',
               max_token: 48,
@@ -247,13 +256,13 @@ export async function executeServerRun(
                 { role: 'system', content: DECK_SUMMARY_INSTRUCTION },
                 {
                   role: 'user',
-                  content: calls
+                  content: `Conversation language: ${deckSummaryLanguageCue}\n\nTool activity:\n${calls
                     .map(
                       (call) =>
                         `${call.toolName} [${call.status}] ${call.inputSummary.slice(0, 160)} ${call.cwd?.slice(0, 160) ?? ''} ${call.outputSummary?.slice(0, 160) ?? ''}`
                     )
                     .join('\n')
-                    .slice(0, 2400)
+                    .slice(0, 2400)}`
                 }
               ]
             })

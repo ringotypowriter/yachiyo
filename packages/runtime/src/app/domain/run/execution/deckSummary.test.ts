@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ToolCallRecord } from '@yachiyo/shared/protocol'
-import { createDeckSummaryScheduler } from './deckSummary.ts'
+import { createDeckSummaryScheduler, findDeckSummaryLanguageCue } from './deckSummary.ts'
 
 const tool = (id: string, status: ToolCallRecord['status'] = 'completed'): ToolCallRecord => ({
   id,
@@ -17,6 +17,117 @@ const tool = (id: string, status: ToolCallRecord['status'] = 'completed'): ToolC
 const tick = async (): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
+
+test('uses the current visible user request as the summary language cue', () => {
+  const messages = new Map([
+    [
+      'request',
+      { role: 'user' as const, content: 'password=private-value 请检查文件并告诉我结果' }
+    ],
+    ['other-branch', { role: 'user' as const, content: 'Inspect the files' }]
+  ])
+  assert.equal(
+    findDeckSummaryLanguageCue((id) => messages.get(id), 'request'),
+    'Chinese'
+  )
+})
+
+test('hidden continuations inherit the visible user language on their branch', () => {
+  const messages = new Map([
+    ['request', { role: 'user' as const, content: '请继续处理', hidden: false }],
+    ['assistant', { role: 'assistant' as const, content: 'Working', parentMessageId: 'request' }],
+    [
+      'continuation',
+      {
+        role: 'user' as const,
+        content: 'Continue automatically',
+        hidden: true,
+        parentMessageId: 'assistant'
+      }
+    ]
+  ])
+  assert.equal(
+    findDeckSummaryLanguageCue((id) => messages.get(id), 'continuation'),
+    'Chinese'
+  )
+})
+
+test('finds Chinese after a long English log instead of reading only its prefix', () => {
+  const message = {
+    role: 'user' as const,
+    content: `${'error: failed to build\n'.repeat(50)}请用中文总结进度`
+  }
+  assert.equal(
+    findDeckSummaryLanguageCue(() => message, 'request'),
+    'Chinese'
+  )
+})
+
+test('fenced code in another language does not override the user question', () => {
+  const message = {
+    role: 'user' as const,
+    content: '```js\nconst greeting = "こんにちは"\n```\n请检查这段代码'
+  }
+  assert.equal(
+    findDeckSummaryLanguageCue(() => message, 'request'),
+    'Chinese'
+  )
+})
+
+test('a foreign phrase inside an English request does not change its language', () => {
+  const message = {
+    role: 'user' as const,
+    content: 'Translate 你好 to English and check the result'
+  }
+  assert.equal(
+    findDeckSummaryLanguageCue(() => message, 'request'),
+    'English'
+  )
+})
+
+test('a separate line of foreign text to translate does not override the instruction language', () => {
+  const message = { role: 'user' as const, content: 'Translate this into English:\n你好' }
+  assert.equal(
+    findDeckSummaryLanguageCue(() => message, 'request'),
+    'English'
+  )
+})
+
+test('an output-language phrase inside a pasted log does not override the final user instruction', () => {
+  const message = {
+    role: 'user' as const,
+    content: 'error: job failed\ntranslation to English failed\nstack trace line\n请检查失败原因'
+  }
+  assert.equal(
+    findDeckSummaryLanguageCue(() => message, 'request'),
+    'Chinese'
+  )
+})
+
+test('paths and commands do not outweigh a Chinese request', () => {
+  for (const content of [
+    '请检查 packages/runtime/src/app/domain/run/execution/deckSummary.ts 并总结',
+    '请运行 pnpm run typecheck 再总结结果'
+  ]) {
+    assert.equal(
+      findDeckSummaryLanguageCue(() => ({ role: 'user', content }), 'request'),
+      'Chinese'
+    )
+  }
+})
+
+test('retains English and distinguishes Japanese and Korean scripts', () => {
+  for (const [content, language] of [
+    ['Check the related files', 'English'],
+    ['関連ファイルを確認してください', 'Japanese'],
+    ['관련 파일을 확인해 주세요', 'Korean']
+  ]) {
+    assert.equal(
+      findDeckSummaryLanguageCue(() => ({ role: 'user', content }), 'request'),
+      language
+    )
+  }
+})
 
 test('summarizes the first completed tool early and persists only on deck head', async () => {
   const updates: ToolCallRecord[] = []
