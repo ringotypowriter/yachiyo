@@ -876,6 +876,8 @@ export function buildConversationGroupRows(
         assistantMessage.id === activeAssistantMessage.id &&
         activeAssistantMessage.status === 'streaming' &&
         isLastTextBlock &&
+        // A later tool call closes this text block, even after that tool finishes.
+        nextItem === undefined &&
         !hasRunningToolCall &&
         !input.subagentActive
       rows.push({
