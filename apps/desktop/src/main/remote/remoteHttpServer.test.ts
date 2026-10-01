@@ -49,7 +49,19 @@ test('terminates a socket that stops answering pings', async (t) => {
 })
 
 test('skips pings while the phone is sending frames, and pings again once it stops', async (t) => {
-  const server = await startServer(t)
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  let now = 0
+  let serverSocket: WebSocket
+  const server = await startRemoteHttpServer({
+    host: '127.0.0.1',
+    port: 0,
+    pingIntervalMs: 30,
+    now: () => now,
+    onConnection: (socket) => {
+      serverSocket = socket
+    }
+  })
+  t.after(() => server.close())
   const socket = connect(server, false)
   t.after(() => socket.terminate())
   await once(socket, 'open')
@@ -58,14 +70,24 @@ test('skips pings while the phone is sending frames, and pings again once it sto
     pinged = true
   })
 
-  // Frames every 10 ms keep the socket alive although it never answers a ping.
+  // Wait for frame receipt before advancing liveness checks, independent of CI scheduling.
   for (let frame = 0; frame < 15; frame += 1) {
+    const received = once(serverSocket!, 'message')
     socket.send(Buffer.from([frame]))
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await received
+    now += 10
+    t.mock.timers.tick(30)
   }
   assert.equal(pinged, false)
   assert.equal(socket.readyState, WebSocket.OPEN)
 
-  await once(socket, 'close')
+  const ping = once(socket, 'ping')
+  now += 30
+  t.mock.timers.tick(30)
+  await ping
+  const closed = once(socket, 'close')
+  now += 30
+  t.mock.timers.tick(30)
+  await closed
   assert.equal(pinged, true)
 })
