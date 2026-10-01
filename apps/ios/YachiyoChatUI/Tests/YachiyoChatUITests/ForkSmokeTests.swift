@@ -27,7 +27,9 @@ final class ForkSmokeTests: XCTestCase {
         let first = ToolCallContentPart(id: "first", toolName: "read", state: .succeeded)
         let second = ToolCallContentPart(id: "second", toolName: "bash")
         message.parts = [.toolCall(first), .toolCall(second)]
-        list.selectedToolCalls[message.id] = first.id
+        // A deck is keyed by its message and its first call.
+        let deckID = "\(message.id)-\(first.id)"
+        list.selectedToolCalls[deckID] = first.id
         let decks = list.entries(from: [message]).filter {
             if case .toolCallHint = $0 { return true }
             return false
@@ -36,13 +38,13 @@ final class ForkSmokeTests: XCTestCase {
         guard case let .toolCallHint(id, calls, selectedID, showsAll) = decks.first else {
             return XCTFail("Expected a grouped tool deck")
         }
-        XCTAssertEqual(id, message.id)
+        XCTAssertEqual(id, deckID)
         XCTAssertEqual(calls.map(\.id), [first.id, second.id])
         XCTAssertEqual(selectedID, first.id)
         XCTAssertFalse(showsAll)
         XCTAssertEqual(ToolHintView.summaryCall(in: calls)?.id, second.id)
 
-        list.expandedToolDecks.insert(message.id)
+        list.expandedToolDecks.insert(deckID)
         guard case let .toolCallHint(_, _, _, expanded) = list.entries(from: [message]).last else {
             return XCTFail("Expected an expanded tool deck")
         }
