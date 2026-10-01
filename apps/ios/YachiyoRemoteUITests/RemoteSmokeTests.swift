@@ -313,10 +313,21 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(element("toolDeck.details.demo-tool-dispatch-claude").exists)
         capture("selected-tool-deck")
         element("toolDeck.details.demo-tool-dispatch-claude").tap()
-        let preview = app.textViews["textSheet.body"]
+        let preview = app.textViews["toolPreview.body"]
         XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        let loaded = NSPredicate(format: "value CONTAINS 'Output' AND NOT (value CONTAINS 'Loading preview')")
+        expectation(for: loaded, evaluatedWith: preview)
+        waitForExpectations(timeout: 15)
         capture("tool-details-preview")
         preview.swipeUp()
+        // Refresh updates this reader in place rather than replacing the sheet's content.
+        let refresh = app.buttons["toolPreview.refresh"]
+        refresh.tap()
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: refresh)
+        waitForExpectations(timeout: 30)
+        XCTAssertTrue(preview.exists)
+        expectation(for: loaded, evaluatedWith: preview)
+        waitForExpectations(timeout: 5)
         app.navigationBars.buttons["Done"].tap()
         let media = app.buttons["composer.more"]
         XCTAssertTrue(media.waitForExistence(timeout: 10))

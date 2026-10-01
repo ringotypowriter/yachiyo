@@ -1153,11 +1153,16 @@ final class ThreadStore: ChatMessageSource {
         liveToolCalls[id] ?? detail?.toolCalls.first { $0.id == id }
     }
 
-    /// The preview to show: inline (older desktops) or fetched on demand.
-    func toolPreview(_ id: String) -> (input: String?, output: String?) {
+    /// The preview to show: inline (older desktops) or fetched on demand. `truncated` means the
+    /// desktop shortened it.
+    func toolPreview(_ id: String) -> (input: String?, output: String?, truncated: Bool) {
         let call = toolCall(id)
         let fetched = toolPreviews[id]
-        return (call?.inputPreview ?? fetched?.inputPreview, call?.outputPreview ?? fetched?.outputPreview)
+        return (
+            call?.inputPreview ?? fetched?.inputPreview,
+            call?.outputPreview ?? fetched?.outputPreview,
+            call?.truncated == true || fetched?.truncated == true
+        )
     }
 
     /// True when the desktop holds a preview this phone has not fetched yet.

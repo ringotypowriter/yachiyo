@@ -638,17 +638,9 @@ extension ThreadViewController: MessageListInteractionDelegate {
 
     func messageList(_: MessageListView, didSelectToolCall toolCallId: String) {
         guard presentedViewController == nil else { return }
-        // Newer desktops leave previews out of `threads.load`; fetch this one on demand.
-        let fetches = thread.needsToolPreview(toolCallId) && store.link(for: thread.desktopId)?.state == .online
-        let detail = UINavigationController(rootViewController: toolPreviewReader(toolCallId, isLoading: fetches))
+        let detail = UINavigationController(rootViewController: ToolPreviewViewController(thread: thread, toolCallId: toolCallId))
         YachiyoMaterialKit.configureSheet(detail, detents: [.medium(), .large()])
         present(detail, animated: true)
-        guard fetches else { return }
-        Task {
-            let failure = await thread.loadToolPreview(toolCallId)
-            guard detail.presentingViewController != nil else { return }
-            detail.setViewControllers([toolPreviewReader(toolCallId, notice: failure.map { String(localized: "Couldn't load the preview. \($0)") })], animated: false)
-        }
     }
 
     func messageList(_: MessageListView, openLink destination: String, messageId _: String) {
@@ -681,43 +673,6 @@ extension ThreadViewController: MessageListInteractionDelegate {
             localError = String(localized: "This link could not be opened.")
             updateChrome()
         }
-    }
-
-    private func toolPreviewReader(_ toolCallId: String, notice: String? = nil, isLoading: Bool = false) -> TextSheetViewController {
-        let call = thread.toolCall(toolCallId)
-        let preview = thread.toolPreview(toolCallId)
-        let availability = store.link(for: thread.desktopId)?.state == .online
-            ? String(localized: "Saved preview, not the complete tool result. Refresh to check for an updated preview.")
-            : String(localized: "Saved preview, not the complete tool result. Connect to your Mac, then tap Refresh to update it.")
-        let output = isLoading
-            ? String(localized: "Loading preview…")
-            : preview.output.map { String(localized: "Output preview\n\($0)") } ?? String(localized: "No output preview is available yet.")
-        let text = [notice, availability, call?.title,
-                    preview.input.map { String(localized: "Input preview\n\($0)") },
-                    output,
-                    call?.error.map { String(localized: "Error\n\($0)") }]
-            .compactMap { $0 }.joined(separator: "\n\n")
-        let reader = TextSheetViewController(title: call?.toolName ?? String(localized: "Tool details"), text: text)
-        reader.navigationItem.leftBarButtonItem = UIBarButtonItem(title: String(localized: "Refresh"), primaryAction: UIAction { [weak self, weak reader] _ in
-            guard let self, let navigation = reader?.navigationController else { return }
-            guard store.link(for: thread.desktopId)?.state == .online else {
-                store.retryConnection(desktopId: thread.desktopId)
-                navigation.setViewControllers([toolPreviewReader(toolCallId, notice: String(localized: "Updated preview unavailable while disconnected. Reconnecting to your Mac; tap Refresh when connected."))], animated: false)
-                return
-            }
-            reader?.navigationItem.leftBarButtonItem?.isEnabled = false
-            Task {
-                await self.thread.reload()
-                var notice = self.thread.loadError
-                if notice == nil, self.thread.toolCall(toolCallId)?.hasPreview == true {
-                    notice = await self.thread.loadToolPreview(toolCallId, refresh: true)
-                        .map { String(localized: "Couldn't load the preview. \($0)") }
-                }
-                guard navigation.presentingViewController != nil else { return }
-                navigation.setViewControllers([self.toolPreviewReader(toolCallId, notice: notice)], animated: false)
-            }
-        })
-        return reader
     }
 
     func messageList(_: MessageListView, menuForMessage messageId: String, role: MessageRole) -> UIMenu? {
