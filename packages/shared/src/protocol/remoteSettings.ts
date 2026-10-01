@@ -27,7 +27,7 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
   metricsPort: 47832,
   namedHostname: '',
   publicEndpoint: '',
-  relayServer: '',
+  relayServer: 'https://yachiyo-relay.onrender.com',
   lanEndpoint: false,
   keepAwakeOnPower: true
 }

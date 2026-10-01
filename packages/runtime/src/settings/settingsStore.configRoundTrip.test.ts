@@ -1010,9 +1010,20 @@ test('relay settings survive normalization and TOML persistence without storing 
   assert.equal(serialized.includes('not-a-persisted-setting'), false)
 })
 
-test('invalid relay server values normalize to an empty address without changing existing modes', () => {
+test('missing relay addresses use the confirmed service while custom addresses and modes remain unchanged', () => {
+  const defaulted = normalizeSettingsConfig({ remote: {} }).remote
+  assert.equal(defaulted?.relayServer, 'https://yachiyo-relay.onrender.com')
+  assert.equal(defaulted?.enabled, false)
+  assert.equal(defaulted?.tunnel, 'quick')
+  const custom = normalizeSettingsConfig({
+    remote: { relayServer: 'https://custom.example.com' }
+  }).remote
+  assert.equal(custom?.relayServer, 'https://custom.example.com')
+})
+
+test('invalid relay server values normalize to the default address without changing existing modes', () => {
   const remote = normalizeSettingsConfig({ remote: { tunnel: 'named', relayServer: 123 } }).remote
-  assert.equal(remote?.relayServer, '')
+  assert.equal(remote?.relayServer, DEFAULT_REMOTE_CONFIG.relayServer)
   assert.equal(remote?.tunnel, 'named')
   assert.equal(normalizeSettingsConfig({ remote: {} }).remote?.tunnel, 'quick')
 })
