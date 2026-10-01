@@ -51,7 +51,6 @@ export function useFloatingPanelLayout({
 }: UseFloatingPanelLayoutOptions): UseFloatingPanelLayoutResult {
   const internalFloatingRef = useRef<HTMLDivElement>(null)
   const floatingRef = providedFloatingRef ?? internalFloatingRef
-  const naturalHeightRef = useRef(0)
   const [layout, setLayout] = useState<FloatingPanelLayout | null>(null)
 
   const updateLayout = useCallback((): void => {
@@ -60,11 +59,14 @@ export function useFloatingPanelLayout({
     const floating = floatingRef.current
     if (!currentAnchor || !floating) return
 
+    // Measure current content without the previous layout's height cap.
+    const previousMaxHeight = floating.style.maxHeight
+    floating.style.maxHeight = `${maxHeight}px`
     const naturalHeight = Math.min(
       maxHeight,
-      Math.max(naturalHeightRef.current, floating.offsetHeight, floating.scrollHeight)
+      Math.max(floating.offsetHeight, floating.scrollHeight)
     )
-    naturalHeightRef.current = naturalHeight
+    floating.style.maxHeight = previousMaxHeight
     const preferredWidth = width === 'anchor' ? currentAnchor.right - currentAnchor.left : width
     const next = resolveFloatingPanelLayout({
       anchor: currentAnchor,
@@ -92,7 +94,6 @@ export function useFloatingPanelLayout({
 
   useLayoutEffect(() => {
     if (!open) {
-      naturalHeightRef.current = 0
       return undefined
     }
 

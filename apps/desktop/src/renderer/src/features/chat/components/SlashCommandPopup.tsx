@@ -219,7 +219,8 @@ export function SlashCommandPopup({
         <div
           onScroll={handleCommandListScroll}
           style={{
-            maxHeight: Math.max(0, (popupLayout?.maxHeight ?? 420) - 35),
+            maxHeight: 385,
+            minHeight: 0,
             overflowY: 'auto',
             overscrollBehavior: 'contain'
           }}
@@ -297,6 +298,7 @@ export function SlashCommandPopup({
         <div
           style={{
             padding: '6px 14px',
+            flexShrink: 0,
             fontSize: 10,
             lineHeight: 1.4,
             color: theme.text.muted,
