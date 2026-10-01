@@ -665,11 +665,12 @@ extension ThreadViewController: MessageListInteractionDelegate {
             }
             let desktopId = thread.desktopId
             let threadId = thread.threadId
-            let preview = RemoteFilePreviewController {
-                let file: RemoteFilesGetOutput = try await RemoteStore.shared.call(
-                    desktopId, "files.get", RemoteFilesGetInput(path: path, threadId: threadId)
-                )
-                return (file.filename, file.data)
+            let preview = RemoteFilePreviewController { refresh in
+                try await RemoteFilePreviewCache.shared.file(desktopId: desktopId, threadId: threadId, path: path, refresh: refresh) {
+                    try await RemoteStore.shared.call(
+                        desktopId, "files.get", RemoteFilesGetInput(path: path, threadId: threadId)
+                    )
+                }
             }
             present(UINavigationController(rootViewController: preview), animated: true)
         case .unsupported:

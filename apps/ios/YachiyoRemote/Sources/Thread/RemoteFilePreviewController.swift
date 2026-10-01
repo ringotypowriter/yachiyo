@@ -1,15 +1,20 @@
 import QuickLook
 import UIKit
+import YachiyoRemoteKit
 
 /// Downloads through the paired RPC connection, then gives Quick Look a phone-local copy.
 @MainActor
 final class RemoteFilePreviewController: UIViewController, QLPreviewControllerDataSource {
-    private let loadFile: () async throws -> (filename: String, base64: String)
+    private let loadFile: (Bool) async throws -> RemoteFilePreviewCache.File
     private let temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     private var fileURL: URL?
     private var loadingTask: Task<Void, Never>?
 
-    init(loadFile: @escaping () async throws -> (filename: String, base64: String)) {
+    private let spinner = UIActivityIndicatorView(style: .large)
+    private var preview: QLPreviewController?
+    private var errorLabel: UILabel?
+
+    init(loadFile: @escaping (Bool) async throws -> RemoteFilePreviewCache.File) {
         self.loadFile = loadFile
         super.init(nibName: nil, bundle: nil)
     }
@@ -30,33 +35,42 @@ final class RemoteFilePreviewController: UIViewController, QLPreviewControllerDa
             self?.loadingTask?.cancel()
             self?.dismiss(animated: true)
         })
-        let spinner = UIActivityIndicatorView(style: .large)
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(refreshPreview))
         spinner.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(spinner)
         NSLayoutConstraint.activate([
             spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
+        load(refresh: false)
+    }
+
+    @objc private func refreshPreview() { load(refresh: true) }
+
+    private func load(refresh: Bool) {
+        loadingTask?.cancel()
+        errorLabel?.removeFromSuperview()
+        errorLabel = nil
+        preview?.willMove(toParent: nil)
+        preview?.view.removeFromSuperview()
+        preview?.removeFromParent()
+        preview = nil
+        fileURL = nil
+        spinner.isHidden = false
         spinner.startAnimating()
+        navigationItem.leftBarButtonItem?.isEnabled = false
         let loader = loadFile
         loadingTask = Task { [weak self] in
             do {
-                let file = try await loader()
+                let file = try await loader(refresh)
                 try Task.checkCancellation()
                 guard let self else { return }
                 let directory = temporaryDirectory
                 let work = Task.detached(priority: .userInitiated) {
                     try Task.checkCancellation()
-                    guard let data = Data(base64Encoded: file.base64), data.count <= 6 * 1024 * 1024 else {
-                        throw CocoaError(.fileReadCorruptFile)
-                    }
-                    // Never trust a remote filename as a phone-local path.
-                    let filename = URL(fileURLWithPath: file.filename).lastPathComponent
-                    guard !filename.isEmpty, filename != ".", filename != ".." else { throw CocoaError(.fileReadInvalidFileName) }
-                    try Task.checkCancellation()
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    let url = directory.appendingPathComponent(filename)
-                    try data.write(to: url, options: .atomic)
+                    let url = directory.appendingPathComponent(file.filename)
+                    try file.data.write(to: url, options: .atomic)
                     return url
                 }
                 let url = try await withTaskCancellationHandler {
@@ -74,18 +88,24 @@ final class RemoteFilePreviewController: UIViewController, QLPreviewControllerDa
                 preview.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 view.addSubview(preview.view)
                 preview.didMove(toParent: self)
-                spinner.removeFromSuperview()
+                self.preview = preview
+                spinner.stopAnimating()
+                spinner.isHidden = true
+                navigationItem.leftBarButtonItem?.isEnabled = true
             } catch is CancellationError {
                 // Dismissing a preview must not present a late result.
             } catch {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
-                spinner.removeFromSuperview()
+                spinner.stopAnimating()
+                spinner.isHidden = true
+                navigationItem.leftBarButtonItem?.isEnabled = true
                 let label = UILabel()
                 label.text = String(localized: "Unable to preview this file.") + "\n" + error.localizedDescription
                 label.numberOfLines = 0
                 label.textAlignment = .center
                 label.translatesAutoresizingMaskIntoConstraints = false
+                errorLabel = label
                 view.addSubview(label)
                 NSLayoutConstraint.activate([
                     label.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
