@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { ToolInputProgress } from './toolInputProgress.ts'
 
 import {
   isStepCount,
@@ -547,7 +548,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       }
 
       const finishedToolCallIds = new Set<string>()
-      const toolInputProgress = new Map<string, { chars: number; deltas: number }>()
+      const toolInputProgress = new Map<string, ToolInputProgress>()
       const toolCallContextById = new Map<string, { input: unknown; toolName: string }>()
       const toolCallFinishCallback = request.onToolCallFinish
       const emitToolCallFinish = toolCallFinishCallback
@@ -637,9 +638,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           pendingStepFinish = undefined
         }
 
+        const inputAbort = new AbortController()
         try {
           const result = resolvedDependencies.streamTextImpl({
-            abortSignal: request.signal,
+            abortSignal: AbortSignal.any([request.signal, inputAbort.signal]),
             maxRetries: SDK_MAX_RETRIES,
             messages: preparedMessages,
             model: createLanguageModel(
@@ -691,7 +693,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               finishReason?: string
               id?: string
               input?: unknown
-              inputTextDelta?: string
+              delta?: string
               isContinued?: boolean
               output?: unknown
               error?: unknown
@@ -798,6 +800,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 console.info(
                   `${llmTag} tool-input-start at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} toolName=${part.toolName} step=${nextStepNumber}`
                 )
+                toolInputProgress.set(part.id, new ToolInputProgress())
                 request.onToolCallPreparing?.({
                   toolCallId: part.id,
                   toolName: part.toolName
@@ -807,14 +810,19 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
               if (part.type === 'tool-input-delta' && typeof part.id === 'string') {
                 // Keep parser fragments even when the provider uses HTTP rather than WebSocket.
-                const previous = toolInputProgress.get(part.id)
-                const now = Date.now()
-                const progress = {
-                  chars: (previous?.chars ?? 0) + (part.inputTextDelta?.length ?? 0),
-                  deltas: (previous?.deltas ?? 0) + 1
+                const progress = toolInputProgress.get(part.id) ?? new ToolInputProgress()
+                const delta = typeof part.delta === 'string' ? part.delta : ''
+                try {
+                  progress.append(delta)
+                } catch (error) {
+                  console.error(
+                    `${llmTag} tool-input-stalled at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} chars=${progress.chars} deltas=${progress.deltas} step=${nextStepNumber} delta=${JSON.stringify(delta)}`
+                  )
+                  inputAbort.abort(error)
+                  throw error
                 }
                 console.info(
-                  `${llmTag} tool-input-progress at=${new Date(now).toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} chars=${progress.chars} deltas=${progress.deltas} step=${nextStepNumber} delta=${JSON.stringify(part.inputTextDelta ?? '')}`
+                  `${llmTag} tool-input-progress at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} chars=${progress.chars} deltas=${progress.deltas} step=${nextStepNumber} delta=${JSON.stringify(delta)}`
                 )
                 toolInputProgress.set(part.id, progress)
                 continue

@@ -849,3 +849,58 @@ test('createAiSdkModelRuntime disables gateway thinking config when provider thi
     }
   })
 })
+
+test('blank tool input aborts the upstream request without retry or tool execution', async () => {
+  let signal: AbortSignal | undefined
+  let attempts = 0
+  let toolStarts = 0
+  const logs: string[] = []
+  const originalInfo = console.info
+  console.info = (...args) => logs.push(args.join(' '))
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({ responses: () => ({ modelId: 'gpt-test', provider: 'openai.responses' }) }) as never,
+    streamTextImpl: ((input: { abortSignal: AbortSignal }) => {
+      signal = input.abortSignal
+      attempts++
+      return {
+        stream: (async function* () {
+          yield { type: 'tool-input-start', id: 'blank-call', toolName: 'bash' }
+          yield { type: 'tool-input-delta', id: 'blank-call', delta: '{' }
+          yield { type: 'tool-input-delta', id: 'blank-call', delta: ' \n'.repeat(2048) }
+          yield {
+            type: 'tool-input-available',
+            toolCallId: 'blank-call',
+            toolName: 'bash',
+            input: {}
+          }
+        })()
+      }
+    }) as never
+  })
+  try {
+    await assert.rejects(async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'Inspect files.' }],
+        settings: {
+          providerName: 'test',
+          provider: 'openai-responses',
+          model: 'gpt-test',
+          apiKey: 'test',
+          baseUrl: ''
+        },
+        signal: new AbortController().signal,
+        onToolCallStart: () => {
+          toolStarts++
+        }
+      }))
+        void chunk
+    }, /Tool input made no meaningful progress/)
+    assert.equal(signal?.aborted, true)
+    assert.equal(attempts, 1)
+    assert.equal(toolStarts, 0)
+    assert.ok(logs.some((line) => line.includes('chars=1') && line.includes('delta="{"')))
+  } finally {
+    console.info = originalInfo
+  }
+})

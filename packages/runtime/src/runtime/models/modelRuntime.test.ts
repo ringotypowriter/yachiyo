@@ -96,7 +96,10 @@ test('createAiSdkModelRuntime uses chat() for openai (Chat Completions) provider
   if (streamCall === null) {
     assert.fail('Expected streamText to be called.')
   }
-  assert.equal(streamCall.abortSignal, controller.signal)
+  assert.equal(streamCall.abortSignal?.aborted, false)
+  controller.abort('user cancellation')
+  assert.equal(streamCall.abortSignal?.aborted, true)
+  assert.equal(streamCall.abortSignal?.reason, 'user cancellation')
   assert.deepEqual(streamCall.providerOptions, { openai: { store: false } })
 })
 
@@ -185,7 +188,10 @@ test('createAiSdkModelRuntime uses responses() with reasoning for openai-respons
   if (streamCall === null) {
     assert.fail('Expected streamText to be called.')
   }
-  assert.equal(streamCall.abortSignal, controller.signal)
+  assert.equal(streamCall.abortSignal?.aborted, false)
+  controller.abort('user cancellation')
+  assert.equal(streamCall.abortSignal?.aborted, true)
+  assert.equal(streamCall.abortSignal?.reason, 'user cancellation')
   assert.deepEqual(streamCall.providerOptions, {
     openai: {
       reasoningEffort: 'medium',
@@ -576,7 +582,10 @@ test('createAiSdkModelRuntime uses AI SDK streaming with Anthropic thinking enab
   if (streamCall === null) {
     assert.fail('Expected streamText to be called.')
   }
-  assert.equal(streamCall.abortSignal, controller.signal)
+  assert.equal(streamCall.abortSignal?.aborted, false)
+  controller.abort('user cancellation')
+  assert.equal(streamCall.abortSignal?.aborted, true)
+  assert.equal(streamCall.abortSignal?.reason, 'user cancellation')
   assert.deepEqual(streamCall.providerOptions, {
     anthropic: {
       thinking: {
