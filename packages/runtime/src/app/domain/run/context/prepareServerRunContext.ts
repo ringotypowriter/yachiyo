@@ -344,6 +344,7 @@ export async function prepareServerRunContext(
     config.memory?.autoRecall !== false &&
     deps.buildMemoryLayerEntries &&
     !isGuest &&
+    !requestIsHidden &&
     !isSteerLeg
   ) {
     try {

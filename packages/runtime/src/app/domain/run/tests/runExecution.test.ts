@@ -721,6 +721,56 @@ test('prepareServerRunContext includes worker subagent context without ACP profi
   }
 })
 
+for (const delivery of [
+  { content: '[Worker worker-1 initial result]\n\nDone', hidden: true },
+  { content: '[Message from Worker worker-1]\n\nFollow-up result', hidden: true },
+  { content: 'Please continue with the worker result', hidden: false }
+]) {
+  test(`prepareServerRunContext ${delivery.hidden ? 'skips' : 'keeps'} recall for ${delivery.content.split('\n')[0]}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-worker-recall-'))
+    const thread: ThreadRecord = {
+      id: 'thread-1',
+      title: 'Thread',
+      workspacePath: root,
+      updatedAt: '2026-04-28T00:00:00.000Z'
+    }
+    const requestMessage: MessageRecord = {
+      id: 'msg-1',
+      threadId: thread.id,
+      role: 'user',
+      ...delivery,
+      status: 'completed',
+      createdAt: '2026-04-28T00:00:00.000Z'
+    }
+    const events: unknown[] = []
+    const deps = createRunContextDeps({ events, messages: [requestMessage], workspacePath: root })
+    const recalledQueries: string[] = []
+    deps.buildMemoryLayerEntries = async ({ userQuery }) => {
+      recalledQueries.push(userQuery)
+      return { entries: ['Recalled memory'] }
+    }
+
+    try {
+      const context = await prepareServerRunContext(deps, {
+        runId: 'run-1',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: [],
+        runMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        historyMessages: [requestMessage],
+        applyStripCompact: false
+      })
+
+      assert.deepEqual(recalledQueries, delivery.hidden ? [] : [delivery.content])
+      assert.deepEqual(context.memoryEntries, delivery.hidden ? [] : ['Recalled memory'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}
+
 test('prepareServerRunContext skips foreground activity for hidden steer requests', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-hidden-steer-context-'))
   const thread: ThreadRecord = {
