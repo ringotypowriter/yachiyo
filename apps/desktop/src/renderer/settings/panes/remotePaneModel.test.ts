@@ -80,7 +80,7 @@ test('withRemote patches only the remote section', () => {
   assert.equal(next.remote?.tunnel, 'quick')
 })
 
-test('relay address shows only its origin and never a bearer; no cloudflared warning', () => {
+test('Connect hides its managed server URL while preserving connection hints', () => {
   const relay = status({
     tunnel: 'relay',
     endpoints: [],
@@ -91,6 +91,6 @@ test('relay address shows only its origin and never a bearer; no cloudflared war
     },
     cloudflared: { ...status().cloudflared, agentRunning: false }
   })
-  assert.equal(remoteAddressLabel(relay), 'https://relay.example')
+  assert.equal(remoteAddressLabel(relay), null)
   assert.notEqual(remoteStatusHint(relay), 'cloudflared-stopped')
 })

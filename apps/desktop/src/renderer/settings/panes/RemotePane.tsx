@@ -223,8 +223,8 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
         onChange(withRemote(draft, { relayServer: activated.relay.server }))
       setInvite('')
       await reload()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+    } catch {
+      setError(t('settings.remote.relayActivationFailed'))
     } finally {
       setActivating(false)
     }
@@ -269,22 +269,6 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
           }
         />
         <SettingItem
-          label={t('settings.remote.relayServer')}
-          description={t('settings.remote.relayServerDescription')}
-          control={
-            <input
-              value={remote.relayServer ?? ''}
-              placeholder="https://relay.example.com"
-              spellCheck={false}
-              className="h-8 w-56 rounded-lg px-3 text-sm outline-none"
-              style={inputStyle()}
-              onChange={(event) =>
-                onChange(withRemote(draft, { relayServer: event.target.value.trim() }))
-              }
-            />
-          }
-        />
-        <SettingItem
           label={t('settings.remote.relayInvite')}
           description={
             relayActivated
@@ -299,7 +283,7 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
                 value={invite}
                 type="password"
                 autoComplete="off"
-                placeholder="Invitation code"
+                placeholder={t('settings.remote.relayInvite')}
                 spellCheck={false}
                 className="h-8 w-44 rounded-lg px-3 text-sm outline-none"
                 style={inputStyle()}
@@ -377,10 +361,20 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
           }
         />
         <SettingItem
-          label={t('settings.remote.address')}
+          label={t(
+            status?.tunnel === 'relay'
+              ? 'settings.remote.connectionStatus'
+              : 'settings.remote.address'
+          )}
           description={
             status?.running
-              ? (address ?? t('settings.remote.addressNone'))
+              ? status.tunnel === 'relay'
+                ? t(
+                    status.relay.connected
+                      ? 'settings.remote.relayConnected'
+                      : 'settings.remote.relayConnecting'
+                  )
+                : (address ?? t('settings.remote.addressNone'))
               : t('settings.remote.notRunning')
           }
           hint={

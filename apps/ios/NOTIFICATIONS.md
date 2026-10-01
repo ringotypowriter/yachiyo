@@ -5,7 +5,7 @@ The iPhone receives visible task-completion alerts through Relay. Each alert sho
 ## Setup
 
 - Install desktop and iPhone builds supporting push registration. Existing pairings can be reused.
-- On the Mac, enable Remote, select **Relay (Recommended)** and activate it with an invitation. Keep General task-completion notifications enabled.
+- On the Mac, enable Remote, select **Yachiyo Connect (Recommended)** and activate it with an invitation. Keep General task-completion notifications enabled.
 - Allow notifications on the iPhone. If permission was denied, enable it in iOS Settings and return to Yachiyo while the Mac is reachable.
 - Set all five APNs variables on Relay and redeploy:
 

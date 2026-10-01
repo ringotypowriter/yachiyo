@@ -112,7 +112,7 @@ final class DeviceViewController: UITableViewController {
             return rows
         case .addresses:
             var rows = desktop.endpoints.enumerated().map { index, endpoint in
-                Row(title: endpoint.kind == "relay" ? String(localized: "Relay target") : (index == 0 ? String(localized: "Saved target") : String(localized: "Alternate saved target")), detail: endpoint.url, copyValue: endpoint.url, identifier: "device.savedURL.\(index)")
+                Row(title: endpoint.kind == "relay" ? String(localized: "Yachiyo Connect target") : (index == 0 ? String(localized: "Saved target") : String(localized: "Alternate saved target")), detail: endpoint.url, copyValue: endpoint.url, identifier: "device.savedURL.\(index)")
             }
             if rows.isEmpty { rows.append(Row(title: String(localized: "Saved target"), detail: String(localized: "No saved address"))) }
             if let updatedAt = desktop.lastAddressUpdateAt {

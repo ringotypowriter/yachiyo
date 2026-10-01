@@ -13,9 +13,9 @@ export function withRemote(config: SettingsConfig, patch: Partial<RemoteConfig>)
   return { ...config, remote: { ...remoteConfigOf(config), ...patch } }
 }
 
-/** Preserve the complete endpoint when displaying or copying the server address. */
+/** Connect endpoints are managed by the app, not shown or copied in settings. */
 export function remoteAddressLabel(status: RemoteStatusResult | null): string | null {
-  if (status?.tunnel === 'relay') return status.relay.server
+  if (status?.tunnel === 'relay') return null
   const endpoint =
     status?.endpoints.find((entry) => entry.kind === 'tunnel') ?? status?.endpoints[0]
   return endpoint?.url ?? null
