@@ -948,7 +948,13 @@ test('applyServerEvent still notifies for owner DM runs started locally', () => 
     })
 
     assert.deepEqual(notifications, [
-      { title: 'Owner DM', body: 'Done locally', threadId: 'owner-dm-thread', target: 'thread' }
+      {
+        title: 'Owner DM',
+        body: 'Done locally',
+        threadId: 'owner-dm-thread',
+        target: 'thread',
+        dedupeKey: 'owner-dm-thread:run.completed:run-owner-dm-local'
+      }
     ])
     assert.equal(useAppStore.getState().queuedToasts.length, 1)
   } finally {
@@ -1487,6 +1493,192 @@ test('setEnabledTools drops custom tool sets and keeps the thread on auto', asyn
     assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
     assert.equal(state.runMode, 'auto')
   } finally {
+    restoreWindow()
+  }
+})
+
+test('scheduled runs leave completion notification delivery to the scheduler', () => {
+  resetStore()
+  const notifications: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    showNotification: (input) => notifications.push(input)
+  })
+  const restoreDocument = withDocumentFocusMock({ hidden: true, hasFocus: false })
+  try {
+    useAppStore.setState({
+      threads: [
+        {
+          id: 'scheduled',
+          title: 'Schedule: audit',
+          updatedAt: TIMESTAMP,
+          createdFromScheduleId: 'schedule'
+        }
+      ]
+    })
+    useAppStore.getState().applyServerEvent({
+      type: 'run.completed',
+      eventId: 'scheduled-completion',
+      timestamp: TIMESTAMP,
+      threadId: 'scheduled',
+      runId: 'scheduled-run',
+      runTrigger: 'local'
+    })
+    assert.deepEqual(notifications, [])
+    assert.deepEqual(useAppStore.getState().queuedToasts, [])
+  } finally {
+    restoreDocument()
+    restoreWindow()
+  }
+})
+
+test('background completions carry a stable identity for main-process cross-window deduplication', () => {
+  resetStore()
+  const notifications: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    showNotification: (input) => notifications.push(input)
+  })
+  const restoreDocument = withDocumentFocusMock({ hidden: true, hasFocus: false })
+  try {
+    useAppStore.setState({
+      threads: [{ id: 'dedupe-thread', title: 'Audit', updatedAt: TIMESTAMP }]
+    })
+    const event = {
+      type: 'run.completed' as const,
+      eventId: 'dedupe-completion',
+      timestamp: TIMESTAMP,
+      threadId: 'dedupe-thread',
+      runId: 'dedupe-run'
+    }
+    useAppStore.getState().applyServerEvent(event)
+    useAppStore.getState().applyServerEvent(event)
+    assert.deepEqual(notifications, [
+      {
+        title: 'Audit',
+        body: 'Run completed',
+        threadId: 'dedupe-thread',
+        target: 'thread',
+        dedupeKey: 'dedupe-thread:run.completed:dedupe-run'
+      }
+    ])
+  } finally {
+    restoreDocument()
+    restoreWindow()
+  }
+})
+
+test('distinct input requests in one run notify independently while event replays are ignored', () => {
+  resetStore()
+  const restoreDocument = withDocumentFocusMock({ hidden: false, hasFocus: true })
+  try {
+    const first = {
+      type: 'notification.requested' as const,
+      eventId: 'question-one',
+      timestamp: TIMESTAMP,
+      threadId: 'question-thread',
+      runId: 'question-run',
+      title: 'Input needed',
+      body: 'First question'
+    }
+    const second = { ...first, eventId: 'question-two', body: 'Second question' }
+    useAppStore.getState().applyServerEvent(first)
+    useAppStore.getState().applyServerEvent(first)
+    useAppStore.getState().applyServerEvent(second)
+    assert.deepEqual(
+      useAppStore.getState().activeToasts.map(({ body }) => body),
+      ['First question', 'Second question']
+    )
+  } finally {
+    restoreDocument()
+  }
+})
+
+test('separate subagent turns with the same name keep their own activity notifications', () => {
+  resetStore()
+  const restoreDocument = withDocumentFocusMock({ hidden: false, hasFocus: true })
+  try {
+    useAppStore.setState({
+      threads: [{ id: 'worker-thread', title: 'Workers', updatedAt: TIMESTAMP }]
+    })
+    const started = {
+      type: 'subagent.started' as const,
+      eventId: 'worker-start-1',
+      timestamp: TIMESTAMP,
+      threadId: 'worker-thread',
+      runId: 'worker-run',
+      delegationId: 'task-1',
+      agentName: 'general',
+      workspacePath: '/tmp'
+    }
+    const finished = {
+      type: 'subagent.finished' as const,
+      eventId: 'worker-finish-1',
+      timestamp: TIMESTAMP,
+      threadId: 'worker-thread',
+      runId: 'worker-run',
+      delegationId: 'task-1',
+      agentName: 'general',
+      status: 'success' as const
+    }
+    useAppStore.getState().applyServerEvent(started)
+    useAppStore.getState().applyServerEvent(finished)
+    useAppStore.getState().applyServerEvent(started)
+    useAppStore.getState().applyServerEvent(finished)
+    useAppStore
+      .getState()
+      .applyServerEvent({ ...started, eventId: 'worker-start-2', delegationId: 'task-2' })
+    useAppStore
+      .getState()
+      .applyServerEvent({ ...finished, eventId: 'worker-finish-2', delegationId: 'task-2' })
+    assert.equal(useAppStore.getState().activeToasts.length, 4)
+  } finally {
+    restoreDocument()
+  }
+})
+
+test('restored scheduled threads resume normal completion notifications', () => {
+  resetStore()
+  const notifications: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    showNotification: (input) => notifications.push(input)
+  })
+  const restoreDocument = withDocumentFocusMock({ hidden: true, hasFocus: false })
+  try {
+    useAppStore.setState({
+      threads: [
+        {
+          id: 'restored-schedule',
+          title: 'Schedule: audit',
+          updatedAt: TIMESTAMP,
+          createdFromScheduleId: 'schedule'
+        }
+      ]
+    })
+    useAppStore.getState().applyServerEvent({
+      type: 'thread.updated',
+      eventId: 'restored-thread',
+      timestamp: TIMESTAMP,
+      threadId: 'restored-schedule',
+      thread: { id: 'restored-schedule', title: 'Audit', updatedAt: TIMESTAMP }
+    })
+    useAppStore.getState().applyServerEvent({
+      type: 'run.completed',
+      eventId: 'restored-completion',
+      timestamp: TIMESTAMP,
+      threadId: 'restored-schedule',
+      runId: 'restored-run',
+      runTrigger: 'local'
+    })
+    assert.deepEqual(notifications, [
+      {
+        title: 'Audit',
+        body: 'Run completed',
+        threadId: 'restored-schedule',
+        target: 'thread',
+        dedupeKey: 'restored-schedule:run.completed:restored-run'
+      }
+    ])
+  } finally {
+    restoreDocument()
     restoreWindow()
   }
 })

@@ -14,6 +14,7 @@ import type {
   ToolCallName
 } from '../../types.ts'
 import { normalizeMessageImages } from '@yachiyo/shared/messageContent'
+import { createNotificationDeduplicator } from '@yachiyo/shared/notificationDeduplication'
 import {
   normalizeSkillNames,
   USER_MANAGED_TOOL_NAMES,
@@ -61,10 +62,8 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
   enabledSkillNames: null
 }
 
-const NOTIFICATION_DEDUPE_WINDOW_MS = 10_000
 const MAX_LOADED_THREAD_DATA = 6
 export const DEFAULT_GLOBAL_PROCESSING_LABEL = 'Please wait...'
-const recentNotificationKeys = new Map<string, number>()
 let globalProcessingTaskSequence = 0
 let availableSkillsRequestId = 0
 
@@ -271,22 +270,7 @@ export function removeReasoning(message: Message): Message {
   return nextMessage
 }
 
-export function shouldShowNotification(key: string): boolean {
-  const now = Date.now()
-
-  for (const [existingKey, timestamp] of recentNotificationKeys) {
-    if (now - timestamp >= NOTIFICATION_DEDUPE_WINDOW_MS) {
-      recentNotificationKeys.delete(existingKey)
-    }
-  }
-
-  if (recentNotificationKeys.has(key)) {
-    return false
-  }
-
-  recentNotificationKeys.set(key, now)
-  return true
-}
+export const shouldShowNotification: (key: string) => boolean = createNotificationDeduplicator()
 
 export function createGlobalProcessingTask(label: string): GlobalProcessingTask {
   globalProcessingTaskSequence += 1

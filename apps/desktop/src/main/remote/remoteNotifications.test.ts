@@ -102,6 +102,91 @@ test('completion pushes only title and routing metadata with host authentication
   })
 })
 
+test('recap completion does not push or consume the run dedupe key', async () => {
+  await harness(async ({ notifications, requests }) => {
+    await notifications.handle({ ...event(), recap: true } as YachiyoServerEvent)
+    assert.equal(requests.length, 0)
+    await notifications.handle(event())
+    assert.equal(requests.length, 1)
+  })
+})
+
+test('concurrent completions for one run push only once', async () => {
+  await harness(async ({ notifications, requests }) => {
+    await Promise.all([notifications.handle(event()), notifications.handle(event())])
+    assert.equal(requests.length, 1)
+  })
+})
+
+test('pairings sharing a token receive one push per run, distinct tokens still receive pushes', async () => {
+  await harness(async ({ notifications, store, requests }) => {
+    const duplicate = await store.completePairing({
+      token: store.createOffer().token,
+      phoneKey: generateKeyPair().publicKey,
+      deviceName: 'duplicate phone'
+    })
+    await store.setPushToken(duplicate.record.pairingId, TOKEN)
+    const distinct = await store.completePairing({
+      token: store.createOffer().token,
+      phoneKey: generateKeyPair().publicKey,
+      deviceName: 'distinct phone'
+    })
+    await store.setPushToken(distinct.record.pairingId, 'b'.repeat(64))
+    await notifications.handle(event())
+    assert.deepEqual(requests.map(({ init }) => JSON.parse(init.body as string).token).sort(), [
+      TOKEN,
+      'b'.repeat(64)
+    ])
+    await notifications.handle(event('r2'))
+    assert.equal(requests.length, 4)
+  })
+})
+
+test('rejected shared token clears all registrations but preserves tokens rotated in flight', async () => {
+  await harness(async ({ store, pairingId }) => {
+    const duplicate = await store.completePairing({
+      token: store.createOffer().token,
+      phoneKey: generateKeyPair().publicKey,
+      deviceName: 'duplicate phone'
+    })
+    await store.setPushToken(duplicate.record.pairingId, TOKEN)
+    let requests = 0
+    const notifications = new RemoteNotifications({
+      store,
+      credential: { server: 'https://relay.example', hostId: 'mac-1', key: 'host-secret' },
+      remoteDeviceId: DEVICE,
+      enabled: async () => true,
+      getThreadSummary: async () => summary,
+      fetch: (async () => {
+        requests++
+        await store.setPushToken(duplicate.record.pairingId, 'b'.repeat(64))
+        return new Response('', { status: 410 })
+      }) as typeof fetch,
+      log: () => {}
+    })
+    await notifications.handle(event())
+    assert.equal(requests, 1)
+    assert.equal(await store.pushToken(pairingId), null)
+    assert.equal(await store.pushToken(duplicate.record.pairingId), 'b'.repeat(64))
+  })
+})
+
+test('rejected shared token removes every unrotated duplicate registration', async () => {
+  await harness(async ({ notifications, store, pairingId, setResponse, requests }) => {
+    const duplicate = await store.completePairing({
+      token: store.createOffer().token,
+      phoneKey: generateKeyPair().publicKey,
+      deviceName: 'duplicate phone'
+    })
+    await store.setPushToken(duplicate.record.pairingId, TOKEN)
+    setResponse(Response.json({ reason: 'BadDeviceToken' }, { status: 400 }))
+    await notifications.handle(event())
+    assert.equal(requests.length, 1)
+    assert.equal(await store.pushToken(pairingId), null)
+    assert.equal(await store.pushToken(duplicate.record.pairingId), null)
+  })
+})
+
 test('disabled notifications, hidden threads, non-completions, opted-out and revoked pairings never push', async () => {
   await harness(async ({ notifications, store, pairingId, requests, setEnabled, setSummary }) => {
     setEnabled(false)

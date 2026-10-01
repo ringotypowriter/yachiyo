@@ -6,6 +6,7 @@ import type {
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import { getPerfMonitor } from '@yachiyo/runtime/services/perfMonitor'
+import { createNotificationDeduplicator } from '@yachiyo/shared/notificationDeduplication'
 import { isAuxiliaryWindow, isHighFrequencyChatEvent } from './filter.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
 import { createDockBadgeController } from './dockBadgeController.ts'
@@ -14,6 +15,7 @@ const notificationDockBadge = createDockBadgeController({
   platform: process.platform,
   setBadgeCount: (count) => app.setBadgeCount(count)
 })
+const acceptNotification = createNotificationDeduplicator()
 
 function hasFocusedYachiyoWindow(): boolean {
   return BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused())
@@ -43,6 +45,7 @@ export function clearYachiyoNotificationBadge(): void {
 
 export function showYachiyoNotification(input: ShowNotificationInput): void {
   if (!Notification.isSupported()) return
+  if (!acceptNotification(input.dedupeKey)) return
 
   const shouldShowDockBadge = !hasFocusedYachiyoWindow()
   const notification = new Notification({ title: input.title, body: input.body ?? '' })
@@ -82,6 +85,7 @@ export function broadcastYachiyoEvent(event: YachiyoServerEvent): void {
         title: event.title,
         body: event.body,
         threadId: event.threadId,
+        dedupeKey: event.eventId,
         target: 'thread'
       })
     }

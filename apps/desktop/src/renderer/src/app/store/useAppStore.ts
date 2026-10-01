@@ -1224,7 +1224,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           }))
         }
       } else {
-        window.api.yachiyo.showNotification({ title, body, threadId, target: 'thread' })
+        window.api.yachiyo.showNotification({
+          title,
+          body,
+          threadId,
+          target: 'thread',
+          dedupeKey: `${threadId}:${key}`
+        })
         set((s) => ({
           queuedToasts: [
             ...s.queuedToasts,
@@ -1256,7 +1262,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const thread = get().threads.find((t) => t.id === event.threadId)
       if (thread && shouldSuppressOwnerDmChannelNotification(thread, event)) return
 
-      const key = `notification.requested:${event.runId}`
+      const key = `notification.requested:${event.eventId}`
       if (shouldShowNotification(key)) {
         const { activeThreadId } = get()
         const isForeground = !document.hidden && document.hasFocus()
@@ -1297,6 +1303,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (
         thread &&
         !isExternalThread(thread) &&
+        !thread.createdFromScheduleId &&
         !shouldSuppressOwnerDmChannelNotification(thread, event) &&
         config?.general?.notifyRunCompleted !== false
       ) {
@@ -1352,7 +1359,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         config?.general?.notifyCodingTaskStarted !== false
       ) {
         notifyActivity(
-          `subagent.started:${event.runId}:${event.agentName}`,
+          `subagent.started:${event.eventId}`,
           event.threadId,
           thread.title,
           `${event.agentName} dispatched`
@@ -1370,7 +1377,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         config?.general?.notifyCodingTaskFinished !== false
       ) {
         notifyActivity(
-          `subagent.finished:${event.runId}:${event.agentName}:${event.status}`,
+          `subagent.finished:${event.eventId}`,
           event.threadId,
           thread.title,
           event.status === 'cancelled'

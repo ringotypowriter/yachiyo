@@ -45,7 +45,7 @@ export class RemoteNotifications {
   }
 
   private async deliver(event: YachiyoServerEvent): Promise<void> {
-    if (this.stopped || event.type !== 'run.completed') return
+    if (this.stopped || event.type !== 'run.completed' || event.recap === true) return
     const run = `${event.threadId}:${event.runId}`
     if (this.completedRuns.has(run)) return
     this.completedRuns.add(run)
@@ -57,10 +57,23 @@ export class RemoteNotifications {
       // The host projection excludes archived, deleted and guest-only threads.
       if (!summary || this.stopped) return
       const pairings = await this.options.store.list()
+      const registrations = await Promise.allSettled(
+        pairings.map(async ({ pairingId }) => ({
+          pairingId,
+          token: await this.options.store.pushToken(pairingId)
+        }))
+      )
+      const byToken = new Map<string, string[]>()
+      for (const registration of registrations) {
+        if (registration.status !== 'fulfilled' || !registration.value.token) continue
+        const { pairingId, token } = registration.value
+        const pairingIds = byToken.get(token) ?? []
+        pairingIds.push(pairingId)
+        byToken.set(token, pairingIds)
+      }
       const results = await Promise.allSettled(
-        pairings.map(async ({ pairingId }) => {
-          const token = await this.options.store.pushToken(pairingId)
-          if (!token || this.stopped) return
+        [...byToken].map(async ([token, pairingIds]) => {
+          if (this.stopped) return
           const result = await this.fetchImpl(
             `${this.origin}/v1/hosts/${encodeURIComponent(this.options.credential.hostId)}/push`,
             {
@@ -89,15 +102,20 @@ export class RemoteNotifications {
               result.status === 410 ||
               rejection?.reason === 'BadDeviceToken' ||
               rejection?.reason === 'DeviceTokenNotForTopic'
-            // Clear only this registration, never a token rotated while the request was in flight.
+            // Compare-and-clear every registration for the rejected token; rotated tokens survive.
             if (invalidToken && !this.stopped)
-              await this.options.store.clearPushToken(pairingId, token)
+              await Promise.all(
+                pairingIds.map((pairingId) => this.options.store.clearPushToken(pairingId, token))
+              )
             if (!this.stopped) this.options.log(`[remote] push rejected (${result.status})`)
           }
           if (!result.bodyUsed) await result.body?.cancel()
         })
       )
-      if (!this.stopped && results.some((result) => result.status === 'rejected')) {
+      if (
+        !this.stopped &&
+        [...registrations, ...results].some((result) => result.status === 'rejected')
+      ) {
         this.options.log('[remote] push unavailable')
       }
     } catch {
