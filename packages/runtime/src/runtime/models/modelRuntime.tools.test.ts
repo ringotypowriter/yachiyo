@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createAiSdkModelRuntime } from './modelRuntime.ts'
+import { isRetryableRunError } from './runtimeErrors.ts'
 
 test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK tool loop', async () => {
   let call: {
@@ -850,7 +851,7 @@ test('createAiSdkModelRuntime disables gateway thinking config when provider thi
   })
 })
 
-test('blank tool input aborts the upstream request without retry or tool execution', async () => {
+test('blank tool input cancels the bad request and routes through automatic run recovery', async () => {
   let signal: AbortSignal | undefined
   let attempts = 0
   let toolStarts = 0
@@ -879,23 +880,30 @@ test('blank tool input aborts the upstream request without retry or tool executi
     }) as never
   })
   try {
-    await assert.rejects(async () => {
-      for await (const chunk of runtime.streamReply({
-        messages: [{ role: 'user', content: 'Inspect files.' }],
-        settings: {
-          providerName: 'test',
-          provider: 'openai-responses',
-          model: 'gpt-test',
-          apiKey: 'test',
-          baseUrl: ''
-        },
-        signal: new AbortController().signal,
-        onToolCallStart: () => {
-          toolStarts++
-        }
-      }))
-        void chunk
-    }, /Tool input made no meaningful progress/)
+    await assert.rejects(
+      async () => {
+        for await (const chunk of runtime.streamReply({
+          messages: [{ role: 'user', content: 'Inspect files.' }],
+          settings: {
+            providerName: 'test',
+            provider: 'openai-responses',
+            model: 'gpt-test',
+            apiKey: 'test',
+            baseUrl: ''
+          },
+          signal: new AbortController().signal,
+          onToolCallStart: () => {
+            toolStarts++
+          }
+        }))
+          void chunk
+      },
+      (error: unknown) => {
+        assert.ok(isRetryableRunError(error), 'the run must recover instead of failing')
+        assert.match(error.message, /Tool input made no meaningful progress/)
+        return true
+      }
+    )
     assert.equal(signal?.aborted, true)
     assert.equal(attempts, 1)
     assert.equal(toolStarts, 0)

@@ -1,3 +1,5 @@
+import { RetryableRunError } from './runtimeErrors.ts'
+
 /** Track JSON argument progress without treating whitespace inside strings as a stall. */
 export class ToolInputProgress {
   chars = 0
@@ -34,7 +36,7 @@ export class ToolInputProgress {
   }
 
   private fail(): never {
-    throw new Error(
+    throw new RetryableRunError(
       'Tool input made no meaningful progress: repeated empty or whitespace arguments'
     )
   }

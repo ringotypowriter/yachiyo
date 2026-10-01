@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { YachiyoServer } from '../YachiyoServer.ts'
 import { RetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
+import { ToolInputProgress } from '../../../runtime/models/toolInputProgress.ts'
 import type { ModelStreamRequest } from '../../../runtime/models/types.ts'
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import { readUserDocument, writeUserDocument } from '../../../runtime/profiles/user.ts'
@@ -771,6 +772,45 @@ test('YachiyoServer emits thread.state.replaced with the steer message when a pe
 
           yield 'Steered'
           yield ' reply'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer automatically regenerates after a preparing tool enters a whitespace loop', async () => {
+  let attempts = 0
+  await withServer(
+    async ({ server, completeRun, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+      const thread = await server.createThread()
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Inspect the workspace.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+      assert.equal(attempts, 2)
+      const retry = (await waitForEvent('run.retrying')) as { runId: string; error: string }
+      assert.equal(retry.runId, accepted.runId)
+      assert.match(retry.error, /no meaningful progress/)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          attempts++
+          if (attempts === 1) {
+            request.onToolCallPreparing?.({ toolCallId: 'blank-preparing', toolName: 'bash' })
+            new ToolInputProgress().append(' \n'.repeat(2048))
+            assert.fail('whitespace loop must interrupt this request')
+          }
+          yield 'Finished with a fresh response.'
         }
       })
     }
