@@ -121,17 +121,36 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
         clearTextSelection()
     }
 
+    /// Replaces this row's text. Litext keeps a selection's range across text replacement, so a
+    /// selection survives only while every character up to its end is unchanged, as when a reply
+    /// streams in after it; otherwise it ends rather than silently cover different characters.
+    func updatingText(_ update: () -> Void) {
+        let anchors = textLabels().compactMap { label in
+            label.selectionRange
+                .flatMap { TextSelectionAnchor(range: $0, in: label.attributedText.string) }
+                .map { (label, $0) }
+        }
+        update()
+        for (label, anchor) in anchors where !anchor.holds(in: label.attributedText.string) {
+            label.clearSelection()
+        }
+    }
+
     private func clearTextSelection() {
+        textLabels().forEach { $0.clearSelection() }
+    }
+
+    private func textLabels() -> [LTXLabel] {
+        var labels: [LTXLabel] = []
         var queue: [UIView] = subviews
         var index = 0
         while index < queue.count {
             let view = queue[index]
             index += 1
-            if let label = view as? LTXLabel {
-                label.clearSelection()
-            }
+            if let label = view as? LTXLabel { labels.append(label) }
             queue.append(contentsOf: view.subviews)
         }
+        return labels
     }
 
     // MARK: - UIContextMenuInteractionDelegate
@@ -164,5 +183,26 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
         } actionProvider: { _ in
             menu
         }
+    }
+}
+
+/// A text selection pinned to the characters it covers. It holds in new text that starts with
+/// the same UTF-16 code units through the selection's end; ranges are UTF-16, like `NSRange`.
+struct TextSelectionAnchor: Equatable {
+    let range: NSRange
+    private let prefix: String
+
+    init?(range: NSRange, in text: String) {
+        let text = text as NSString
+        guard range.length > 0, NSMaxRange(range) <= text.length else { return nil }
+        self.range = range
+        prefix = text.substring(to: NSMaxRange(range))
+    }
+
+    func holds(in text: String) -> Bool {
+        let text = text as NSString
+        guard NSMaxRange(range) <= text.length else { return false }
+        // Literal: canonically equivalent spellings differ in length, so they move the range.
+        return text.substring(to: NSMaxRange(range)).compare(prefix, options: .literal) == .orderedSame
     }
 }

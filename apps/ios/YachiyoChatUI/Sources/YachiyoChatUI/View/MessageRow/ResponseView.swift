@@ -9,7 +9,9 @@ import UIKit
 
 final class ResponseView: MessageListRowView {
     private(set) lazy var markdownView: MarkdownTextView = .init().with {
-        $0.throttleInterval = 1 / 60
+        // Apply documents synchronously so `show` can check a selection against the new text.
+        // The timeline already coalesces streaming updates to one per frame.
+        $0.throttleInterval = nil
     }
 
     var linkTapHandler: ((LinkPayload, NSRange, CGPoint) -> Void)? {
@@ -43,6 +45,11 @@ final class ResponseView: MessageListRowView {
         contentView.addSubview(markdownView)
         contentView.isAccessibilityElement = true
         contentView.accessibilityTraits = .staticText
+    }
+
+    func show(_ document: MarkdownTextView.PreprocessedContent) {
+        guard markdownView.document !== document else { return }
+        updatingText { markdownView.setMarkdown(document) }
     }
 
     override func themeDidUpdate() {

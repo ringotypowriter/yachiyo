@@ -267,9 +267,7 @@ extension MessageListView: ListViewAdapter {
                 let package = markdownPackageCache.package(
                     for: entry.id, content: chunk.content, endsInsideFence: chunk.endsInsideFence, theme: theme
                 )
-                if responseView.markdownView.document !== package {
-                    responseView.markdownView.setMarkdown(package)
-                }
+                responseView.show(package)
             }
         } else if let hintMessageView = rowView as? HintMessageView {
             if case let .hint(_, content) = entry {

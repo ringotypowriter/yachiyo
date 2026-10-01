@@ -30,7 +30,7 @@ final class UserMessageView: MessageListRowView {
 
     private var attributedText: NSAttributedString? {
         didSet {
-            textView.attributedText = attributedText ?? .init()
+            updatingText { textView.attributedText = attributedText ?? .init() }
             setNeedsContentLayout()
         }
     }

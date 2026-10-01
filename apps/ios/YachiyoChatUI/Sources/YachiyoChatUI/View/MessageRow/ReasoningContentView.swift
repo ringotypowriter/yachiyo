@@ -83,14 +83,16 @@ final class ReasoningContentView: MessageListRowView {
     private func applyRevealedText() {
         guard isRevealedTextStale else { return }
         isRevealedTextStale = false
-        if let text {
-            textView.attributedText = .init(string: text, attributes: [
-                .font: theme.fonts.footnote,
-                .foregroundColor: UIColor.secondaryLabel,
-                .paragraphStyle: Self.paragraphStyle,
-            ])
-        } else {
-            textView.attributedText = .init()
+        updatingText {
+            if let text {
+                textView.attributedText = .init(string: text, attributes: [
+                    .font: theme.fonts.footnote,
+                    .foregroundColor: UIColor.secondaryLabel,
+                    .paragraphStyle: Self.paragraphStyle,
+                ])
+            } else {
+                textView.attributedText = .init()
+            }
         }
     }
 
