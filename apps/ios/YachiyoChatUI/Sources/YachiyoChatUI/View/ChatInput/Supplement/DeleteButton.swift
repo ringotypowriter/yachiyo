@@ -45,6 +45,12 @@ class DeleteButton: UIView {
         imageView.frame = background.frame.insetBy(dx: 5, dy: 5)
     }
 
+    /// Touches count only around the visible glyph. The frame reaches the middle of a thumbnail,
+    /// where a tap opens the preview instead of removing the attachment.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        super.point(inside: point, with: event) && background.frame.insetBy(dx: -12, dy: -12).contains(point)
+    }
+
     override func accessibilityActivate() -> Bool {
         guard !isHidden, isUserInteractionEnabled else { return false }
         onTapped()

@@ -48,6 +48,22 @@ final class AttachmentPreviewSourceTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
 
+    func testOnlyTheRemoveGlyphRemovesAThumbnail() throws {
+        let item = ChatInputAttachment(type: .image)
+        let (window, bar) = makeBar([item])
+        let cell = try XCTUnwrap(bar.collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? AttachmentsBar.AttachmentsImageCell)
+        cell.layoutIfNeeded()
+        func removes(_ point: CGPoint) -> Bool {
+            var view = window.hitTest(cell.convert(point, to: window), with: nil)
+            while let current = view, !(current is DeleteButton) { view = current.superview }
+            return view != nil
+        }
+        // The middle of the thumbnail opens the preview.
+        XCTAssertFalse(removes(CGPoint(x: cell.bounds.midX, y: cell.bounds.midY)))
+        XCTAssertTrue(removes(CGPoint(x: cell.bounds.maxX - 14, y: 14)))
+        XCTAssertTrue(removes(CGPoint(x: cell.bounds.maxX - 34, y: 34)), "a finger-sized target around the glyph")
+    }
+
     func testOffScreenOrDetachedAttachmentsHaveNoSource() {
         let items = (0 ..< 12).map { _ in ChatInputAttachment(type: .image) }
         let (window, bar) = makeBar(items)

@@ -13,7 +13,8 @@ class SingleItemDataSource: NSObject, @preconcurrency QLPreviewControllerDelegat
         }
 
         var previewItemTitle: String? {
-            item.lastPathComponent
+            // The file is a temporary copy named by UUID; unnamed attachments still fall back to it.
+            name.isEmpty ? item.lastPathComponent : name
         }
 
         let item: URL

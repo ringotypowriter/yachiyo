@@ -347,7 +347,7 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(attached.waitForExistence(timeout: 15))
         capture("photo-attached")
         // The preview zooms out of the thumbnail and back into it; closing keeps the draft's photo.
-        attached.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.75)).tap()
+        attached.tap()
         let quickLook = app.otherElements["QLPreviewControllerView"]
         XCTAssertTrue(quickLook.waitForExistence(timeout: 10))
         capture("photo-preview")
