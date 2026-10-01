@@ -100,6 +100,23 @@ final class RemoteSmokeTests: XCTestCase {
         system.tap()
     }
 
+    func testNotificationSettingsEntryOpensSystemSettingsAndRefreshesOnReturn() {
+        continueAfterPairing()
+        let settings = app.buttons["inbox.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 30))
+        settings.tap()
+
+        let notifications = app.cells["settings.notifications"]
+        XCTAssertTrue(notifications.waitForExistence(timeout: 10))
+        notifications.tap()
+
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        XCTAssertTrue(systemSettings.wait(for: .runningForeground, timeout: 10))
+        app.activate()
+        XCTAssertTrue(notifications.waitForExistence(timeout: 10))
+        XCTAssertTrue(notifications.isHittable)
+    }
+
     func testInboxHeadersScrollWithContent() {
         continueAfterPairing()
         let list = app.collectionViews["inbox.list"]

@@ -1,7 +1,16 @@
 import XCTest
+import UserNotifications
 @testable import Yachiyo
 
 final class PushNotificationTests: XCTestCase {
+    func testPermissionEntryRequestsOnlyUndeterminedAuthorization() {
+        XCTAssertEqual(NotificationPermissionAction(status: .notDetermined), .request)
+        XCTAssertEqual(NotificationPermissionAction(status: .denied), .openSettings)
+        XCTAssertEqual(NotificationPermissionAction(status: .authorized), .openSettings)
+        XCTAssertEqual(NotificationPermissionAction(status: .provisional), .openSettings)
+        XCTAssertEqual(NotificationPermissionAction(status: .ephemeral), .openSettings)
+    }
+
     func testDeniedRegistrationEncodesExplicitNull() throws {
         let json = try JSONEncoder().encode(PushRegisterInput(token: nil))
         XCTAssertEqual(String(decoding: json, as: UTF8.self), "{\"token\":null}")

@@ -1,9 +1,19 @@
+import Combine
 import UIKit
 import UserNotifications
+
+enum NotificationPermissionAction: Equatable {
+    case request, openSettings
+
+    init(status: UNAuthorizationStatus) {
+        self = status == .notDetermined ? .request : .openSettings
+    }
+}
 
 @MainActor
 final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
     static let shared = PushNotifications()
+    @Published private(set) var authorizationStatus: UNAuthorizationStatus?
     private var checkingPermission = false
     private var allowsAlerts = false
     private var token: String?
@@ -15,7 +25,7 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func refreshPermission(promptIfNeeded: Bool) {
-        guard RemoteStore.shared.hasDesktops, !checkingPermission else { return }
+        guard !checkingPermission else { return }
         checkingPermission = true
         Task {
             defer { checkingPermission = false }
@@ -25,6 +35,7 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
                 _ = try? await center.requestAuthorization(options: [.alert, .sound])
                 status = await center.notificationSettings().authorizationStatus
             }
+            authorizationStatus = status
             guard RemoteStore.shared.hasDesktops else { return }
             switch status {
             case .denied:

@@ -1,12 +1,13 @@
 import Combine
 import UIKit
 import UniformTypeIdentifiers
+import UserNotifications
 import YachiyoMaterial
 import YachiyoRemoteKit
 
-/// Settings: devices, appearance, address recovery, about. Two levels only: section → item.
+/// Settings stays two levels deep: section → item.
 final class SettingsViewController: UITableViewController {
-    private enum Section: Int, CaseIterable { case devices, appearance, recovery, about }
+    private enum Section: Int, CaseIterable { case devices, appearance, notifications, recovery, about }
 
     private let store = RemoteStore.shared
     private var desktops: [DesktopSnapshot] = []
@@ -37,6 +38,18 @@ final class SettingsViewController: UITableViewController {
                 self?.tableView.reloadData()
             }
             .store(in: &cancellables)
+        PushNotifications.shared.$authorizationStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.tableView.reloadData() }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { _ in PushNotifications.shared.refreshPermission(promptIfNeeded: false) }
+            .store(in: &cancellables)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        PushNotifications.shared.refreshPermission(promptIfNeeded: false)
     }
 
     override func numberOfSections(in _: UITableView) -> Int { Section.allCases.count }
@@ -45,6 +58,7 @@ final class SettingsViewController: UITableViewController {
         switch Section(rawValue: section)! {
         case .devices: String(localized: "Devices")
         case .appearance: String(localized: "Appearance")
+        case .notifications: String(localized: "Notifications")
         case .recovery: String(localized: "Address recovery")
         case .about: String(localized: "About")
         }
@@ -65,6 +79,7 @@ final class SettingsViewController: UITableViewController {
         switch Section(rawValue: section)! {
         case .devices: desktops.count + 1
         case .appearance: desktops.count > 1 ? 3 : 2
+        case .notifications: 1
         case .recovery: 1
         case .about: 3
         }
@@ -109,6 +124,18 @@ final class SettingsViewController: UITableViewController {
                 content.secondaryText = primaryName
                 cell.accessoryView = menuButton(primaryMenu(), title: content.secondaryText!)
             }
+        case .notifications:
+            let status = PushNotifications.shared.authorizationStatus
+            content.text = status == .notDetermined
+                ? String(localized: "Enable notifications") : String(localized: "Notification settings")
+            switch status {
+            case .authorized: content.secondaryText = String(localized: "Enabled")
+            case .provisional, .ephemeral: content.secondaryText = String(localized: "Limited")
+            case .denied: content.secondaryText = String(localized: "Disabled")
+            default: break
+            }
+            cell.accessoryType = .disclosureIndicator
+            cell.accessibilityIdentifier = "settings.notifications"
         case .recovery:
             content.text = String(localized: "Yachiyo recovery folder")
             content.secondaryText = MailboxFolder.isGranted ? String(localized: "Configured") : String(localized: "Not configured")
@@ -160,6 +187,18 @@ final class SettingsViewController: UITableViewController {
                 self?.explainRecoveryFolder(from: presenter, onChange: completion)
             }
             navigationController?.pushViewController(device, animated: true)
+        case .notifications:
+            Task {
+                let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+                switch NotificationPermissionAction(status: status) {
+                case .request:
+                    PushNotifications.shared.refreshPermission(promptIfNeeded: true)
+                case .openSettings:
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                        await UIApplication.shared.open(url)
+                    }
+                }
+            }
         case .recovery:
             explainRecoveryFolder(from: self)
         case .about where indexPath.row == 2:

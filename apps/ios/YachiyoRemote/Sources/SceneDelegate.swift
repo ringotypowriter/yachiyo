@@ -86,7 +86,7 @@ final class AppCoordinator {
 
     private func finishStart(initialURL: URL?) {
         isBootstrapping = false
-        PushNotifications.shared.refreshPermission(promptIfNeeded: true)
+        PushNotifications.shared.refreshPermission(promptIfNeeded: RemoteStore.shared.hasDesktops)
         if let pendingNotification {
             self.pendingNotification = nil
             // Validation happens only after the Keychain has loaded the paired identities.
