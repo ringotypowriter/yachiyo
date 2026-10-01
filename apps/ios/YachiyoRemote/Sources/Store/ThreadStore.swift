@@ -920,12 +920,19 @@ final class ThreadStore: ChatMessageSource {
         lastError = String(localized: "Attachment upload did not complete. Your message was not sent.") + " " + describe(error)
     }
 
-    func send(text: String, attachmentIds: [String], mode: SendMode?, attachments: [ChatInputAttachment] = []) async -> Bool {
-        guard outboundState != .sending else { return false }
+    /// A send the Mac acknowledged. `messageId` is the timeline message it created, when the
+    /// acknowledgement names one (a steer or queued follow-up does not).
+    struct Sent {
+        let messageId: String?
+    }
+
+    /// Nil when nothing was sent, or when delivery could not be confirmed.
+    func send(text: String, attachmentIds: [String], mode: SendMode?, attachments: [ChatInputAttachment] = []) async -> Sent? {
+        guard outboundState != .sending else { return nil }
         guard store.link(for: desktopId)?.state == .online else {
             outboundState = .offline
             lastError = String(localized: "Offline — nothing was sent. Your draft is kept.")
-            return false
+            return nil
         }
         outboundState = .sending
         lastError = nil
@@ -958,7 +965,7 @@ final class ThreadStore: ChatMessageSource {
             if accepted.kind == .activeRunFollowUp { invalidate() }
             userSentSubject.send()
             rebuild(scrolling: true)
-            return true
+            return Sent(messageId: accepted.userMessage?.id)
         } catch {
             if let remote = error as? RemoteCallError {
                 outboundState = remote.name == "RemoteOffline" ? .offline : .rejected
@@ -974,7 +981,7 @@ final class ThreadStore: ChatMessageSource {
                 outboundState = .unconfirmed
                 lastError = String(localized: "Delivery unconfirmed. Check the conversation before sending again; your draft is kept.") + " " + describe(error)
             }
-            return false
+            return nil
         }
     }
 

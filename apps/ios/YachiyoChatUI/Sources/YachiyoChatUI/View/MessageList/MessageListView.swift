@@ -76,6 +76,7 @@ public final class MessageListView: UIView {
             isFirstLoad = true
             isAutoScrollingToBottom = true
             followWaitsForRelease = false
+            pendingLanding = nil
             alpha = 0
             sessionScopedCancellables.forEach { $0.cancel() }
             sessionScopedCancellables.removeAll()
@@ -169,6 +170,35 @@ public final class MessageListView: UIView {
             listView.cancelCurrentScrolling()
             listView.setContentOffset(listView.maximumContentOffset, animated: false)
         }
+    }
+
+    /// Plays the user's message `messageId` in from the composer, where its text sat at
+    /// `textRect` (window coordinates). It plays once, when that message's row is on screen; a
+    /// message that does not show up promptly, or Reduce Motion, leaves the ordinary insertion.
+    public func landSentMessage(_ messageId: String, fromTextRect textRect: CGRect) {
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        pendingLanding = PendingLanding(entryID: "user-\(messageId)", textRect: textRect, expires: CACurrentMediaTime() + 1)
+        performPendingLanding()
+    }
+
+    private struct PendingLanding {
+        let entryID: String
+        let textRect: CGRect
+        let expires: CFTimeInterval
+    }
+
+    private var pendingLanding: PendingLanding?
+
+    private func performPendingLanding() {
+        guard let landing = pendingLanding else { return }
+        guard CACurrentMediaTime() < landing.expires else { return pendingLanding = nil }
+        // A new message starts below the viewport; its row exists once following brings it in.
+        guard appliedEntryIDs.contains(landing.entryID),
+              let row = listView.visibleRowViews.compactMap({ $0 as? UserMessageView }).first(where: { $0.representedEntryID == landing.entryID }),
+              row.window != nil, row.frame.intersects(listView.bounds)
+        else { return }
+        pendingLanding = nil
+        row.land(fromTextRect: landing.textRect)
     }
 
     /// Scrolls until the question card with this tool call id is at the top of the list.
@@ -394,6 +424,7 @@ public final class MessageListView: UIView {
                 if heldRow == nil { followBottom(animated: isStructural) } else { deferFollowing() }
             }
         }
+        performPendingLanding()
     }
 
     /// A row and where it sits in the viewport, so the same content stays under the reader's eyes
@@ -465,6 +496,7 @@ extension MessageListView: UIScrollViewDelegate {
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        performPendingLanding()
         // Only the reader's own scrolling asks for more; the row's button covers everything else.
         guard earlierHistory == .available, !hasRequestedEarlierHistory, !isFirstLoad,
               scrollView.isTracking || scrollView.isDecelerating,

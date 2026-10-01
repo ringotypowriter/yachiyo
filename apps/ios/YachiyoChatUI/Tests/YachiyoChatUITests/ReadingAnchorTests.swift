@@ -165,6 +165,41 @@ final class ReadingAnchorTests: XCTestCase {
         XCTAssertEqual(list.scrollView.contentOffset.y, parked, accuracy: 1, "the reader stays where they scrolled to")
     }
 
+    func testAcknowledgedMessageLandsFromTheComposerOnce() async throws {
+        let source = HistorySource(messages: (141 ... 150).map(Self.message))
+        let list = await makeList(source)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.addSubview(list)
+        window.isHidden = false
+        func userRows() -> [UserMessageView] {
+            list.scrollView.layoutIfNeeded()
+            return listView(list).visibleRowViews.compactMap { $0 as? UserMessageView }
+        }
+
+        // The acknowledgement names the message before the timeline shows it.
+        list.landSentMessage("m151", fromTextRect: CGRect(x: 70, y: 760, width: 200, height: 22))
+        XCTAssertFalse(userRows().contains { $0.isLanding })
+        source.messages.append(Self.message(151))
+        source.publish(scrolling: true)
+        // The landing is shorter than a predicate expectation's polling interval.
+        var landed: [UserMessageView] = []
+        for _ in 0 ..< 200 where landed.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            landed = userRows().filter(\.isLanding)
+        }
+        XCTAssertEqual(landed.map(\.representedEntryID), ["user-m151"])
+        XCTAssertTrue(try XCTUnwrap(landed.first).contentView.transform.isIdentity, "the row itself is already in place")
+
+        // A message nobody announced arrives the ordinary way, and a stale announcement is dropped.
+        list.landSentMessage("never-arrives", fromTextRect: .zero)
+        source.messages.append(Self.message(153))
+        source.publish(scrolling: true)
+        await waitUntilAtBottom(list)
+        XCTAssertTrue(userRows().contains { $0.representedEntryID == "user-m153" })
+        XCTAssertFalse(userRows().contains { $0.representedEntryID == "user-m153" && $0.isLanding })
+        withExtendedLifetime(window) {}
+    }
+
     // MARK: Helpers
 
     /// The topmost row on screen whose text can be selected.

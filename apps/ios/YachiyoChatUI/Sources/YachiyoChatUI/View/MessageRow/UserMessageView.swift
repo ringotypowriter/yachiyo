@@ -84,6 +84,36 @@ final class UserMessageView: MessageListRowView {
         textView.intrinsicContentSize
     }
 
+    private static let landingKey = "landing"
+
+    /// Plays the bubble in from where its text sat in the composer (window coordinates): the text
+    /// travels to its place while the bubble forms around it. The row itself is already final,
+    /// so interrupting or dropping the animation leaves nothing behind.
+    func land(fromTextRect sourceRect: CGRect) {
+        layoutIfNeeded()
+        let source = convert(sourceRect, from: nil)
+        let text = contentView.convert(textView.frame, to: self)
+        let travel = CABasicAnimation(keyPath: "transform.translation")
+        travel.fromValue = CGSize(width: source.minX - text.minX, height: source.minY - text.minY)
+        travel.toValue = CGSize.zero
+        travel.duration = 0.42
+        travel.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+        contentView.layer.add(travel, forKey: Self.landingKey)
+        let form = CABasicAnimation(keyPath: "opacity")
+        form.fromValue = 0
+        form.toValue = 1
+        form.duration = 0.3
+        backgroundGradientLayer.add(form, forKey: Self.landingKey)
+    }
+
+    var isLanding: Bool { contentView.layer.animation(forKey: Self.landingKey) != nil }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        contentView.layer.removeAnimation(forKey: Self.landingKey)
+        backgroundGradientLayer.removeAnimation(forKey: Self.landingKey)
+    }
+
     override func layoutContent() {
         let insets = MessageListView.listRowInsets
         let textContainerWidth = Self.availableTextWidth(for: bounds.width - insets.horizontal)

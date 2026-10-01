@@ -532,11 +532,15 @@ extension ThreadViewController: ChatInputDelegate {
                 let sent = await thread.send(text: object.text, attachmentIds: ids, mode: mode, attachments: object.attachments)
                 // Retire the cached draft before the weak composer completion is scheduled:
                 // the screen may already have been popped and its composer can deallocate.
-                if sent, let submittedRevision, Self.drafts[draftKey]?.revision == submittedRevision {
+                if sent != nil, let submittedRevision, Self.drafts[draftKey]?.revision == submittedRevision {
                     Self.drafts[draftKey] = nil
                     draftRevision = nil
                 }
-                completion(sent)
+                // The composer still shows the sent text here; its completion clears it.
+                if let messageId = sent?.messageId, let textRect = composer.textRectInWindow {
+                    messageList.landSentMessage(messageId, fromTextRect: textRect)
+                }
+                completion(sent != nil)
             } catch {
                 thread.failUpload(error)
                 updateChrome()

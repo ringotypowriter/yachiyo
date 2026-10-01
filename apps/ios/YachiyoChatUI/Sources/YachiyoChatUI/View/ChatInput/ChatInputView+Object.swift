@@ -107,6 +107,13 @@ extension ChatInputView {
         }
     }
 
+    /// Where the draft's text is drawn, in window coordinates; nil while the composer is off screen.
+    public var textRectInWindow: CGRect? {
+        let textView = inputEditor.textView
+        guard window != nil, !isHidden else { return nil }
+        return textView.convert(textView.bounds.inset(by: textView.textContainerInset), to: nil)
+    }
+
     public func refill(withText text: String, attachments: [ChatInputAttachment]) {
         inputEditor.set(text: text)
         attachmentsBar.attachments.removeAll()
