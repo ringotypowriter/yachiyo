@@ -115,6 +115,14 @@ public enum YachiyoMaterialKit {
         }
     }
 
+    /// Zoom from, and back to, the view the provider names each time it is asked: on presentation
+    /// and again on dismissal. A nil answer, and iOS 17, use the standard transition.
+    public static func prepareZoomTransition(for controller: UIViewController, sourceViewProvider: @escaping @MainActor () -> UIView?) {
+        if #available(iOS 18, *) {
+            controller.preferredTransition = .zoom(sourceViewProvider: { _ in sourceViewProvider() })
+        }
+    }
+
     /// Sheets: medium detents keep the system material; large ones use the opaque canvas.
     public static func configureSheet(_ controller: UIViewController, detents: [UISheetPresentationController.Detent]) {
         guard let sheet = controller.sheetPresentationController else { return }

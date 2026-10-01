@@ -7,6 +7,7 @@ import OrderedCollections
 import QuickLook
 import UIKit
 import UniformTypeIdentifiers
+import YachiyoMaterial
 
 class AttachmentsBar: EditorSectionView {
     let collectionView: UICollectionView
@@ -267,6 +268,8 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
             let controller = QLPreviewController()
             controller.dataSource = previewDataSource
             controller.delegate = previewDataSource
+            let id = item.id
+            YachiyoMaterialKit.prepareZoomTransition(for: controller) { [weak self] in self?.previewSourceView(for: id) }
             parentViewController?.present(controller, animated: true)
             previewItemDataSource = previewDataSource
             return
@@ -276,6 +279,27 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
             let textViewerController = makeTextViewer(text: item.textContent, editable: false)
             parentViewController?.present(textViewerController, animated: true)
         }
+    }
+
+    /// Where a preview of `id` zooms from and back to. Looked up on every call by attachment id,
+    /// because the bar can reorder, reuse or drop the cell while the preview is open; nil (the
+    /// default transition) once the attachment is gone or its cell is scrolled out of sight.
+    func previewSourceView(for id: ItemIdentifier) -> UIView? {
+        guard let window,
+              let indexPath = dataSource.indexPath(for: id),
+              let cell = collectionView.cellForItem(at: indexPath),
+              !cell.isHidden
+        else { return nil }
+        let frame = cell.convert(cell.bounds, to: window)
+        guard window.bounds.intersects(frame) else { return nil }
+        var ancestor: UIView? = cell.superview
+        while let view = ancestor {
+            // Every scrolling or clipping ancestor (this bar, the timeline) must still show it.
+            if view is UIScrollView || view.clipsToBounds,
+               !view.convert(view.bounds, to: window).intersects(frame) { return nil }
+            ancestor = view.superview
+        }
+        return (cell as? AttachmentsImageCell)?.iconView ?? cell
     }
 
     private func makeTextViewer(text: String, editable: Bool) -> UIViewController {

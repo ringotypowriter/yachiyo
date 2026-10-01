@@ -343,8 +343,22 @@ final class RemoteSmokeTests: XCTestCase {
         capture("photo-library-picker")
         photo.tap()
         if app.buttons["Add"].waitForExistence(timeout: 3) { app.buttons["Add"].tap() }
-        XCTAssertTrue(app.collectionViews["composer.attachments"].cells.firstMatch.waitForExistence(timeout: 15))
+        let attached = app.collectionViews["composer.attachments"].cells.firstMatch
+        XCTAssertTrue(attached.waitForExistence(timeout: 15))
         capture("photo-attached")
+        // The preview zooms out of the thumbnail and back into it; closing keeps the draft's photo.
+        attached.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.75)).tap()
+        let quickLook = app.otherElements["QLPreviewControllerView"]
+        XCTAssertTrue(quickLook.waitForExistence(timeout: 10))
+        capture("photo-preview")
+        let close = app.buttons["QLOverlayDoneButtonAccessibilityIdentifier"]
+        // QuickLook may hide its chrome over images; a tap on the image toggles it.
+        for _ in 0 ..< 3 where !close.waitForExistence(timeout: 4) { quickLook.tap() }
+        XCTAssertTrue(close.waitForExistence(timeout: 4))
+        close.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: quickLook)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(attached.waitForExistence(timeout: 5), "closing the preview keeps the attachment")
         let sendPhoto = element("composer.send")
         XCTAssertTrue(sendPhoto.isHittable, "An attachment-only draft exposes a reachable Send button")
         sendPhoto.tap()
