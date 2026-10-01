@@ -602,18 +602,43 @@ final class InboxViewController: UIViewController {
 }
 
 extension InboxViewController: UICollectionViewDelegate {
-    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-        guard let item = dataSource.itemIdentifier(for: indexPath), canMutate(item) else { return nil }
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            UIMenu(children: [
-                UIAction(title: item.summary.starred ? String(localized: "Unstar") : String(localized: "Star"), image: .lucide("star")) { _ in
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath], point: CGPoint) -> UIContextMenuConfiguration? {
+        guard indexPaths.count == 1, let item = dataSource.itemIdentifier(for: indexPaths[0]) else { return nil }
+        // Keyed by thread, not row: the inbox can reorder while the menu is open.
+        return UIContextMenuConfiguration(identifier: item.id as NSString) {
+            ThreadPeekViewController(desktopId: item.desktopId, summary: item.summary)
+        } actionProvider: { [weak self] _ in
+            // Previewing works offline and read-only; only the mutations need an online Mac.
+            guard let self, canMutate(item) else { return UIMenu(children: []) }
+            return UIMenu(children: [
+                UIAction(title: item.summary.starred ? String(localized: "Unstar") : String(localized: "Star"), image: .lucide("star")) { [weak self] _ in
                     self?.mutate(item, archive: false) { _ in }
                 },
-                UIAction(title: String(localized: "Archive"), image: .lucide("archive"), attributes: .destructive) { _ in
+                UIAction(title: String(localized: "Archive"), image: .lucide("archive"), attributes: .destructive) { [weak self] _ in
                     self?.confirmArchive(item) { _ in }
                 },
             ])
         }
+    }
+
+    func collectionView(_ collectionView: UICollectionView, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionCommitAnimating) {
+        guard let id = configuration.identifier as? String else { return }
+        animator.addCompletion { [weak self] in
+            // Committing the preview is the one place a peek opens the thread.
+            guard let self, let item = visibleItems().first(where: { $0.id == id }) else { return }
+            open(item)
+        }
+    }
+
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfiguration configuration: UIContextMenuConfiguration, dismissalPreviewForItemAt _: IndexPath) -> UITargetedPreview? {
+        // Return to the thread's current row; when it scrolled away or left the inbox, fade out.
+        guard let id = configuration.identifier as? String,
+              let item = dataSource.snapshot().itemIdentifiers.first(where: { $0.id == id }),
+              let indexPath = dataSource.indexPath(for: item),
+              let cell = collectionView.cellForItem(at: indexPath),
+              collectionView.bounds.intersects(cell.frame)
+        else { return nil }
+        return UITargetedPreview(view: cell)
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {

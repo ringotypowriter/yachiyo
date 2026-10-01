@@ -519,6 +519,48 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertFalse(error.exists && !error.label.isEmpty, "Plan acceptance succeeds without a conversation error")
     }
 
+    /// Long-pressing a thread previews its saved history without opening it; only tapping the
+    /// preview opens the thread.
+    func testInboxPeekOpensOnlyWhenCommitted() {
+        continueAfterPairing()
+        let list = app.collectionViews["inbox.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 15))
+        let thread = list.cells["inbox.thread.demo-thread-coding-dispatch"]
+        XCTAssertTrue(thread.waitForExistence(timeout: 30))
+        // Open and leave it once so its history is saved on this iPhone.
+        thread.tap()
+        XCTAssertTrue(app.staticTexts["thread.title"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Claude Code'")).firstMatch.waitForExistence(timeout: 30))
+        app.navigationBars.buttons["BackButton"].tap()
+        XCTAssertTrue(thread.waitForExistence(timeout: 10))
+
+        thread.press(forDuration: 1.2)
+        let peek = element("inbox.peek")
+        XCTAssertTrue(peek.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Claude Code'")).firstMatch.waitForExistence(timeout: 10), "the peek shows saved messages")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "inbox-peek"
+        shot.lifetime = .keepAlways
+        add(shot)
+        // Tapping the dimmed backdrop (not the status bar, which ignores taps) leaves the inbox as it was.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: peek)
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(app.staticTexts["thread.title"].exists)
+        XCTAssertTrue(list.exists)
+
+        thread.press(forDuration: 1.2)
+        // The user's message appears only in the preview (the inbox row shows the reply).
+        let peekMessage = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Ask Claude Code'")).firstMatch
+        XCTAssertTrue(peekMessage.waitForExistence(timeout: 10))
+        // The peek's own frame is reported off-screen inside the menu; tap the system platter holding it.
+        let platter = app.otherElements.matching(NSPredicate(format: "label == 'Preview'"))
+            .containing(.other, identifier: "inbox.peek").firstMatch
+        XCTAssertTrue(platter.isHittable)
+        platter.tap()
+        XCTAssertTrue(app.staticTexts["thread.title"].waitForExistence(timeout: 15), "tapping the preview opens the thread")
+    }
+
     /// The fake desktop's long thread arrives in pages of 50. Scrolling up pages older history in
     /// above the reader until the first message, without the timeline jumping to a new page.
     func testEarlierHistoryPagesInAboveTheReader() {
