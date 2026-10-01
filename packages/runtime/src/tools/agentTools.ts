@@ -605,7 +605,11 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       const source = QUERY_SOURCE_DISPLAY_NAMES[input.from] ?? input.from
       const where = 'where' in input ? input.where : undefined
       const text =
-        typeof where === 'object' && where !== null && 'text' in where ? where.text : undefined
+        'text' in input && typeof input.text === 'string'
+          ? input.text
+          : typeof where === 'object' && where !== null && 'text' in where
+            ? where.text
+            : undefined
       return typeof text === 'string' && text.trim().length > 0
         ? `${source}: ${takeTail(text, 120).text}`
         : source

@@ -65,9 +65,6 @@ export async function queryRecollections(
   }
   const text = input.text?.trim()
   if (!text) throw new Error('Provide text to search, ref to open, or from for an advanced query.')
-  if (input.where || input.orderBy || input.view) {
-    throw new Error('Use from/where for filtered or ordered queries.')
-  }
   // A bounded discovery window; precise queries retain full source pagination.
   const [originals, memories] = await Promise.all([
     canReadSources

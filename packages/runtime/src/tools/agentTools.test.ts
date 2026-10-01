@@ -265,7 +265,7 @@ test('memory tool summaries read as prose instead of model-facing JSON', () => {
   assert.equal(summarizeToolInput('querySource', { text: 'launch plan' }), 'launch plan')
   assert.equal(summarizeToolInput('querySource', { ref: 'span:t1:m1:m2' }), 'open conversation')
   assert.equal(
-    summarizeToolInput('querySource', { from: 'thread_spans', where: { text: 'launch' } }),
+    summarizeToolInput('querySource', { from: 'thread_spans', text: 'launch' }),
     'conversations: launch'
   )
   assert.equal(

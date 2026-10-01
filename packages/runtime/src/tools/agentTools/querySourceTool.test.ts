@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { asSchema } from 'ai'
 
 import type {
   ActivitySourceRecord,
@@ -12,6 +13,179 @@ import { createInMemoryYachiyoStorage } from '../../storage/memoryStorage.ts'
 import { createTool as createQuerySourceTool } from './querySourceTool.ts'
 
 const BASE_TIME = '2026-05-16T09:00:00.000Z'
+
+test('querySource model schema exposes one search keyword and retains advanced filters', async () => {
+  const tool = createQuerySourceTool({})
+  const schema = await asSchema(tool.inputSchema).jsonSchema
+  const properties = schema.properties as Record<
+    string,
+    {
+      properties?: Record<string, unknown>
+      additionalProperties?: unknown
+    }
+  >
+  assert.deepEqual(Object.keys(properties), [
+    'from',
+    'text',
+    'ref',
+    'view',
+    'where',
+    'orderBy',
+    'limit',
+    'cursor'
+  ])
+  assert.equal('text' in (properties.where!.properties ?? {}), false)
+  assert.equal(properties.where!.additionalProperties, false)
+  assert.ok('since' in (properties.where!.properties ?? {}))
+  assert.ok('threadId' in (properties.where!.properties ?? {}))
+})
+
+test('querySource accepts duplicated screenshot text and ignores blank filter placeholders', async () => {
+  let delegatedInput: unknown
+  const tool = createQuerySourceTool({
+    sourceQueryExecutor: {
+      query: async (input) => {
+        delegatedInput = input
+        return { rows: [{ rowId: 'hit' }] }
+      }
+    }
+  })
+  const text = 'Avatar 动画 三个点 卡住'
+  const validated = await asSchema(tool.inputSchema).validate!({
+    from: 'thread_spans',
+    text,
+    ref: '',
+    view: 'index',
+    where: {
+      text,
+      since: '2026-10-01T00:00:00Z',
+      until: '2026-10-01T10:00:00Z',
+      rowId: '',
+      parentRowId: '',
+      threadId: '',
+      folderId: ''
+    }
+  })
+  assert.equal(validated.success, true)
+  if (!validated.success) return
+  const result = parseToolJson(
+    await tool.execute!(validated.value, {
+      toolCallId: 'screenshot',
+      messages: [],
+      context: undefined
+    })
+  )
+  assert.equal(result.error, undefined)
+  assert.equal(result.rows?.[0]?.rowId, 'hit')
+  assert.deepEqual(delegatedInput, {
+    from: 'thread_spans',
+    view: 'index',
+    where: { text, since: '2026-10-01T00:00:00.000Z', until: '2026-10-01T10:00:00.000Z' }
+  })
+})
+
+test('querySource defaults filtered text without from to thread spans, not merged recollections', async () => {
+  let delegatedInput: unknown
+  const tool = createQuerySourceTool({
+    sourceQueryExecutor: {
+      query: async (input) => {
+        delegatedInput = input
+        return { rows: [] }
+      }
+    }
+  })
+  const result = parseToolJson(
+    await tool.execute!(
+      { text: 'Avatar', where: { since: BASE_TIME }, orderBy: 'timeDesc', limit: 2 },
+      { toolCallId: 'filtered', messages: [], context: undefined }
+    )
+  )
+  assert.equal(result.error, undefined)
+  assert.deepEqual(delegatedInput, {
+    from: 'thread_spans',
+    where: { text: 'Avatar', since: BASE_TIME },
+    orderBy: 'timeDesc',
+    limit: 2
+  })
+})
+
+test('querySource rejects conflicting keywords and substantive filters on ref', async () => {
+  const tool = createQuerySourceTool({})
+  const options = { toolCallId: 'conflict', messages: [], context: undefined }
+  const keywords = parseToolJson(
+    await tool.execute!({ text: 'first', where: { text: 'second' }, from: 'thread_spans' }, options)
+  )
+  assert.match(keywords.error!, /Conflicting text and where.text/)
+  const ref = parseToolJson(
+    await tool.execute!({ ref: 'thread:example', where: { since: BASE_TIME } }, options)
+  )
+  assert.match(ref.error!, /Use ref alone/)
+  const blank = parseToolJson(
+    await tool.execute!({ ref: 'thread:example', text: '  ', where: { rowId: '' } }, options)
+  )
+  assert.equal((blank.error ?? '').includes('Use ref alone'), false)
+})
+
+test('querySource validated legacy keyword searches rather than browsing unfiltered rows', async () => {
+  let delegatedInput: unknown
+  const tool = createQuerySourceTool({
+    sourceQueryExecutor: {
+      query: async (input) => {
+        delegatedInput = input
+        return { rows: [] }
+      }
+    }
+  })
+  const validated = await asSchema(tool.inputSchema).validate!({
+    from: 'thread_spans',
+    where: { text: 'needle' }
+  })
+  assert.equal(validated.success, true)
+  if (!validated.success) return
+  await tool.execute!(validated.value, { toolCallId: 'legacy', messages: [], context: undefined })
+  assert.deepEqual(delegatedInput, { from: 'thread_spans', where: { text: 'needle' } })
+})
+
+test('querySource validated input rejects disagreeing duplicate keywords', async () => {
+  const tool = createQuerySourceTool({})
+  const validated = await asSchema(tool.inputSchema).validate!({
+    from: 'thread_spans',
+    text: 'first',
+    where: { text: 'second' }
+  })
+  assert.equal(validated.success, false)
+  if (!validated.success) assert.match(String(validated.error), /Conflicting text and where.text/)
+})
+
+test('querySource validated legacy keyword cannot be combined with ref', async () => {
+  const tool = createQuerySourceTool({})
+  const validated = await asSchema(tool.inputSchema).validate!({
+    ref: 'thread:example',
+    where: { text: 'needle', rowId: ' ' }
+  })
+  assert.equal(validated.success, true)
+  if (!validated.success) return
+  const result = parseToolJson(
+    await tool.execute!(validated.value, {
+      toolCallId: 'legacy-ref',
+      messages: [],
+      context: undefined
+    })
+  )
+  assert.match(result.error!, /Use ref alone/)
+})
+
+test('querySource model input schema strips unknown fields', () => {
+  const schema = createQuerySourceTool({}).inputSchema
+  assert.ok('safeParse' in schema)
+  const parsed = schema.safeParse({
+    text: 'needle',
+    surprise: true,
+    where: { since: BASE_TIME, madeUp: 1 }
+  })
+  assert.equal(parsed.success, true)
+  if (parsed.success) assert.deepEqual(parsed.data, { text: 'needle', where: { since: BASE_TIME } })
+})
 
 test('querySource defaults to source search and merges note and original matches', async () => {
   const storage = createInMemoryYachiyoStorage()
@@ -287,7 +461,7 @@ test('querySource discovers thread spans with folder community and expands messa
     await tool.execute!(
       {
         from: 'thread_spans',
-        where: { text: 'durable source' },
+        text: 'durable source',
         view: 'index',
         limit: 5
       },
@@ -379,7 +553,7 @@ test('querySource delegates thread span text search without bootstrapping storag
     await tool.execute!(
       {
         from: 'thread_spans',
-        where: { text: 'querySource performance' },
+        text: 'querySource performance',
         orderBy: 'match',
         view: 'index',
         limit: 3
@@ -465,7 +639,7 @@ test('querySource reranks text spans by normalized bm25 coverage and density', a
     await tool.execute!(
       {
         from: 'thread_spans',
-        where: { text: 'alpha beta gamma delta' },
+        text: 'alpha beta gamma delta',
         view: 'index',
         limit: 2
       },
@@ -570,7 +744,7 @@ test('querySource splits distant text hits into granular content spans', async (
     await tool.execute!(
       {
         from: 'thread_spans',
-        where: { text: 'alpha beta gamma delta' },
+        text: 'alpha beta gamma delta',
         view: 'content',
         limit: 5
       },
@@ -652,7 +826,7 @@ test('querySource opens only the requested thread span rowId', async () => {
     await tool.execute!(
       {
         from: 'thread_spans',
-        where: { text: 'alpha beta gamma delta' },
+        text: 'alpha beta gamma delta',
         view: 'index',
         limit: 1
       },
@@ -1052,7 +1226,7 @@ test('querySource exposes window text previews without raw snapshot payloads', a
   )
   const indexResult = parseToolJson(
     await tool.execute!(
-      { from: 'activity_records', where: { text: 'oscilloscope' }, view: 'index' },
+      { from: 'activity_records', text: 'oscilloscope', view: 'index' },
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-window-text-index',
@@ -1093,7 +1267,7 @@ test('querySource exposes window text previews without raw snapshot payloads', a
   )
   const sourceEventsResult = parseToolJson(
     await tool.execute!(
-      { from: 'source_events', where: { text: 'oscilloscope' }, view: 'index' },
+      { from: 'source_events', text: 'oscilloscope', view: 'index' },
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-window-text-source-events',
@@ -1171,7 +1345,7 @@ test('querySource rejects match ordering for non-match-ranked tables', async () 
     await tool.execute!(
       {
         from: 'activity_records',
-        where: { text: 'Example Editor' },
+        text: 'Example Editor',
         orderBy: 'match',
         view: 'index'
       },
@@ -1201,7 +1375,7 @@ test('querySource rejects time ordering for memories', async () => {
     await tool.execute!(
       {
         from: 'memories',
-        where: { text: 'durable source' },
+        text: 'durable source',
         orderBy: 'timeDesc',
         view: 'index'
       },
@@ -1272,7 +1446,7 @@ test('querySource fallback excludes privacy-mode thread data and related activit
   const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
   const threadRows = parseToolJson(
     await tool.execute!(
-      { from: 'threads', where: { text: 'salary' }, view: 'index' },
+      { from: 'threads', text: 'salary', view: 'index' },
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-private-threads',
@@ -1283,7 +1457,7 @@ test('querySource fallback excludes privacy-mode thread data and related activit
   )
   const messageRows = parseToolJson(
     await tool.execute!(
-      { from: 'thread_messages', where: { text: 'salary' }, view: 'index' },
+      { from: 'thread_messages', text: 'salary', view: 'index' },
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-private-messages',
@@ -1294,7 +1468,7 @@ test('querySource fallback excludes privacy-mode thread data and related activit
   )
   const activityRows = parseToolJson(
     await tool.execute!(
-      { from: 'activity_records', where: { text: 'salary' }, view: 'index' },
+      { from: 'activity_records', text: 'salary', view: 'index' },
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-private-activity',
@@ -1457,8 +1631,8 @@ test('querySource source_events applies text filters to thread events', async ()
     await tool.execute!(
       {
         from: 'source_events',
+        text: 'needle',
         where: {
-          text: 'needle',
           since: '2026-05-16T09:00:00.000Z',
           until: '2026-05-16T10:00:00.000Z'
         },
@@ -1503,13 +1677,14 @@ test('querySource memories require text and return semantic memory rows', async 
     )
   )
 
-  assert.equal(invalid.error, 'memories requires where.text.')
+  assert.equal(invalid.error, 'memories requires text.')
 
   const valid = parseToolJson(
     await tool.execute!(
       {
         from: 'memories',
-        where: { text: 'durable source', topic: 'source-system' },
+        text: 'durable source',
+        where: { topic: 'source-system' },
         view: 'index'
       },
       {
