@@ -4,6 +4,7 @@ import test from 'node:test'
 import { type MessageRecord, type ThreadRecord } from '@yachiyo/shared/protocol'
 import {
   handleCancelledWithSteerResult,
+  queuePendingSteersAfterTerminal,
   handleSteerPendingResult,
   type RunLoopSteerContext
 } from './runLoopSteer.ts'
@@ -539,4 +540,77 @@ test('handleCancelledWithSteerResult queues hidden-only steers without a visible
   assert.equal(queuedDraft?.userMessage.id, 'hidden-steer')
   assert.equal(queuedDraft?.userMessage.hidden, true)
   assert.deepEqual(emittedQueuedFollowUpMessages.at(-1), [])
+})
+
+test('terminal steers keep visible user options ahead of a queued hidden follow-up', () => {
+  const thread = { id: 'thread-1', title: 'Thread', updatedAt: '2026-05-02T00:00:00Z' }
+  const queuedFollowUpDrafts = new Map<
+    string,
+    import('../queue/followUpQueue.ts').QueuedFollowUpDraft
+  >([
+    [
+      thread.id,
+      {
+        runMode: 'auto',
+        runTrigger: 'local',
+        enabledSkillNames: ['old-skills'],
+        userMessage: {
+          id: 'hidden-follow-up',
+          threadId: thread.id,
+          role: 'user',
+          hidden: true,
+          content: 'Shell finished',
+          status: 'completed',
+          createdAt: thread.updatedAt
+        }
+      }
+    ]
+  ])
+  let visibleMessages: MessageRecord[] = []
+  const queueContext = {
+    queuedFollowUpDrafts,
+    deps: {
+      requireThread: () => thread,
+      loadThreadMessages: () => [],
+      loadThreadToolCalls: () => [],
+      emit: (event: { queuedFollowUpMessages: MessageRecord[] }) => {
+        visibleMessages = event.queuedFollowUpMessages
+      }
+    }
+  } as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>
+  const activeRun = {
+    pendingSteerInputs: [
+      {
+        content: 'User correction',
+        images: [],
+        attachments: [],
+        messageId: 'visible-steer',
+        timestamp: '2026-05-02T00:00:01Z',
+        enabledSkillNames: ['user-skills'],
+        runMode: 'auto'
+      }
+    ]
+  } as unknown as RunState
+  queuePendingSteersAfterTerminal(
+    { createFollowUpQueueContext: () => queueContext } as RunLoopSteerContext,
+    {
+      activeRun,
+      loopInput: { thread, runTrigger: 'local' } as Parameters<
+        typeof queuePendingSteersAfterTerminal
+      >[1]['loopInput'],
+      parentMessageId: 'failed-assistant'
+    }
+  )
+  const draft = queuedFollowUpDrafts.get(thread.id)!
+  assert.equal(draft.userMessage.id, 'visible-steer')
+  assert.deepEqual(draft.enabledSkillNames, ['user-skills'])
+  assert.deepEqual(
+    draft.hiddenDrafts?.map((item) => item.userMessage.id),
+    ['hidden-follow-up']
+  )
+  assert.deepEqual(
+    visibleMessages.map((message) => message.id),
+    ['visible-steer']
+  )
+  assert.equal(activeRun.pendingSteerInputs, undefined)
 })

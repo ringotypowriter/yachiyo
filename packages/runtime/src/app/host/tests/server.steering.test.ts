@@ -812,3 +812,59 @@ test('YachiyoServer continues with steer after runtime returns normally', async 
     }
   )
 })
+
+test('pending user steer survives a failed response and starts a fresh run', async () => {
+  let ready!: () => void
+  const started = new Promise<void>((resolve) => {
+    ready = resolve
+  })
+  let fail!: () => void
+  const failure = new Promise<void>((resolve) => {
+    fail = resolve
+  })
+  let attempt = 0
+  await withServer(
+    async ({ server, waitForEvent }) => {
+      await server.upsertProvider({
+        name: 'default',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+      const thread = await server.createThread()
+      const first = await server.sendChat({ threadId: thread.id, content: 'Start' })
+      await started
+      const steer = await server.sendChat({
+        threadId: thread.id,
+        content: 'Continue after failure',
+        mode: 'steer'
+      })
+      assert.equal(steer.kind, 'active-run-steer-pending')
+      fail()
+      await waitForEvent('run.failed')
+      const next = (await waitForEvent('run.completed')) as { runId: string }
+      assert.notEqual(next.runId, first.runId)
+      const bootstrap = await server.bootstrap()
+      const messages = bootstrap.messagesByThread[thread.id] ?? []
+      assert.equal(
+        messages.filter((message) => message.content === 'Continue after failure').length,
+        1
+      )
+      assert.ok(messages.some((message) => message.content === 'Recovered reply'))
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply() {
+          if (attempt++ === 0) {
+            yield 'Partial reply'
+            ready()
+            await failure
+            throw new Error('Failed to process successful response (HTTP 200)')
+          }
+          yield 'Recovered reply'
+        }
+      })
+    }
+  )
+})

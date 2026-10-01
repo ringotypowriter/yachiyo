@@ -2129,3 +2129,55 @@ test('buildMessageTimelineRows shows the handoff fold marker even when no later 
   assert.equal(rows[0]?.expanded, false)
   assert.deepEqual(rowKinds(rows), ['handoff-fold'])
 })
+
+test('a new user message dismisses the previous failure notice without changing history', () => {
+  const failed = createAssistantMessage({
+    id: 'failed-reply',
+    content: 'Partial reply',
+    status: 'failed'
+  })
+  const failedGroup = createGroup({ activeAssistant: failed })
+  const nextGroup = {
+    ...createGroup({
+      activeAssistant: createAssistantMessage({
+        id: 'next-reply',
+        content: 'Next',
+        status: 'completed'
+      })
+    }),
+    userMessage: {
+      ...createUserMessage('next-user', 'Try again'),
+      createdAt: '2026-04-18T00:01:00.000Z'
+    }
+  }
+  const input = {
+    messageGroups: [failedGroup],
+    rootAssistantMessages: [],
+    orphanToolCalls: [],
+    pendingSteerMessage: null,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: null,
+    activeRequestMessageId: null,
+    subagentActive: false
+  }
+  const footer = (
+    rows: MessageTimelineRow[]
+  ): Extract<MessageTimelineRow, { kind: 'group-footer' }> | undefined =>
+    rows.find(
+      (row): row is Extract<MessageTimelineRow, { kind: 'group-footer' }> =>
+        row.kind === 'group-footer' && row.assistantMessageId === failed.id
+    )
+  assert.equal(footer(buildMessageTimelineRows(input))?.showFailure, true)
+  assert.equal(
+    footer(buildMessageTimelineRows({ ...input, messageGroups: [nextGroup, failedGroup] }))
+      ?.showFailure,
+    false
+  )
+  assert.equal(
+    footer(buildMessageTimelineRows({ ...input, pendingSteerMessage: nextGroup.userMessage }))
+      ?.showFailure,
+    false
+  )
+  assert.equal(failed.status, 'failed')
+})

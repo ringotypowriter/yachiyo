@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ResponsesWebSocketStreamError } from '../providers/responsesWebSocket.ts'
 
 import {
   ContextWindowExceededRunError,
@@ -37,6 +38,35 @@ test('HTTP 200 response processing failures without a websocket disconnect are n
     isRetryable: false,
     cause: new Error('Invalid response schema')
   })
+  assert.equal(isTransientTransportError(error), false)
+  assert.equal(toRunBoundaryError(error), error)
+})
+
+test('nested SDK HTTP 200 response processing error recovers a websocket disconnect', () => {
+  const disconnect = new ResponsesWebSocketStreamError(
+    'Responses websocket closed before response.completed'
+  )
+  const sdkCause = new Error('Failed to read response body', { cause: disconnect })
+  const error = Object.assign(
+    new Error('Failed to process successful response (HTTP 200)', {
+      cause: sdkCause
+    }),
+    { statusCode: 200, isRetryable: false }
+  )
+
+  assert.equal(isTransientTransportError(error), true)
+  const recovered = toRunBoundaryError(error)
+  assert.ok(recovered instanceof RetryableRunError)
+  assert.equal(recovered.message, disconnect.message)
+  assert.equal(recovered.cause, error)
+})
+
+test('cyclic SDK cause without a websocket error remains non-retryable', () => {
+  const error = Object.assign(new Error('Failed to process successful response (HTTP 200)'), {
+    statusCode: 200,
+    isRetryable: false
+  }) as Error & { cause?: unknown }
+  error.cause = { cause: error }
   assert.equal(isTransientTransportError(error), false)
   assert.equal(toRunBoundaryError(error), error)
 })

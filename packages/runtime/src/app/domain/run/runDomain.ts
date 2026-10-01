@@ -83,6 +83,7 @@ import { accumulateRunLoopUsage } from './loop/runUsage.ts'
 import { buildRunExecutionDeps, type RunExecutionDepsContext } from './loop/runExecutionDeps.ts'
 import {
   handleCancelledWithSteerResult,
+  queuePendingSteersAfterTerminal,
   handleSteerPendingResult,
   type RunLoopSteerContext
 } from './loop/runLoopSteer.ts'
@@ -1208,6 +1209,15 @@ export class YachiyoServerRunDomain {
             recap: true
           })
           break
+        }
+
+        if (result.kind === 'failed') {
+          queuePendingSteersAfterTerminal(this.createRunLoopSteerContext(), {
+            activeRun,
+            loopInput: input,
+            parentMessageId:
+              this.deps.requireThread(input.thread.id).headMessageId ?? currentRequestMessageId
+          })
         }
 
         if (result.kind !== 'restarted') {

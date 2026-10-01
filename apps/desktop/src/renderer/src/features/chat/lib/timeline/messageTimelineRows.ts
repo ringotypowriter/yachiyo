@@ -138,6 +138,7 @@ export type MessageTimelineRow =
       assistantMessage: Message
       savedMemoryCount: number
       failedRunError: string | null
+      showFailure: boolean
       modelLabel: string | null
       showRunStats: boolean
     } & GroupTimelineRowBase)
@@ -180,6 +181,7 @@ export type MessageTimelineRow =
     }
 
 interface BuildConversationGroupRowsInput {
+  showFailure?: boolean
   group: MessageGroup
   inlineToolCalls: ToolCall[]
   runs: RunRecord[]
@@ -929,6 +931,7 @@ export function buildConversationGroupRows(
       assistantMessage: activeAssistantMessage,
       savedMemoryCount,
       failedRunError,
+      showFailure: input.showFailure ?? true,
       modelLabel: normalizeRunModelLabel(activeAssistantMessage.modelId),
       showRunStats: !shouldSummarizeCompletedWork
     })
@@ -980,6 +983,11 @@ export function buildConversationGroupRows(
 export function buildMessageTimelineRows(
   input: BuildMessageTimelineRowsInput
 ): MessageTimelineRow[] {
+  const latestGroup = input.messageGroups.reduce<MessageGroup | null>(
+    (latest, group) =>
+      !latest || group.userMessage.createdAt >= latest.userMessage.createdAt ? group : latest,
+    null
+  )
   const blocks: Array<{ time: string; rows: MessageTimelineRow[] }> = [
     ...input.messageGroups.map((group) => {
       const isActiveGroup = isActiveRequestForGroup(group, input.activeRequestMessageId)
@@ -987,6 +995,7 @@ export function buildMessageTimelineRows(
         time: group.userMessage.createdAt,
         rows: buildConversationGroupRows({
           group,
+          showFailure: group === latestGroup && !input.pendingSteerMessage,
           inlineToolCalls: input.inlineToolCalls,
           runs: input.runs,
           activeRunId: input.activeRunId,

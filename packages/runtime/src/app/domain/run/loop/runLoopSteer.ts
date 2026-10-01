@@ -198,28 +198,49 @@ export function handleCancelledWithSteerResult(
     result: CancelledWithSteerRunResult
   }
 ): CancelledRunResult {
-  const steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
-
-  // If a prior safe-steer branch already consumed it, there is nothing left to persist.
-  if (steerInputs.length > 0) {
-    replaceQueuedFollowUpDraft(
-      context.createFollowUpQueueContext(),
-      input.loopInput.thread.id,
-      createQueuedFollowUpDraftFromSteers({
-        activeRun: input.activeRun,
-        loopInput: input.loopInput,
-        parentMessageId: input.result.stoppedMessageId,
-        steerInputs
-      })
-    )
-    emitThreadStateReplaced(context.createFollowUpQueueContext(), input.loopInput.thread.id)
-    clearPendingSteerInputs(input.activeRun)
-  }
+  queuePendingSteersAfterTerminal(context, {
+    activeRun: input.activeRun,
+    loopInput: input.loopInput,
+    parentMessageId: input.result.stoppedMessageId
+  })
 
   return {
     kind: 'cancelled',
     ...(input.result.usage ? { usage: input.result.usage } : {})
   }
+}
+
+export function queuePendingSteersAfterTerminal(
+  context: RunLoopSteerContext,
+  input: { activeRun: RunState; loopInput: ActiveRunLoopInput; parentMessageId: string }
+): void {
+  const steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
+  if (steerInputs.length === 0) return
+
+  const queueContext = context.createFollowUpQueueContext()
+  const draft = createQueuedFollowUpDraftFromSteers({ ...input, steerInputs })
+  const existing = queueContext.queuedFollowUpDrafts.get(input.loopInput.thread.id)
+  const primary =
+    existing?.userMessage.hidden === true && draft.userMessage.hidden !== true
+      ? draft
+      : (existing ?? draft)
+  const preceding = primary === draft ? existing : draft
+  replaceQueuedFollowUpDraft(
+    queueContext,
+    input.loopInput.thread.id,
+    existing && preceding
+      ? {
+          ...primary,
+          hiddenDrafts: [
+            ...(preceding.hiddenDrafts ?? []),
+            preceding,
+            ...(primary.hiddenDrafts ?? [])
+          ]
+        }
+      : primary
+  )
+  clearPendingSteerInputs(input.activeRun)
+  emitThreadStateReplaced(queueContext, input.loopInput.thread.id)
 }
 
 function createQueuedFollowUpDraftFromSteers(input: {

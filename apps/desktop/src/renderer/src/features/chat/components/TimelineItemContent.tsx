@@ -449,7 +449,7 @@ function renderTimelineItem(
           <div className="message-footer message-footer--always-visible">
             {t('chat.timeline.stopped')}
           </div>
-        ) : item.assistantMessage.status === 'failed' ? (
+        ) : item.assistantMessage.status === 'failed' && item.showFailure ? (
           <div
             className="message-footer message-footer--always-visible"
             style={{ color: theme.text.danger }}
