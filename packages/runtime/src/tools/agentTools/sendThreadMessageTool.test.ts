@@ -6,7 +6,7 @@ import {
   type SendThreadMessageToolOutput
 } from './sendThreadMessageTool.ts'
 
-test('sendThreadMessage dispatches a hidden steer to the requested conversation', async () => {
+test('sendThreadMessage delivers sender identity and reply routing with the message', async () => {
   const deliveries: Array<{ targetThreadId: string; message: string }> = []
   const tool = createSendThreadMessageTool({
     sourceThreadId: 'thread-source',
@@ -28,7 +28,10 @@ test('sendThreadMessage dispatches a hidden steer to the requested conversation'
   assert.deepEqual(deliveries, [
     {
       targetThreadId: 'thread-target',
-      message: 'Please verify the migration before I continue.'
+      message:
+        '[Internal message from conversation thread-source]\n' +
+        'To reply, use sendThreadMessage with targetThreadId "thread-source".\n\n' +
+        'Please verify the migration before I continue.'
     }
   ])
   assert.equal(output.error, undefined)

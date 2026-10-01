@@ -36,7 +36,7 @@ export function createSendThreadMessageTool(
 ): Tool<SendThreadMessageToolInput, SendThreadMessageToolOutput> {
   return tool({
     description:
-      'Send an internal message to another local conversation. Use querySource first when you need to find the exact conversation ID. The recipient continues safely after its current work if it is running, or starts a new run if it is idle. Do not use this to send a message to the current conversation.',
+      'Send an internal message to another local conversation. The sender conversation ID and reply instructions are included automatically. Use querySource first when you need to find the exact conversation ID. The recipient continues safely after its current work if it is running, or starts a new run if it is idle. Do not use this to send a message to the current conversation.',
     inputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input): Promise<SendThreadMessageToolOutput> => {
@@ -45,7 +45,13 @@ export function createSendThreadMessageTool(
         return { content: textContent(error), metadata: {}, error }
       }
 
-      const delivery = await context.dispatch(input)
+      const delivery = await context.dispatch({
+        targetThreadId: input.targetThreadId,
+        message:
+          `[Internal message from conversation ${context.sourceThreadId}]\n` +
+          `To reply, use sendThreadMessage with targetThreadId ${JSON.stringify(context.sourceThreadId)}.\n\n` +
+          input.message
+      })
       return {
         content: textContent(
           `Message delivered to conversation ${input.targetThreadId} (${delivery.runId}).`

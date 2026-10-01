@@ -504,7 +504,13 @@ test('createAgentToolSet exposes sendThreadMessage only when local delivery is a
     {} as never
   )
   assert.deepEqual(delivered, [
-    { targetThreadId: 'thread-target', message: 'Please review the result.' }
+    {
+      targetThreadId: 'thread-target',
+      message:
+        '[Internal message from conversation thread-source]\n' +
+        'To reply, use sendThreadMessage with targetThreadId "thread-source".\n\n' +
+        'Please review the result.'
+    }
   ])
   assert.equal(result?.error, undefined)
 })
