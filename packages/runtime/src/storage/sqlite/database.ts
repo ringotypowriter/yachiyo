@@ -8,6 +8,7 @@ import { createBackgroundResponseMessagesRepairQueue } from './backgroundRespons
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
 import { createSqliteRemoteHistoryStorageMethods } from './remoteHistoryStorage.ts'
 import { acceptSettingsCausalClock, readSettingsCausalClock } from './settingsCausalClockStorage.ts'
+import { parseSettingsFieldResolutions } from './settingsFieldResolutionsCodec.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
 import { assertPageLimit } from '../messagePageWindow.ts'
 import { buildThreadMessagePageQuery } from './threadMessagePageQuery.ts'
@@ -64,26 +65,6 @@ import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
 const DEFERRED_FTS_REBUILD_DELAY_MS = 5_000
 const RUN_REQUEST_MESSAGE_REPAIR_MARKER = '.run-request-message-id-repair-v1.done'
 const SETTINGS_FIELD_RESOLUTIONS_META_KEY = 'settings_field_resolutions_v1'
-
-function parseSettingsFieldResolutions(value: string | undefined): SettingsFieldResolutionMemory[] {
-  if (!value) return []
-  try {
-    const parsed = JSON.parse(value) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (item): item is SettingsFieldResolutionMemory =>
-        typeof item === 'object' &&
-        item !== null &&
-        typeof (item as SettingsFieldResolutionMemory).path === 'string' &&
-        typeof (item as SettingsFieldResolutionMemory).localFingerprint === 'string' &&
-        typeof (item as SettingsFieldResolutionMemory).remoteFingerprint === 'string' &&
-        ((item as SettingsFieldResolutionMemory).choice === 'local' ||
-          (item as SettingsFieldResolutionMemory).choice === 'remote')
-    )
-  } catch {
-    return []
-  }
-}
 
 export interface CreateSqliteYachiyoStorageOptions {
   /**
