@@ -233,7 +233,8 @@ function createWorkerRunner(
       ? { memoryService: parentDependenciesInput.memoryService }
       : {})
   }
-  const workerRunMode = input.dependencies.parentDeliveryContext?.runMode
+  const workerRunMode =
+    input.profileId === 'general' ? input.dependencies.parentDeliveryContext?.runMode : undefined
   const profileSnapshot: WorkerProfile = {
     ...profile,
     ...(profile.allowedTools ? { allowedTools: [...profile.allowedTools] } : {})
@@ -259,6 +260,9 @@ function createWorkerRunner(
     workspacePath: launch.workspacePath,
     enabledTools: [...enabledTools],
     registerOnlyEnabledToolSchemas: true,
+    ...(workerRunMode === 'code' && enabledTools.has('jsRepl')
+      ? { codeModeNestedFileTools: true }
+      : {}),
     jsReplMode: input.profileId === 'general' ? 'full' : 'orchestration',
     readRecordCache: workerReadRecordCache,
     snapshotTracker: workerSnapshotTracker,
@@ -320,7 +324,9 @@ function createWorkerRunner(
     ? toSubagentProviderSettings(config, launch.agentType, settings)
     : settings
   const workerSystemPrompt = buildWorkerSystemPrompt(
-    profileSnapshot.systemPrompt,
+    workerRunMode === 'code'
+      ? `${profileSnapshot.systemPrompt}\n\nCode Mode: Prefer shell and REPL. File tools (read, grep, glob, write, edit) are available inside jsRepl or pyRepl via tool.<name> when enabled, not as direct tools.`
+      : profileSnapshot.systemPrompt,
     (activeSkills ?? []).map((skill) => skill.name),
     enabledTools.has('skillsRead'),
     { agentId: launch.agentId, parentThreadId: launch.parentThreadId }

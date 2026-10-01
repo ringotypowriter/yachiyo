@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -7,6 +7,7 @@ import type { ModelRuntime, ModelStreamRequest } from '../../../runtime/models/t
 import { RetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
 import { SubagentTurnError } from './subagentManager.ts'
 import { createWorkerSubagentRunnerFactory } from './workerSubagentRunner.ts'
+import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../../settings/namedSubagents.ts'
 
 async function withRunner(
   streamReply: ModelRuntime['streamReply'],
@@ -64,6 +65,74 @@ const turn = {
   messages: [],
   signal: new AbortController().signal
 }
+
+test('general worker in Code Mode exposes file tools only inside REPL', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'worker-code-mode-'))
+  await writeFile(join(workspacePath, 'notes.txt'), 'worker code mode')
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: {
+        providerName: 'test',
+        provider: 'openai',
+        model: 'test',
+        apiKey: '',
+        baseUrl: ''
+      },
+      parentToolContext: { workspacePath },
+      parentDependencies: {},
+      parentDeliveryContext: { runMode: 'code', enabledTools: [], runTrigger: 'local' },
+      createModelRuntime: () =>
+        ({
+          async *streamReply(request: ModelStreamRequest) {
+            assert.ok(request.tools?.jsRepl)
+            assert.ok(request.tools?.pyRepl)
+            for (const name of ['read', 'write', 'edit', 'grep', 'glob']) {
+              assert.equal(request.tools?.[name], undefined)
+            }
+            assert.match(String(request.messages[0]?.content), /Code Mode/)
+            const repl = request.tools.jsRepl as unknown as {
+              execute(input: {
+                code: string
+              }): Promise<{ details: { result?: string }; error?: string }>
+            }
+            const result = await repl.execute({
+              code: `return JSON.stringify(await tool.read({path: 'notes.txt'}))`
+            })
+            assert.equal(result.error, undefined)
+            assert.match(result.details.result ?? '', /worker code mode/)
+            yield 'Done'
+          }
+        }) as ModelRuntime
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent',
+      parentThreadId: 'parent',
+      launchRunId: 'run',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath,
+      prompt: 'Inspect'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({ messageId: 'message', delivery: 'queued', recipientState: 'idle' }),
+    getTask: () => undefined,
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+  try {
+    assert.equal((await runner.runTurn(turn)).output, 'Done')
+    assert.equal(await readFile(join(workspacePath, 'notes.txt'), 'utf8'), 'worker code mode')
+  } finally {
+    await runner.close()
+    await rm(workspacePath, { recursive: true, force: true })
+  }
+})
 function finishWithToolResult(request: ModelStreamRequest): void {
   request.onFinish?.({
     promptTokens: 3,

@@ -932,17 +932,21 @@ export function createAgentToolSet(
   )
   const enabledToolNames = new Set<string>(enabledTools)
   // A partial tool preset is a restriction, not a request to restore hidden Code tools.
-  const codeFileToolsAvailable = canUseCodeModeNestedFileTools(context.runMode, [...enabledTools])
+  const codeFileToolsAvailable =
+    (context.runMode === 'code' && context.codeModeNestedFileTools === true) ||
+    canUseCodeModeNestedFileTools(context.runMode, [...enabledTools])
+  const canNestFileTool = (name: ToolCallName): boolean =>
+    context.codeModeNestedFileTools !== true || enabledTools.has(name)
   const nestedFileTools: ToolSet = codeFileToolsAvailable
     ? {
-        read: createReadTool(context),
-        write: createWriteTool(context),
-        edit: createEditTool(context),
-        ...(dependencies.searchService
-          ? {
-              grep: createGrepTool(context, { searchService: dependencies.searchService }),
-              glob: createGlobTool(context, { searchService: dependencies.searchService })
-            }
+        ...(canNestFileTool('read') ? { read: createReadTool(context) } : {}),
+        ...(canNestFileTool('write') ? { write: createWriteTool(context) } : {}),
+        ...(canNestFileTool('edit') ? { edit: createEditTool(context) } : {}),
+        ...(dependencies.searchService && canNestFileTool('grep')
+          ? { grep: createGrepTool(context, { searchService: dependencies.searchService }) }
+          : {}),
+        ...(dependencies.searchService && canNestFileTool('glob')
+          ? { glob: createGlobTool(context, { searchService: dependencies.searchService }) }
           : {})
       }
     : {}

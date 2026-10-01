@@ -519,6 +519,8 @@ export interface AgentToolContext {
   enabledTools?: ToolCallName[]
   /** Internal worker contexts should expose only tools explicitly present in enabledTools. */
   registerOnlyEnabledToolSchemas?: boolean
+  /** Allow the explicitly selected general Worker profile's file tools inside Code Mode REPLs. */
+  codeModeNestedFileTools?: boolean
   /** Host-selected JavaScript backend; independent of the parent conversation mode. */
   jsReplMode?: 'full' | 'orchestration'
   /** Stable conversation identifier for thread-scoped tool state. */
