@@ -497,11 +497,14 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
   }
   const metadata = buildFallbackMetadata(toolCall)
   const diffOutput =
-    toolCall.toolName === 'applyPatch' && rawInput === undefined
+    toolCall.toolName === 'applyPatch'
       ? buildApplyPatchDiffOutput(toolCall.details as ApplyPatchToolCallDetails | undefined)
-      : toolCall.toolName === 'edit' && rawInput === undefined
+      : toolCall.toolName === 'edit'
         ? buildEditDiffOutput(toolCall.details as EditToolCallDetails | undefined)
         : undefined
+  if (diffOutput) {
+    inputValue = buildFallbackInput(toolCall)
+  }
   const useStructuredOutput =
     toolCall.toolName === 'pyRepl' ||
     ((toolCall.toolName === 'bash' || toolCall.toolName === 'edit') && !!toolCall.details) ||

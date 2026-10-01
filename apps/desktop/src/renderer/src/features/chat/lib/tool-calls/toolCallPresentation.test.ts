@@ -38,6 +38,51 @@ test('buildToolCallDetailsPresentation uses recovered raw input and output when 
   assert.deepEqual(presentation.output, { label: 'Output', value: 'full output' })
 })
 
+test('write keeps the full original content instead of the truncated preview', () => {
+  const content = 'first line\n' + 'x'.repeat(4000) + '\nlast line'
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'write',
+    rawInput: { path: 'notes.txt', content },
+    rawOutput: { type: 'content', value: [{ type: 'text', text: 'Wrote notes.txt' }] },
+    details: {
+      path: 'notes.txt',
+      bytesWritten: content.length,
+      created: true,
+      overwritten: false,
+      contentPreview: 'first line\n…'
+    }
+  })
+
+  assert.deepEqual(JSON.parse(presentation.input!.value), { path: 'notes.txt', content })
+  assert.deepEqual(presentation.output, { label: 'Output', value: 'Wrote notes.txt' })
+})
+
+test('write without original input still shows its stored content preview', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'write',
+    details: {
+      path: 'notes.txt',
+      bytesWritten: 20,
+      created: true,
+      overwritten: false,
+      contentPreview: 'first line\nlast line'
+    }
+  })
+
+  assert.equal(presentation.input?.label, 'Input preview')
+  assert.deepEqual(JSON.parse(presentation.input!.value), {
+    path: 'notes.txt',
+    contentPreview: 'first line\nlast line'
+  })
+  assert.deepEqual(JSON.parse(presentation.output!.value), {
+    bytesWritten: 20,
+    created: true,
+    overwritten: false
+  })
+})
+
 test('failed raw tool output retains its danger state', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
@@ -632,7 +677,7 @@ test('buildToolCallDetailsPresentation renders applyPatch output as diff from op
   })
 })
 
-test('applyPatch shows the submitted patch once and the tool receipt as output', () => {
+test('applyPatch with original request shows changes once as a diff', () => {
   const patch = '*** Begin Patch\n*** Update File: src/a.ts\n@@\n-old\n+new\n*** End Patch'
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
@@ -650,8 +695,49 @@ test('applyPatch shows the submitted patch once and the tool receipt as output',
     }
   })
 
+  assert.equal(presentation.input?.value, 'update src/a.ts')
+  assert.deepEqual(presentation.output, {
+    label: 'diff: src/a.ts',
+    value: '--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new',
+    filePath: 'src/a.ts'
+  })
+})
+
+test('applyPatch with original request renders all file diffs', () => {
+  const firstDiff = '--- src/a.ts\n+++ src/a.ts\n@@ -1 +1 @@\n-old\n+new\n'
+  const secondDiff = '--- src/b.ts\n+++ src/b.ts\n@@ -1 +1 @@\n-before\n+after\n'
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'applyPatch',
+    rawInput: {
+      patch:
+        '*** Begin Patch\n*** Update File: src/a.ts\n@@\n-old\n+new\n*** Update File: src/b.ts\n@@\n-before\n+after\n*** End Patch'
+    },
+    details: {
+      operations: [
+        { operation: 'update', path: 'src/a.ts', diff: firstDiff },
+        { operation: 'update', path: 'src/b.ts', diff: secondDiff }
+      ]
+    }
+  })
+
+  assert.equal(presentation.input?.value, 'update src/a.ts\nupdate src/b.ts')
+  assert.deepEqual(presentation.output, {
+    label: 'diff',
+    value: firstDiff.trimEnd() + '\n\n' + secondDiff.trimEnd()
+  })
+})
+
+test('applyPatch without generated diffs preserves the original patch', () => {
+  const patch = '*** Begin Patch\n*** Delete File: src/a.ts\n*** End Patch'
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'applyPatch',
+    rawInput: { patch },
+    details: { operations: [{ operation: 'delete', path: 'src/a.ts' }] }
+  })
+
   assert.equal(presentation.input?.value, patch)
-  assert.equal(presentation.output?.value, 'Applied 1 change:\nUpdated src/a.ts')
 })
 
 test('buildToolCallDetailsPresentation renders edit output as diff from details', () => {
@@ -680,7 +766,7 @@ test('buildToolCallDetailsPresentation renders edit output as diff from details'
   })
 })
 
-test('edit with original request shows its changes once, not a second copy as diff', () => {
+test('edit with original request renders its changes once as a diff', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
     toolName: 'edit',
@@ -701,14 +787,54 @@ test('edit with original request shows its changes once, not a second copy as di
 
   assert.deepEqual(JSON.parse(presentation.input!.value), {
     path: 'src/a.ts',
-    mode: 'inline',
-    oldText: 'old',
-    newText: 'new'
+    mode: 'inline'
   })
   assert.deepEqual(presentation.output, {
-    label: 'Output',
-    value: '{\n  "replacements": 1,\n  "firstChangedLine": 1\n}'
+    label: 'diff: src/a.ts',
+    value: '-old\n+new',
+    filePath: 'src/a.ts'
   })
+})
+
+test('batch edit with original request keeps the complete combined diff', () => {
+  const diff =
+    '--- src/a.ts\n+++ src/a.ts\n@@ -1 +1 @@\n-old\n+new\n@@ -10 +10 @@\n-second\n+updated\n'
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'edit',
+    rawInput: {
+      mode: 'batch',
+      path: 'src/a.ts',
+      oldText: '',
+      newText: '',
+      edits: [
+        { oldText: 'old', newText: 'new' },
+        { oldText: 'second', newText: 'updated' }
+      ]
+    },
+    details: { path: 'src/a.ts', mode: 'batch', replacements: 2, firstChangedLine: 1, diff }
+  })
+
+  assert.deepEqual(JSON.parse(presentation.input!.value), { path: 'src/a.ts', mode: 'batch' })
+  assert.deepEqual(presentation.output, {
+    label: 'diff: src/a.ts',
+    value: diff.trimEnd(),
+    filePath: 'src/a.ts'
+  })
+})
+
+test('edit without a diff preserves the full original request', () => {
+  const rawInput = { path: 'src/a.ts', mode: 'inline', oldText: 'old', newText: 'new' }
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'edit',
+    status: 'failed',
+    rawInput,
+    error: 'Text not found'
+  })
+
+  assert.deepEqual(JSON.parse(presentation.input!.value), rawInput)
+  assert.equal(presentation.output?.tone, 'danger')
 })
 
 test('buildToolCallDetailsPresentation falls back to output when edit has no diff', () => {

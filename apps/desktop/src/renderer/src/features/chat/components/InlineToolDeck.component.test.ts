@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { parseHTML } from 'linkedom'
 import type { ToolCall } from '@renderer/app/types'
 import { InlineToolDeck } from './InlineToolDeck.tsx'
+import { AppDialogContext } from '@renderer/components/AppDialogContext'
 
 test('established summaries stay static on mount and remount; only summary changes animate', async () => {
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
@@ -227,3 +228,75 @@ test('an arriving summary does not close tool details the reader opened', async 
     await act(async () => root.unmount())
   }
 })
+
+for (const toolName of ['edit', 'applyPatch'] as const) {
+  test(`${toolName} with raw input renders colored diff lines in expanded details`, async () => {
+    const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
+    Object.assign(globalThis, {
+      window,
+      document: window.document,
+      HTMLElement: window.HTMLElement,
+      IS_REACT_ACT_ENVIRONMENT: true
+    })
+    const root = createRoot(document.getElementById('root')!)
+    const path = 'notes.txt'
+    const diff = '--- notes.txt\n+++ notes.txt\n@@ -10 +10 @@\n-before\n+after'
+    const tool: ToolCall = {
+      id: 'change-1',
+      threadId: 'thread',
+      toolName,
+      status: 'completed',
+      inputSummary: path,
+      startedAt: '2026-10-01T00:00:00.000Z',
+      rawInput:
+        toolName === 'edit'
+          ? { path, mode: 'inline', oldText: 'before', newText: 'after' }
+          : {
+              patch:
+                '*** Begin Patch\n*** Update File: notes.txt\n@@\n-before\n+after\n*** End Patch'
+            },
+      details:
+        toolName === 'edit'
+          ? { path, mode: 'inline', replacements: 1, firstChangedLine: 10, diff }
+          : { operations: [{ path, operation: 'update', diff }] }
+    }
+    try {
+      await act(async () =>
+        root.render(
+          React.createElement(
+            AppDialogContext.Provider,
+            {
+              value: { alert: async () => {}, confirm: async () => false, prompt: async () => null }
+            },
+            React.createElement(InlineToolDeck, { toolCalls: [tool] })
+          )
+        )
+      )
+      await act(async () =>
+        document
+          .querySelector('[data-tool-call-id]')!
+          .dispatchEvent(new window.Event('click', { bubbles: true }))
+      )
+      const panel = document.querySelector('.yachiyo-detail-reveal')!
+      assert.ok(panel.textContent?.includes('diff: notes.txt'))
+      const removed = Array.from(panel.querySelectorAll('div')).find(
+        (element) => element.textContent === '10before'
+      ) as HTMLElement | undefined
+      const added = Array.from(panel.querySelectorAll('div')).find(
+        (element) => element.textContent === '10after'
+      ) as HTMLElement | undefined
+      assert.ok(removed, 'the removed line must render with its original line number')
+      assert.ok(added, 'the added line must render with its new line number')
+      assert.notEqual(removed.style.background, added.style.background)
+      assert.ok(removed.style.borderLeft.includes('2px solid'))
+      assert.ok(added.style.borderLeft.includes('2px solid'))
+      assert.ok(!panel.textContent?.includes('oldText'), 'changes must not be repeated as raw JSON')
+      assert.ok(
+        !panel.textContent?.includes('*** Begin Patch'),
+        'changes must not be repeated as a raw patch'
+      )
+    } finally {
+      await act(async () => root.unmount())
+    }
+  })
+}
