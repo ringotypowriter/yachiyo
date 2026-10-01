@@ -315,7 +315,9 @@ export function ModelSelectorPopup({
       subagents: config.subagents
     },
     hasLeadingOption: hasLeadingOptions,
-    query
+    query,
+    currentProviderName: currentAcpProfileId ? undefined : currentProviderName,
+    currentModel
   })
 
   const hasAcpAgents = selectorState.acpAgents.length > 0

@@ -72,8 +72,16 @@ export function resolveModelSelectorState(input: {
   config: Pick<SettingsConfig, 'providers' | 'subagentProfiles' | 'subagents'>
   hasLeadingOption: boolean
   query: string
+  currentProviderName?: string
+  currentModel?: string
 }): ModelSelectorState {
   const providers = filterEnabledModelProviders(input.config, input.query)
+  const selectedIndex = input.currentModel
+    ? providers.findIndex((provider) => provider.name === input.currentProviderName)
+    : -1
+  if (selectedIndex > 0) {
+    providers.unshift(...providers.splice(selectedIndex, 1))
+  }
   const acpAgents = filterAcpAgents(input.config, input.query)
   const hasQuery = input.query.trim().length > 0
 

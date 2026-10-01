@@ -110,6 +110,67 @@ test('filters selector results to enabled models only', () => {
   )
 })
 
+test('puts the selected model provider first without changing other providers or model order', () => {
+  const config: SettingsConfig = {
+    providers: [
+      {
+        ...SETTINGS_FIXTURE.providers[0],
+        name: 'Packycode',
+        modelList: { enabled: ['a', 'b'], disabled: [] }
+      },
+      {
+        ...SETTINGS_FIXTURE.providers[0],
+        name: 'Other',
+        modelList: { enabled: ['c'], disabled: [] }
+      },
+      { ...SETTINGS_FIXTURE.providers[0], name: 'OpenAI (Codex OAuth)' }
+    ]
+  }
+
+  assert.deepEqual(
+    resolveModelSelectorState({
+      config,
+      hasLeadingOption: false,
+      query: '',
+      currentProviderName: 'OpenAI (Codex OAuth)',
+      currentModel: 'gpt-5-mini'
+    }).providers.map(({ name, models }) => ({ name, models })),
+    [
+      { name: 'OpenAI (Codex OAuth)', models: ['gpt-5', 'gpt-5-mini'] },
+      { name: 'Packycode', models: ['a', 'b'] },
+      { name: 'Other', models: ['c'] }
+    ]
+  )
+})
+
+test('puts the selected provider first when search hides its selected model', () => {
+  const config: SettingsConfig = {
+    providers: [
+      {
+        ...SETTINGS_FIXTURE.providers[0],
+        name: 'First',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      },
+      {
+        ...SETTINGS_FIXTURE.providers[0],
+        name: 'OpenAI',
+        modelList: { enabled: ['gpt-5', 'mini'], disabled: [] }
+      }
+    ]
+  }
+
+  assert.deepEqual(
+    resolveModelSelectorState({
+      config,
+      hasLeadingOption: false,
+      query: 'gpt',
+      currentProviderName: 'OpenAI',
+      currentModel: 'mini'
+    }).providers.map(({ name }) => name),
+    ['OpenAI', 'First']
+  )
+})
+
 test('hides ACP agents while subagents are in worker mode', () => {
   assert.deepEqual(
     resolveModelSelectorState({
