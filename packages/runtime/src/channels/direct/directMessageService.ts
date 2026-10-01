@@ -13,11 +13,9 @@ import type {
   SendChatInput,
   ThreadModelOverride,
   ThreadRecord,
-  ToolCallName,
   UpdateChannelUserInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
-import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import {
   classifyChannelReplyAttachmentDelivery,
   createChannelReplyTool,
@@ -31,7 +29,7 @@ import { createDmAskUserStore, resolveAskUserAnswer, watchDmAskUserQuestions } f
 const REPLY_DELAY_MIN_MS = 3_000
 const REPLY_DELAY_MAX_MS = 8_000
 
-type DirectMessageSendChatInput = SendChatInput & { toolPreset?: ToolCallName[] }
+type DirectMessageSendChatInput = SendChatInput
 type DirectMessageAttachmentSlotCounts = { images: number; files: number }
 
 function randomReplyDelay(): number {
@@ -66,27 +64,6 @@ function toKTokens(totalTokens: number): number {
  * the desktop default — full tools — rather than the read-only guest sandbox.
  */
 export const OWNER_DEFAULT_CHANNEL_MODE: SelectableRunModeId = 'auto'
-
-/**
- * Owner DMs may switch their conversation mode via `/mode`, so an owner thread's
- * tools come from its `runMode` (defaulting to {@link OWNER_DEFAULT_CHANNEL_MODE}).
- * Guests stay on the channel policy's read-only sandbox regardless of thread mode.
- */
-export function resolveChannelToolPreset(
-  channelUser: ChannelUserRecord,
-  thread: ThreadRecord,
-  policyAllowedTools: ToolCallName[]
-): ToolCallName[] {
-  if (channelUser.role !== 'owner') {
-    return policyAllowedTools
-  }
-  const mode = thread.runMode
-  const resolved =
-    mode === 'auto' || mode === 'code' || mode === 'explore' || mode === 'plan' || mode === 'chat'
-      ? mode
-      : OWNER_DEFAULT_CHANNEL_MODE
-  return resolveRunModeEnabledTools(resolved)
-}
 
 export interface DirectMessageServer {
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
@@ -885,7 +862,6 @@ export function createDirectMessageService<TTarget>(
         content: text,
         images: images.length > 0 ? images : undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
-        toolPreset: resolveChannelToolPreset(channelUser, thread, options.policy.allowedTools),
         runTrigger: 'channel',
         channelHint: userLabelHint + options.policy.replyInstruction,
         extraTools: { reply: replyTool }

@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {
-  DEFAULT_ENABLED_TOOL_NAMES,
-  type MessageRecord,
-  type ThreadRecord
-} from '@yachiyo/shared/protocol'
+import { type MessageRecord, type ThreadRecord } from '@yachiyo/shared/protocol'
 import {
   handleCancelledWithSteerResult,
   handleSteerPendingResult,
@@ -414,7 +410,6 @@ test('handleCancelledWithSteerResult preserves queued visible steer tools after 
         attachments: [],
         messageId: 'visible-steer',
         timestamp: '2026-05-02T00:00:00.500Z',
-        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         enabledSkillNames: ['workspace-refactor'],
         runMode: 'auto' as const,
         reasoningEffort: 'high' as const
@@ -425,7 +420,6 @@ test('handleCancelledWithSteerResult preserves queued visible steer tools after 
   const result = handleCancelledWithSteerResult(context, {
     activeRun: activeRun as Parameters<typeof handleCancelledWithSteerResult>[1]['activeRun'],
     loopInput: {
-      enabledTools: [],
       runMode: 'chat',
       requestMessageId: 'user-start',
       runId: 'run-1',
@@ -445,7 +439,7 @@ test('handleCancelledWithSteerResult preserves queued visible steer tools after 
 
   assert.deepEqual(result, { kind: 'cancelled' })
   assert.equal(queuedDraft?.userMessage.id, 'visible-steer')
-  assert.deepEqual(queuedDraft?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+  assert.equal('enabledTools' in (queuedDraft ?? {}), false)
   assert.deepEqual(queuedDraft?.enabledSkillNames, ['workspace-refactor'])
   assert.equal(queuedDraft?.reasoningEffort, 'high')
 })

@@ -47,6 +47,44 @@ test('thread conversion preserves composer tool mode', () => {
   assert.equal(thread.runMode, 'explore')
 })
 
+test('thread conversion retains persisted Code Mode', () => {
+  const row = {
+    archivedAt: null,
+    starredAt: null,
+    branchFromMessageId: null,
+    branchFromThreadId: null,
+    handoffFromThreadId: null,
+    folderId: null,
+    colorTag: null,
+    headMessageId: null,
+    icon: null,
+    id: 'code-thread',
+    memoryRecallState: null,
+    modelOverride: null,
+    preview: null,
+    privacyMode: null,
+    enabledTools: null,
+    runMode: 'code',
+    reasoningEffort: null,
+    source: 'local',
+    channelUserId: null,
+    channelGroupId: null,
+    contextHandoffSummary: null,
+    contextHandoffWatermarkMessageId: null,
+    readAt: null,
+    createdFromEssentialId: null,
+    createdFromScheduleId: null,
+    runtimeBinding: null,
+    lastDelegatedSession: null,
+    todoItems: null,
+    recapText: null,
+    title: 'Code',
+    updatedAt: '2026-05-02T00:00:00.000Z',
+    workspacePath: null
+  }
+  assert.equal(toThreadRecord(row).runMode, 'code')
+})
+
 test('thread conversion preserves composer reasoning effort', () => {
   const thread = toThreadRecord({
     archivedAt: null,

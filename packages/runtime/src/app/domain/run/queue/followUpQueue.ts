@@ -9,7 +9,8 @@ import type {
   ThreadRecord,
   ThreadStateReplacedEvent
 } from '@yachiyo/shared/protocol'
-import type { ToolCallName } from '@yachiyo/shared/protocol'
+import { DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
+import { normalizeRunModeId } from '@yachiyo/shared/toolModes'
 import { summarizeMessageInput } from '@yachiyo/shared/messageContent'
 import type { BootstrapState, RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
@@ -19,7 +20,6 @@ import type { RunDomainDeps } from '../runTypes.ts'
 
 interface PreparedQueuedFollowUpStart {
   createdAt: string
-  enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   runMode: RunModeId
   runTrigger: SendChatRunTrigger
@@ -33,7 +33,6 @@ interface PreparedQueuedFollowUpStart {
 }
 
 export interface QueuedFollowUpRequestDraft {
-  enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   runMode: RunModeId
   runTrigger: SendChatRunTrigger
@@ -263,7 +262,6 @@ function cloneQueuedFollowUpRequestDraft(
   draft: QueuedFollowUpRequestDraft
 ): QueuedFollowUpRequestDraft {
   return {
-    enabledTools: [...draft.enabledTools],
     ...(draft.enabledSkillNames !== undefined
       ? { enabledSkillNames: [...draft.enabledSkillNames] }
       : {}),
@@ -326,9 +324,8 @@ function prepareQueuedFollowUpStart(
 
   return {
     createdAt: timestamp,
-    enabledTools: draft.enabledTools,
     enabledSkillNames: draft.enabledSkillNames,
-    runMode: draft.runMode,
+    runMode: normalizeRunModeId(thread.runMode ?? DEFAULT_RUN_MODE_ID),
     runTrigger: draft.runTrigger,
     ...(draft.reasoningEffort !== undefined ? { reasoningEffort: draft.reasoningEffort } : {}),
     requestMessageId: activatedQueuedMessage.id,
@@ -411,7 +408,6 @@ function activatePreparedQueuedFollowUp(
   })
 
   context.startActiveRun({
-    enabledTools: prepared.enabledTools,
     enabledSkillNames: prepared.enabledSkillNames,
     runMode: prepared.runMode,
     runTrigger: prepared.runTrigger,

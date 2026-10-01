@@ -77,7 +77,6 @@ import type {
   ThreadWorkspaceChangeDecision,
   ThreadWorkspaceChangeDecisionInput,
   ThreadWorkspaceUpdateInput,
-  ToolCallName,
   ToolPreferencesInput,
   TranslateInput,
   RunModeId,
@@ -163,7 +162,6 @@ declare global {
           createdFromEssentialId?: string
           privacyMode?: boolean
           modelOverride?: ThreadModelOverride
-          enabledTools?: ToolCallName[]
           runMode?: RunModeId
           reasoningEffort?: ComposerReasoningSelection
         }) => Promise<ThreadRecord>
@@ -331,8 +329,7 @@ declare global {
         }) => Promise<ThreadRecord>
         setThreadToolMode: (input: {
           threadId: string
-          enabledTools: ToolCallName[]
-          runMode?: RunModeId
+          runMode: RunModeId
         }) => Promise<ThreadRecord>
         setThreadRuntimeBinding: (input: {
           threadId: string

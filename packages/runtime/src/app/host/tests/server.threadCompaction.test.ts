@@ -354,7 +354,6 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
       const sourceAccepted = await server.sendChat({
         threadId: sourceThread.id,
         content: 'We decided to ship the desktop update on Friday.',
-        toolPreset: ['read'],
         enabledSkillNames: []
       })
       await completeRun(sourceAccepted.runId)
@@ -525,7 +524,6 @@ test('YachiyoServer.compactThreadToAnotherThread keeps handoff running after ref
       const sourceAccepted = await server.sendChat({
         threadId: sourceThread.id,
         content: 'Remember that handoff generation must use the existing context only.',
-        toolPreset: ['read'],
         enabledSkillNames: []
       })
       await completeRun(sourceAccepted.runId)
@@ -738,8 +736,7 @@ test('YachiyoServer.compactThreadToAnotherThread preserves default skill selecti
 
       const accepted = await server.sendChat({
         threadId: sourceThread.id,
-        content: 'Use the configured skill while planning the release.',
-        toolPreset: ['read']
+        content: 'Use the configured skill while planning the release.'
       })
       assertAcceptedHasUserMessage(accepted)
       await completeRun(accepted.runId)

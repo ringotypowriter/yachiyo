@@ -155,7 +155,6 @@ export function buildRunExecutionDeps(
               )
           },
           parentDeliveryContext: {
-            enabledTools: [...input.executionEnabledTools],
             ...((input.activeRun.enabledSkillNames ?? input.loopInput.enabledSkillNames)
               ? {
                   enabledSkillNames: [
@@ -186,14 +185,13 @@ export function buildRunExecutionDeps(
             threadId: input.currentThread.id,
             manager: deps.sentinelManager,
             wakeContext: {
-              enabledTools: input.activeRun.enabledTools ?? input.loopInput.enabledTools,
               ...((input.activeRun.enabledSkillNames ?? input.loopInput.enabledSkillNames)
                 ? {
                     enabledSkillNames:
                       input.activeRun.enabledSkillNames ?? input.loopInput.enabledSkillNames
                   }
                 : {}),
-              runMode: input.activeRun.runMode ?? input.loopInput.runMode,
+              runMode: input.executionRunMode,
               ...((input.activeRun.reasoningEffort ?? input.loopInput.reasoningEffort)
                 ? {
                     reasoningEffort:
@@ -428,9 +426,8 @@ function injectHiddenRunSteer(
   sendActiveRunSteer(context.createSendChatFlowContext(), {
     activeRunId: input.loopInput.runId,
     content,
-    enabledTools: activeRun.enabledTools ?? input.loopInput.enabledTools,
     enabledSkillNames: activeRun.enabledSkillNames,
-    runMode: activeRun.runMode ?? input.loopInput.runMode,
+    runMode: input.executionRunMode,
     runTrigger: input.loopInput.runTrigger,
     images: [],
     attachments: [],
@@ -445,7 +442,6 @@ function buildBackgroundTaskRunContext(
   ownerAgentId?: string
 ): BackgroundTaskRunContext {
   return {
-    enabledTools: input.executionEnabledTools,
     runMode: input.executionRunMode,
     ...(input.loopInput.enabledSkillNames
       ? { enabledSkillNames: input.loopInput.enabledSkillNames }

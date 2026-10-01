@@ -297,6 +297,17 @@ test('a phone can answer askUser and follow the run through the event stream', a
   })
 })
 
+test('remote thread creation persists the selected mode on the thread summary', async () => {
+  await withFacade(async ({ call }) => {
+    const { thread } = await call<{ thread: RemoteThreadSummary }>('threads.create', {
+      runMode: 'explore'
+    })
+    assert.equal(thread.runMode, 'explore')
+    const loaded = await call<RemoteThreadDetail>('threads.load', { threadId: thread.id })
+    assert.equal(loaded.thread.runMode, 'explore')
+  })
+})
+
 test('uploaded images are attached to the sent message and consumed once', async () => {
   await withFacade(async ({ call, waitForEvent }) => {
     const cursor = await call<{ epoch: string; headSeq: number }>('events.subscribe', {

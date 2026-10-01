@@ -7,14 +7,9 @@ import type {
   SelectableRunModeId,
   SettingsConfig,
   ThreadRecord,
-  ToolCallName,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
-import {
-  RUN_MODE_DEFINITIONS,
-  SELECTABLE_RUN_MODE_IDS,
-  resolveRunModeEnabledTools
-} from '@yachiyo/shared/toolModes'
+import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
 import { OWNER_DEFAULT_CHANNEL_MODE, type DirectMessageServer } from './directMessageService.ts'
 
 export type DmSlashCommandServer = Pick<
@@ -40,11 +35,7 @@ export type DmSlashCommandServer = Pick<
     workspacePath?: string | null
     confirmed?: boolean
   }): Promise<ThreadRecord>
-  setThreadToolMode(input: {
-    threadId: string
-    enabledTools: ToolCallName[]
-    runMode?: RunModeId
-  }): Promise<ThreadRecord>
+  setThreadToolMode(input: { threadId: string; runMode: RunModeId }): Promise<ThreadRecord>
 }
 
 export interface DmSlashCommandOptions<TTarget> {
@@ -553,7 +544,6 @@ async function handleModeCommand<TTarget>(
   try {
     await options.server.setThreadToolMode({
       threadId: thread.id,
-      enabledTools: resolveRunModeEnabledTools(requested),
       runMode: requested
     })
   } catch (error) {

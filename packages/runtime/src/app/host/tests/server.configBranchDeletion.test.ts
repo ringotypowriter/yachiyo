@@ -774,3 +774,45 @@ test('YachiyoServer binds recovered tool calls when retry backoff is cancelled',
     }
   )
 })
+
+test('retry after a transient failure executes with the thread mode changed during backoff', async () => {
+  const requests: ModelStreamRequest[] = []
+  await withServer(
+    async ({ server, completeRun, waitForEvent, storage }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: { enabled: ['gpt-5'], disabled: [] }
+      })
+      const thread = await server.createThread({ runMode: 'auto' })
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Recover with updated mode.'
+      })
+      await waitForEvent('run.retrying')
+      await server.setThreadToolMode({ threadId: thread.id, runMode: 'chat' })
+      await completeRun(accepted.runId)
+      assert.equal(storage.getThread(thread.id)?.runMode, 'chat')
+      assert.equal(requests.length, 2)
+      assert.ok(requests[0]?.tools?.bash)
+      assert.equal(requests[1]?.tools?.bash, undefined)
+      assert.equal(requests[1]?.tools?.write, undefined)
+      assert.equal(requests[1]?.tools?.read, undefined)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          requests.push(request)
+          if (requests.length === 1) {
+            throw new RetryableRunError('temporary upstream failure', {
+              cause: Object.assign(new Error('temporary upstream failure'), { status: 500 })
+            })
+          }
+          yield 'Recovered answer'
+        }
+      })
+    }
+  )
+})

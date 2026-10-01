@@ -147,18 +147,6 @@ test('run execution deps records the active run mode for background bash complet
   })
 
   assert.deepEqual(backgroundTaskRunContext.get('task-1'), {
-    enabledTools: [
-      'read',
-      'write',
-      'edit',
-      'bash',
-      'jsRepl',
-      'pyRepl',
-      'grep',
-      'glob',
-      'webRead',
-      'webSearch'
-    ],
     runMode: 'auto',
     runTrigger: 'local'
   })
@@ -286,7 +274,6 @@ function setupRunExecutionDeps(
     emittedEvents,
     executionDeps: buildRunExecutionDeps(context, {
       loopInput: {
-        enabledTools: overrides.loopInput?.enabledTools ?? [],
         runMode: overrides.loopInput?.runMode ?? 'auto',
         runTrigger: 'local',
         runId: 'run-1',

@@ -193,8 +193,7 @@ export function createThreadLifecycleActions(input: {
         const defaultTools = resolveRunModeEnabledTools(defaultMode)
         const reusableAutoThread = { ...reusableThread }
         delete reusableAutoThread.enabledTools
-        if (defaultMode === DEFAULT_RUN_MODE_ID) delete reusableAutoThread.runMode
-        else reusableAutoThread.runMode = defaultMode
+        reusableAutoThread.runMode = defaultMode
 
         set((state) => {
           const nextState = {
@@ -248,7 +247,6 @@ export function createThreadLifecycleActions(input: {
           void window.api.yachiyo
             .setThreadToolMode({
               threadId: reusableThread.id,
-              enabledTools: defaultTools,
               runMode: defaultMode
             })
             .then((updatedThread) => {
@@ -285,14 +283,12 @@ export function createThreadLifecycleActions(input: {
 
       const defaultMode = normalizeRunModeId(currentState.config?.chat?.defaultRunMode)
       const createThreadInput = {
-        ...(defaultMode !== DEFAULT_RUN_MODE_ID ? { runMode: defaultMode } : {}),
+        runMode: defaultMode,
         ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
         ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
       }
-      const thread = await window.api.yachiyo.createThread(
-        Object.keys(createThreadInput).length > 0 ? createThreadInput : undefined
-      )
-      if (defaultMode !== DEFAULT_RUN_MODE_ID) thread.runMode = defaultMode
+      const thread = await window.api.yachiyo.createThread(createThreadInput)
+      thread.runMode = defaultMode
       set((state) => {
         const nextState = {
           ...state,
@@ -332,10 +328,8 @@ export function createThreadLifecycleActions(input: {
         return {
           ...nextState,
           ...deriveActiveThreadRunState(nextState),
-          enabledTools: resolveRunModeEnabledTools(
-            normalizeRunModeId(state.config?.chat?.defaultRunMode)
-          ),
-          runMode: normalizeRunModeId(state.config?.chat?.defaultRunMode)
+          enabledTools: resolveRunModeEnabledTools(defaultMode),
+          runMode: defaultMode
         }
       })
       await refreshAvailableSkills(set, get)

@@ -400,6 +400,8 @@ export interface ThreadToolCallScope {
 
 export interface YachiyoStorage {
   close(): void
+  /** Persist the configured default for legacy rows with no mode; existing selections are untouched. */
+  persistMissingThreadRunModes?(defaultRunMode: RunModeId): void
   flushBackgroundTasks?(): Promise<void>
   bootstrap(): BootstrapState
   recoverInterruptedRuns(input: { finishedAt: string; error: string }): void
@@ -1261,6 +1263,7 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
 
 function parseRunMode(value: unknown): RunModeId | undefined {
   return value === 'auto' ||
+    value === 'code' ||
     value === 'explore' ||
     value === 'plan' ||
     value === 'chat' ||

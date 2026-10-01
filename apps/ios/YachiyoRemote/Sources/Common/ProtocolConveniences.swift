@@ -5,7 +5,7 @@ extension RemoteThreadSummary {
     func with(latestRun: LatestRun?) -> RemoteThreadSummary {
         RemoteThreadSummary(
             capabilities: capabilities, colorTag: colorTag, icon: icon, id: id, latestRun: latestRun,
-            needsAttention: needsAttention, preview: preview, privacyMode: privacyMode, starred: starred,
+            needsAttention: needsAttention, preview: preview, privacyMode: privacyMode, runMode: runMode, starred: starred,
             syncOriginDeviceId: syncOriginDeviceId, title: title, updatedAt: updatedAt,
             workspaceName: workspaceName, workspacePath: workspacePath
         )
@@ -14,7 +14,7 @@ extension RemoteThreadSummary {
     func with(starred: Bool) -> RemoteThreadSummary {
         RemoteThreadSummary(
             capabilities: capabilities, colorTag: colorTag, icon: icon, id: id, latestRun: latestRun,
-            needsAttention: needsAttention, preview: preview, privacyMode: privacyMode, starred: starred,
+            needsAttention: needsAttention, preview: preview, privacyMode: privacyMode, runMode: runMode, starred: starred,
             syncOriginDeviceId: syncOriginDeviceId, title: title, updatedAt: updatedAt,
             workspaceName: workspaceName, workspacePath: workspacePath
         )

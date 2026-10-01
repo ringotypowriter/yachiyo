@@ -470,7 +470,6 @@ test('YachiyoServer bootstrap clears a temporary queued follow-up draft after re
     const queuedFollowUp = await firstServer.sendChat({
       threadId: thread.id,
       content: 'Recovered queued follow-up',
-      toolPreset: ['read'],
       mode: 'follow-up'
     })
     assertAcceptedHasUserMessage(queuedFollowUp)
@@ -588,7 +587,6 @@ test('YachiyoServer does not recover a temporary queued follow-up when a new run
     const queuedFollowUp = await firstServer.sendChat({
       threadId: thread.id,
       content: 'Recovered queued follow-up',
-      toolPreset: ['read'],
       mode: 'follow-up'
     })
     assertAcceptedHasUserMessage(queuedFollowUp)

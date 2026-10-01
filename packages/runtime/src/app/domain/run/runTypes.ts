@@ -10,7 +10,6 @@ import type {
   SkillCatalogEntry,
   SettingsConfig,
   ThreadRecord,
-  ToolCallName,
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
 import type { AuxiliaryGenerationService } from '../../../runtime/models/auxiliaryGeneration.ts'
@@ -40,10 +39,7 @@ import type { ThingDomain } from '../things/thingDomain.ts'
 
 export type RunExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user' | 'terminal'
 
-export type InternalSendChatInput = SendChatInput & {
-  /** Internal per-run tool preset for system/channel runs that need a fixed tool set. */
-  toolPreset?: ToolCallName[]
-}
+export type InternalSendChatInput = SendChatInput
 
 export const CONTEXT_HANDOFF_CONTINUATION_STEER =
   'Context was checkpointed; continue the same task from the handoff summary without repeating completed tool calls.'
@@ -54,13 +50,11 @@ export interface PendingSteerInput {
   attachments: MessageFileAttachment[]
   messageId: string
   timestamp: string
-  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   runTrigger?: SendChatRunTrigger
   hidden?: boolean
-  previousEnabledTools?: ToolCallName[]
   previousEnabledSkillNames?: string[]
   previousRunMode?: RunModeId
   previousReasoningEffort?: ComposerReasoningSelection
@@ -70,7 +64,6 @@ export interface PendingSteerInput {
 export interface RunState {
   threadId: string
   requestMessageId?: string
-  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
@@ -135,7 +128,6 @@ export interface RunDomainDeps {
 }
 
 export interface BackgroundTaskRunContext {
-  enabledTools: ToolCallName[]
   runMode: RunModeId
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection

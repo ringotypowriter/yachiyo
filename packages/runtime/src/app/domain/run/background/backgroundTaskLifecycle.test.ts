@@ -219,7 +219,6 @@ test('handleBackgroundBashCompleted routes Worker-owned completion to its Agent 
       [
         'task-1',
         {
-          enabledTools: [],
           runMode: 'auto',
           runTrigger: 'local',
           ownerAgentId: 'agent-1'

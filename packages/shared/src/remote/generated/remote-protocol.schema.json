@@ -2309,6 +2309,9 @@
         "title": {
           "type": "string"
         },
+        "runMode": {
+          "$ref": "#/$defs/RemoteRunMode"
+        },
         "icon": {
           "type": "string"
         },
@@ -2404,6 +2407,9 @@
     "RemoteThreadsCreateInput": {
       "type": "object",
       "properties": {
+        "runMode": {
+          "$ref": "#/$defs/RemoteRunMode"
+        },
         "workspacePath": {
           "type": "string",
           "maxLength": 4096

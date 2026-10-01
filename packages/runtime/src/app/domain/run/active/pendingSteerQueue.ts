@@ -19,7 +19,6 @@ function mergePendingSteerInput(
     content: [existing.content, input.content].filter((part) => part.length > 0).join('\n'),
     images: [...(existing.images ?? []), ...(input.images ?? [])],
     attachments: [...existing.attachments, ...input.attachments],
-    enabledTools: input.enabledTools ?? existing.enabledTools,
     enabledSkillNames: input.enabledSkillNames,
     runMode: input.runMode ?? existing.runMode,
     reasoningEffort: input.reasoningEffort ?? existing.reasoningEffort,
@@ -67,14 +66,6 @@ export function applyFinalPendingSteerOptions(runState: RunState): void {
   runState.enabledSkillNames = finalSteer.enabledSkillNames
     ? [...finalSteer.enabledSkillNames]
     : undefined
-
-  if (finalSteer.enabledTools !== undefined) {
-    runState.enabledTools = [...finalSteer.enabledTools]
-  } else if (finalSteer.previousEnabledTools !== undefined) {
-    runState.enabledTools = [...finalSteer.previousEnabledTools]
-  } else {
-    delete runState.enabledTools
-  }
 
   if (finalSteer.runMode !== undefined) {
     runState.runMode = finalSteer.runMode

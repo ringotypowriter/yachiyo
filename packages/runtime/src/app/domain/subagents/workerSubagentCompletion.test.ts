@@ -83,7 +83,7 @@ test('general worker in Code Mode exposes file tools only inside REPL', async ()
       },
       parentToolContext: { workspacePath },
       parentDependencies: {},
-      parentDeliveryContext: { runMode: 'code', enabledTools: [], runTrigger: 'local' },
+      parentDeliveryContext: { runMode: 'code', runTrigger: 'local' },
       createModelRuntime: () =>
         ({
           async *streamReply(request: ModelStreamRequest) {

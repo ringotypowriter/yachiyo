@@ -246,14 +246,14 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
         ...(essential ? { createdFromEssentialId: essential.id } : {}),
         ...(privacyMode ? { privacyMode: true } : {}),
         ...(modelOverride ? { modelOverride } : {}),
-        ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {})
+        ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+        ...(input.runMode ? { runMode: input.runMode } : {})
       })
       if (essential?.icon) await server.setThreadIcon({ threadId: thread.id, icon: essential.icon })
       const accepted = await server.sendChat({
         threadId: thread.id,
         content: input.content,
         ...payload,
-        ...(input.runMode ? { runMode: input.runMode } : {}),
         ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
         runTrigger: 'local'
       })

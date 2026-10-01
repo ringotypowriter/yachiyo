@@ -489,13 +489,14 @@ public struct RemoteThreadSummary: Codable, Equatable, Sendable {
     public let needsAttention: Bool
     public let preview: String?
     public let privacyMode: Bool?
+    public let runMode: RemoteRunMode?
     public let starred: Bool
     public let syncOriginDeviceId: String?
     public let title: String
     public let updatedAt: String
     public let workspaceName, workspacePath: String?
 
-    public init(capabilities: RemoteThreadCapabilities, colorTag: ColorTag?, icon: String?, id: String, latestRun: LatestRun?, needsAttention: Bool, preview: String?, privacyMode: Bool?, starred: Bool, syncOriginDeviceId: String?, title: String, updatedAt: String, workspaceName: String?, workspacePath: String?) {
+    public init(capabilities: RemoteThreadCapabilities, colorTag: ColorTag?, icon: String?, id: String, latestRun: LatestRun?, needsAttention: Bool, preview: String?, privacyMode: Bool?, runMode: RemoteRunMode?, starred: Bool, syncOriginDeviceId: String?, title: String, updatedAt: String, workspaceName: String?, workspacePath: String?) {
         self.capabilities = capabilities
         self.colorTag = colorTag
         self.icon = icon
@@ -504,6 +505,7 @@ public struct RemoteThreadSummary: Codable, Equatable, Sendable {
         self.needsAttention = needsAttention
         self.preview = preview
         self.privacyMode = privacyMode
+        self.runMode = runMode
         self.starred = starred
         self.syncOriginDeviceId = syncOriginDeviceId
         self.title = title
@@ -565,6 +567,14 @@ public enum RemoteRunStatus: String, Codable, Equatable, Sendable {
     case completed = "completed"
     case failed = "failed"
     case running = "running"
+}
+
+public enum RemoteRunMode: String, Codable, Equatable, Sendable {
+    case auto = "auto"
+    case chat = "chat"
+    case code = "code"
+    case explore = "explore"
+    case plan = "plan"
 }
 
 //
@@ -874,14 +884,6 @@ public struct RemoteModelOverride: Codable, Equatable, Sendable {
         self.model = model
         self.providerName = providerName
     }
-}
-
-public enum RemoteRunMode: String, Codable, Equatable, Sendable {
-    case auto = "auto"
-    case chat = "chat"
-    case code = "code"
-    case explore = "explore"
-    case plan = "plan"
 }
 
 //
@@ -1894,11 +1896,13 @@ public struct RemoteThreadsArchiveInput: Codable, Equatable, Sendable {
 public struct RemoteThreadsCreateInput: Codable, Equatable, Sendable {
     public let modelOverride: RemoteModelOverride?
     public let reasoningEffort: RemoteReasoningSelection?
+    public let runMode: RemoteRunMode?
     public let workspacePath: String?
 
-    public init(modelOverride: RemoteModelOverride?, reasoningEffort: RemoteReasoningSelection?, workspacePath: String?) {
+    public init(modelOverride: RemoteModelOverride?, reasoningEffort: RemoteReasoningSelection?, runMode: RemoteRunMode?, workspacePath: String?) {
         self.modelOverride = modelOverride
         self.reasoningEffort = reasoningEffort
+        self.runMode = runMode
         self.workspacePath = workspacePath
     }
 }

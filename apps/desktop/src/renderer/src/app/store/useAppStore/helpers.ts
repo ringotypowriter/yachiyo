@@ -15,18 +15,13 @@ import type {
 } from '../../types.ts'
 import { normalizeMessageImages } from '@yachiyo/shared/messageContent'
 import {
-  DEFAULT_RUN_MODE_ID,
   normalizeSkillNames,
   USER_MANAGED_TOOL_NAMES,
   type RunModeId,
   type SubagentSnapshot
 } from '@yachiyo/shared/protocol'
 import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
-import {
-  deriveRunModeId,
-  normalizeRunModeId,
-  resolveRunModeEnabledTools
-} from '@yachiyo/shared/toolModes'
+import { normalizeRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { getReasoningSelectorState } from '@yachiyo/shared/reasoningEffort'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
 import {
@@ -487,10 +482,9 @@ export interface ComposerToolMode {
 export function collectThreadToolModes(threads: Thread[]): Record<string, ComposerToolMode> {
   return Object.fromEntries(
     threads
-      .filter((thread) => thread.enabledTools !== undefined || thread.runMode !== undefined)
+      .filter((thread) => thread.runMode !== undefined)
       .map((thread) => {
-        const storedRunMode = thread.runMode ?? deriveRunModeId(thread.enabledTools)
-        const runMode = storedRunMode === 'custom' ? DEFAULT_RUN_MODE_ID : storedRunMode
+        const runMode = normalizeRunModeId(thread.runMode)
         return [
           thread.id,
           {
@@ -877,24 +871,16 @@ export function getComposerToolMode(
   state: Pick<AppState, 'activeThreadId' | 'threads' | 'toolModeByThread' | 'config'>,
   threadId: string | null = state.activeThreadId
 ): ComposerToolMode {
-  const key = getComposerDraftKey(threadId)
-  const staged = state.toolModeByThread[key]
-  if (staged) {
-    return staged.runMode === 'custom'
-      ? {
-          enabledTools: resolveRunModeEnabledTools(DEFAULT_RUN_MODE_ID),
-          runMode: DEFAULT_RUN_MODE_ID
-        }
-      : staged
+  // Before a thread exists, a user selection belongs to the draft. Once created,
+  // only the persisted thread mode is authoritative.
+  if (!threadId) {
+    const staged = state.toolModeByThread[getComposerDraftKey(null)]
+    if (staged) return staged
   }
-
   const thread = threadId ? findThread(state, threadId) : undefined
-  const defaultMode = threadId
-    ? DEFAULT_RUN_MODE_ID
+  const runMode = threadId
+    ? normalizeRunModeId(thread?.runMode)
     : normalizeRunModeId(state.config?.chat?.defaultRunMode)
-  const storedRunMode =
-    thread?.runMode ?? (thread?.enabledTools ? deriveRunModeId(thread.enabledTools) : defaultMode)
-  const runMode = storedRunMode === 'custom' ? DEFAULT_RUN_MODE_ID : storedRunMode
   return {
     enabledTools: resolveRunModeEnabledTools(runMode),
     runMode

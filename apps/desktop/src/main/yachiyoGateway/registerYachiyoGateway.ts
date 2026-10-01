@@ -1237,8 +1237,7 @@ export function registerYachiyoGateway(options: {
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadToolMode,
-    (input: { threadId: string; enabledTools: ToolCallName[]; runMode?: RunModeId }) =>
-      rpc().setThreadToolMode(input)
+    (input: { threadId: string; runMode: RunModeId }) => rpc().setThreadToolMode(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadRuntimeBinding,

@@ -8,6 +8,7 @@ import {
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
 import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import { collectThreadToolModes } from './useAppStore/helpers.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
   DEFAULT_SETTINGS,
@@ -369,7 +370,7 @@ test('getComposerToolMode uses thread run mode and ignores deprecated config too
 test('setRunMode persists mode on the active thread without saving global tool preferences', async () => {
   resetStore()
 
-  const toolModeCalls: Array<{ threadId: string; enabledTools: string[]; runMode?: string }> = []
+  const toolModeCalls: Array<{ threadId: string; runMode: string }> = []
   let saveToolPreferencesCalled = false
   const restoreWindow = withWindowApiMock({
     setThreadToolMode: async (input) => {
@@ -396,12 +397,75 @@ test('setRunMode persists mode on the active thread without saving global tool p
 
     await useAppStore.getState().setRunMode('chat')
 
-    assert.deepEqual(toolModeCalls, [{ threadId: 'thread-1', enabledTools: [], runMode: 'chat' }])
+    assert.deepEqual(toolModeCalls, [{ threadId: 'thread-1', runMode: 'chat' }])
     assert.equal(saveToolPreferencesCalled, false)
     const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
     assert.equal(thread?.enabledTools, undefined)
     assert.equal(thread?.runMode, 'chat')
     assert.equal(useAppStore.getState().runMode, 'chat')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('explicitly selecting Auto persists it even on a legacy thread without a mode', async () => {
+  resetStore()
+  const calls: string[] = []
+  const restoreWindow = withWindowApiMock({
+    setThreadToolMode: async (input) => {
+      calls.push(input.runMode ?? '')
+      return { id: input.threadId, title: 'Thread', runMode: 'auto', updatedAt: TIMESTAMP }
+    }
+  })
+  try {
+    useAppStore.setState({
+      activeThreadId: 'legacy',
+      threads: [{ id: 'legacy', title: 'Thread', updatedAt: TIMESTAMP }]
+    })
+    await useAppStore.getState().setRunMode('auto')
+    assert.deepEqual(calls, ['auto'])
+    assert.equal(useAppStore.getState().threads[0]?.runMode, 'auto')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('a draft mode selection is persisted on the thread before its first send', async () => {
+  resetStore()
+  const created: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      created.push(input)
+      return { id: 'new-thread', title: 'New Chat', runMode: input?.runMode, updatedAt: TIMESTAMP }
+    },
+    sendChat: async (input) => ({
+      kind: 'run-started',
+      runId: 'run-1',
+      thread: { id: input.threadId, title: 'New Chat', runMode: 'code', updatedAt: TIMESTAMP },
+      userMessage: {
+        id: 'message-1',
+        threadId: input.threadId,
+        role: 'user',
+        content: input.content,
+        status: 'completed',
+        createdAt: TIMESTAMP
+      }
+    })
+  })
+  try {
+    useAppStore.setState({
+      config: { providers: [], chat: { defaultRunMode: 'explore' } },
+      settings: { ...DEFAULT_SETTINGS, apiKey: 'sk-test', model: 'gpt-5', providerName: 'work' },
+      composerDrafts: { __new__: { text: 'Hello', images: [], files: [] } }
+    })
+    await useAppStore.getState().setRunMode('code')
+    assert.equal(getComposerToolMode(useAppStore.getState()).runMode, 'code')
+    await useAppStore.getState().sendMessage()
+    assert.deepEqual(created, [{ runMode: 'code' }])
+    assert.equal(
+      useAppStore.getState().threads.find((thread) => thread.id === 'new-thread')?.runMode,
+      'code'
+    )
   } finally {
     restoreWindow()
   }
@@ -446,7 +510,7 @@ test('createNewThread defaults to auto instead of inheriting the active thread r
     await useAppStore.getState().createNewThread()
 
     const state = useAppStore.getState()
-    assert.deepEqual(createThreadInputs, [undefined])
+    assert.deepEqual(createThreadInputs, [{ runMode: 'auto' }])
     assert.equal(state.activeThreadId, 'thread-auto')
     assert.equal(state.runMode, DEFAULT_RUN_MODE_ID)
     assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
@@ -474,7 +538,7 @@ test('createNewThread resets a pre-create mode selection to auto', async () => {
     await useAppStore.getState().setRunMode('chat')
     await useAppStore.getState().createNewThread()
 
-    assert.deepEqual(createThreadInputs, [undefined])
+    assert.deepEqual(createThreadInputs, [{ runMode: 'auto' }])
     assert.equal(useAppStore.getState().activeThreadId, 'thread-1')
     assert.equal(useAppStore.getState().runMode, DEFAULT_RUN_MODE_ID)
     assert.deepEqual(useAppStore.getState().enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
@@ -541,4 +605,50 @@ test('new composer and new threads use configured mode without changing old thre
   } finally {
     restoreWindow()
   }
+})
+
+test('switching from Auto back to an existing default-mode thread retains its stored mode', () => {
+  resetStore()
+  useAppStore.setState({
+    config: { providers: [], chat: { defaultRunMode: 'chat' } },
+    threads: [
+      { id: 'thread-a', title: 'A', runMode: 'chat', updatedAt: TIMESTAMP },
+      { id: 'thread-b', title: 'B', runMode: 'auto', updatedAt: TIMESTAMP }
+    ]
+  })
+  useAppStore.getState().setActiveThread('thread-b')
+  assert.equal(useAppStore.getState().runMode, 'auto')
+  useAppStore.getState().setActiveThread('thread-a')
+  assert.equal(useAppStore.getState().runMode, 'chat')
+  assert.equal(getComposerToolMode(useAppStore.getState()).runMode, 'chat')
+})
+
+test('thread mode ignores stale per-composer mode and legacy enabled tools', () => {
+  resetStore()
+  useAppStore.setState({
+    activeThreadId: 'thread-a',
+    config: { providers: [], chat: { defaultRunMode: 'explore' } },
+    threads: [
+      {
+        id: 'thread-a',
+        title: 'A',
+        runMode: 'chat',
+        enabledTools: ['webSearch'],
+        updatedAt: TIMESTAMP
+      }
+    ],
+    toolModeByThread: {
+      'thread-a': { runMode: 'auto', enabledTools: resolveRunModeEnabledTools('auto') }
+    }
+  })
+  assert.equal(getComposerToolMode(useAppStore.getState()).runMode, 'chat')
+})
+
+test('thread bootstrap never infers a selected mode from legacy tool snapshots', () => {
+  assert.deepEqual(
+    collectThreadToolModes([
+      { id: 'legacy', title: 'Legacy', updatedAt: TIMESTAMP, enabledTools: [] }
+    ]),
+    {}
+  )
 })

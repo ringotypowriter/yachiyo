@@ -490,7 +490,7 @@ test('sendMessage drops staged custom tool sets for new threads and falls back t
     await useAppStore.getState().setEnabledTools(['read', 'bash'])
     await useAppStore.getState().sendMessage()
 
-    assert.deepEqual(createThreadCalls, [{}])
+    assert.deepEqual(createThreadCalls, [{ runMode: 'auto' }])
     assert.deepEqual(sendChatCalls, [
       {
         runMode: DEFAULT_RUN_MODE_ID,

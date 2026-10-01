@@ -1,9 +1,8 @@
 import type { ActiveSubagentState, AppState } from '../useAppStore.ts'
 import type { ComposerToolMode } from './helpers.ts'
 import type { Message, Thread, YachiyoServerEvent } from '../../types.ts'
-import { DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
 import { isVisibleExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
-import { deriveRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import { normalizeRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { bumpThreadMessageAuthority } from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
@@ -42,9 +41,8 @@ import {
 } from './helpers.ts'
 
 function getThreadEventToolMode(thread: Thread): ComposerToolMode | undefined {
-  if (!thread.enabledTools && !thread.runMode) return undefined
-  const storedRunMode = thread.runMode ?? deriveRunModeId(thread.enabledTools)
-  const runMode = storedRunMode === 'custom' ? DEFAULT_RUN_MODE_ID : storedRunMode
+  if (!thread.runMode) return undefined
+  const runMode = normalizeRunModeId(thread.runMode)
   return {
     enabledTools: resolveRunModeEnabledTools(runMode),
     runMode

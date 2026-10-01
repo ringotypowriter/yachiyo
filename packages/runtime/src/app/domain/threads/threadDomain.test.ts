@@ -120,7 +120,7 @@ test('YachiyoServerThreadDomain stores standard tool mode as runMode only', () =
 
   const updatedThread = domain.setThreadToolMode({
     threadId: 'thread-1',
-    enabledTools: []
+    runMode: 'chat'
   })
 
   assert.equal(updatedThread.enabledTools, undefined)
@@ -132,6 +132,27 @@ test('YachiyoServerThreadDomain stores standard tool mode as runMode only', () =
     threadId: 'thread-1',
     thread: updatedThread
   })
+})
+
+test('thread creation persists its selected mode even when it is the default', async () => {
+  const { domain, storage } = createThreadDomainHarness(null)
+  const thread = await domain.createThread({ runMode: 'auto' })
+  assert.equal(thread.runMode, 'auto')
+  assert.equal(storage.getThread(thread.id)?.runMode, 'auto')
+})
+
+test('configuration default is captured only when each thread is created', async () => {
+  const { domain, storage } = createThreadDomainHarness(null)
+  let configuredMode: 'explore' | 'auto' = 'explore'
+  const dependencies = domain as unknown as {
+    deps: { defaultRunMode?: () => typeof configuredMode }
+  }
+  dependencies.deps.defaultRunMode = () => configuredMode
+  const first = await domain.createThread()
+  configuredMode = 'auto'
+  const second = await domain.createThread({ threadId: 'second-thread' })
+  assert.equal(storage.getThread(first.id)?.runMode, 'explore')
+  assert.equal(storage.getThread(second.id)?.runMode, 'auto')
 })
 
 test('YachiyoServerThreadDomain sets and clears thread reasoning effort', () => {

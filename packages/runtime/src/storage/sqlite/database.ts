@@ -186,6 +186,12 @@ export function createSqliteYachiyoStorage(
   }
 
   return {
+    persistMissingThreadRunModes(defaultRunMode) {
+      db.update(threadsTable)
+        .set({ runMode: defaultRunMode })
+        .where(isNull(threadsTable.runMode))
+        .run()
+    },
     close() {
       if (deferredRebuildTimer !== null) {
         clearTimeout(deferredRebuildTimer)

@@ -1,4 +1,10 @@
-import type { MessageRecord, RunCancelledEvent, ThreadRecord } from '@yachiyo/shared/protocol'
+import {
+  DEFAULT_RUN_MODE_ID,
+  type MessageRecord,
+  type RunCancelledEvent,
+  type ThreadRecord
+} from '@yachiyo/shared/protocol'
+import { normalizeRunModeId } from '@yachiyo/shared/toolModes'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { ActiveRunLoopInput } from '../active/activeRunStart.ts'
 import {
@@ -253,10 +259,9 @@ function createQueuedFollowUpRequestDraftFromSteer(input: {
   steerInput: PendingSteerInput
 }): QueuedFollowUpRequestDraft {
   const { activeRun, loopInput, parentMessageId, steerInput } = input
-  const enabledTools = steerInput.enabledTools ?? activeRun.enabledTools ?? loopInput.enabledTools
+  const runMode = normalizeRunModeId(loopInput.thread.runMode ?? DEFAULT_RUN_MODE_ID)
   const enabledSkillNames =
     steerInput.enabledSkillNames ?? activeRun.enabledSkillNames ?? loopInput.enabledSkillNames
-  const runMode = steerInput.runMode ?? activeRun.runMode ?? loopInput.runMode
   const runTrigger = steerInput.runTrigger ?? activeRun.runTrigger ?? loopInput.runTrigger
   const reasoningEffort =
     steerInput.reasoningEffort ?? activeRun.reasoningEffort ?? loopInput.reasoningEffort
@@ -276,7 +281,6 @@ function createQueuedFollowUpRequestDraftFromSteer(input: {
   }
 
   return {
-    enabledTools: [...enabledTools],
     ...(enabledSkillNames !== undefined ? { enabledSkillNames: [...enabledSkillNames] } : {}),
     runMode,
     runTrigger,

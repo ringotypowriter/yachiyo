@@ -9,7 +9,7 @@ import type {
   ThreadModelOverride,
   ThreadRecord
 } from '@yachiyo/shared/protocol'
-import { RUN_MODE_DEFINITIONS, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import { RUN_MODE_DEFINITIONS } from '@yachiyo/shared/toolModes'
 import {
   createDmSlashCommandPendingChoiceStore,
   handleDmSlashCommand,
@@ -701,7 +701,7 @@ describe('handleDmSlashCommand', () => {
       const owner = createChannelUser({ role: 'owner' })
       const thread = createThread('thread-1')
       const sent: string[] = []
-      let toolModeInput: { threadId: string; enabledTools: unknown; runMode?: string } | undefined
+      let toolModeInput: { threadId: string; runMode: string } | undefined
 
       const options = makeOptions<string>({
         server: {
@@ -721,7 +721,6 @@ describe('handleDmSlashCommand', () => {
       assert.equal(handled, true)
       assert.deepEqual(toolModeInput, {
         threadId: 'thread-1',
-        enabledTools: resolveRunModeEnabledTools('auto'),
         runMode: 'auto'
       })
       assert.equal(sent.length, 1)

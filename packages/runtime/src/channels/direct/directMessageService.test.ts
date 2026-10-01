@@ -17,13 +17,11 @@ import type {
   ToolCallUpdatedEvent,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
-import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { telegramPolicy } from '../shared/channelPolicy.ts'
 import type { ChannelReplyAttachment } from '../shared/channelReply.ts'
 import {
   collectDirectMessageRunOutput,
   createDirectMessageService,
-  resolveChannelToolPreset,
   resolveDirectMessageThread,
   type DirectMessageInboundAttachment,
   type DirectMessageServer,
@@ -408,7 +406,6 @@ describe('directMessageService', () => {
         threadId: string
         content: string
         images?: { dataUrl: string; mediaType: string; filename?: string; workspacePath?: string }[]
-        toolPreset?: string[]
         runTrigger?: string
         channelHint?: string
         extraTools?: Record<string, unknown>
@@ -417,7 +414,7 @@ describe('directMessageService', () => {
         assert.equal(input.threadId, thread.id)
         assert.equal(input.content, 'hello\nagain')
         assert.deepEqual(input.images, undefined)
-        assert.deepEqual(input.toolPreset, telegramPolicy.allowedTools)
+        assert.equal('toolPreset' in input, false)
         assert.equal(input.runTrigger, 'channel')
         assert.equal(input.channelHint, telegramPolicy.replyInstruction)
         queueMicrotask(() => {
@@ -1905,48 +1902,6 @@ describe('directMessageService', () => {
 
     assert.deepEqual(sentMessages, ['Same outbound.'])
     assert.deepEqual(visibleReplies, ['Same outbound.'])
-  })
-})
-
-describe('resolveChannelToolPreset', () => {
-  const policyTools = telegramPolicy.allowedTools
-  const owner = (): ChannelUserRecord => ({ ...createChannelUser(), role: 'owner' })
-
-  it('keeps guests on the channel policy sandbox regardless of thread mode', () => {
-    const guest = createChannelUser() // role: 'guest'
-    const thread = createThread('t', { runMode: 'auto' })
-    assert.deepEqual(resolveChannelToolPreset(guest, thread, policyTools), policyTools)
-  })
-
-  it('defaults owner threads with no explicit mode to auto (full tools)', () => {
-    const thread = createThread('t')
-    assert.deepEqual(
-      resolveChannelToolPreset(owner(), thread, policyTools),
-      resolveRunModeEnabledTools('auto')
-    )
-  })
-
-  it('resolves owner thread tools from the selected mode', () => {
-    assert.deepEqual(
-      resolveChannelToolPreset(owner(), createThread('t', { runMode: 'auto' }), policyTools),
-      resolveRunModeEnabledTools('auto')
-    )
-    assert.deepEqual(
-      resolveChannelToolPreset(owner(), createThread('t', { runMode: 'plan' }), policyTools),
-      resolveRunModeEnabledTools('plan')
-    )
-    assert.deepEqual(
-      resolveChannelToolPreset(owner(), createThread('t', { runMode: 'chat' }), policyTools),
-      []
-    )
-  })
-
-  it('falls back to the auto default for a custom owner mode', () => {
-    const thread = createThread('t', { runMode: 'custom' })
-    assert.deepEqual(
-      resolveChannelToolPreset(owner(), thread, policyTools),
-      resolveRunModeEnabledTools('auto')
-    )
   })
 })
 

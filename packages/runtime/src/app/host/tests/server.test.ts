@@ -19,7 +19,7 @@ import {
 } from '@yachiyo/shared/protocol'
 import { getThreadPlanDocumentFilename, PLAN_DOCUMENT_MARKER } from '@yachiyo/shared/planMode'
 import { messageRowId } from '@yachiyo/shared/sourceRowIds'
-import { RUN_MODE_DEFINITIONS } from '@yachiyo/shared/toolModes'
+import { resolveAvailableToolNamesFromToolSet } from '../../../tools/agentTools.ts'
 
 function assertAcceptedHasUserMessage(
   accepted: ChatAccepted
@@ -37,6 +37,8 @@ async function withServer(
     workspacePathForThread: (threadId: string) => string
   }) => Promise<void>,
   options: {
+    initialDefaultRunMode?: 'auto' | 'chat' | 'code' | 'explore' | 'plan'
+    seedLegacyThreads?: (storage: ReturnType<typeof createInMemoryYachiyoStorage>) => void
     createModelRuntime?: () => {
       streamReply(request: ModelStreamRequest): AsyncIterable<string>
     }
@@ -65,9 +67,14 @@ async function withServer(
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-test-'))
   const settingsPath = join(root, 'config.toml')
-  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
+  await writeFile(
+    settingsPath,
+    `[toolModel]\nmode = "disabled"\n${options.initialDefaultRunMode ? `[chat]\ndefaultRunMode = "${options.initialDefaultRunMode}"\n` : ''}`,
+    'utf8'
+  )
   const userDocumentPath = join(root, '.yachiyo', 'USER.md')
   const storage = createInMemoryYachiyoStorage()
+  options.seedLegacyThreads?.(storage)
   const modelRequests: ModelStreamRequest[] = []
   const workspacePathForThread = (threadId: string): string =>
     join(root, '.yachiyo', 'temp-workspace', threadId)
@@ -1187,13 +1194,155 @@ test('YachiyoServer.acceptThreadPlanDocument runs directly in the source thread 
   )
 })
 
+test('legacy missing thread modes capture the configured default once without changing explicit modes', async () => {
+  await withServer(
+    async ({ server, storage }) => {
+      assert.equal(storage.getThread('legacy')?.runMode, 'explore')
+      assert.equal(storage.getThread('explicit')?.runMode, 'plan')
+      const config = await server.getConfig()
+      await server.saveConfig({ ...config, chat: { ...config.chat, defaultRunMode: 'code' } })
+      assert.equal(storage.getThread('legacy')?.runMode, 'explore')
+      assert.equal(
+        (await server.bootstrap()).threads.find((thread) => thread.id === 'legacy')?.runMode,
+        'explore'
+      )
+      assert.equal((await server.createThread()).runMode, 'code')
+    },
+    {
+      initialDefaultRunMode: 'explore',
+      seedLegacyThreads: (storage) => {
+        const updatedAt = '2026-05-02T00:00:00.000Z'
+        storage.createThread({
+          thread: { id: 'legacy', title: 'Old', updatedAt, enabledTools: ['read'] },
+          createdAt: updatedAt
+        })
+        storage.createThread({
+          thread: { id: 'explicit', title: 'Plan', updatedAt, runMode: 'plan' },
+          createdAt: updatedAt
+        })
+      }
+    }
+  )
+})
+
+test('legacy mode migration persists a configured Code default', async () => {
+  await withServer(
+    async ({ server, storage }) => {
+      assert.equal(storage.getThread('legacy-code')?.runMode, 'code')
+      const config = await server.getConfig()
+      await server.saveConfig({ ...config, chat: { ...config.chat, defaultRunMode: 'chat' } })
+      assert.equal(storage.getThread('legacy-code')?.runMode, 'code')
+    },
+    {
+      initialDefaultRunMode: 'code',
+      seedLegacyThreads: (storage) => {
+        const createdAt = '2026-05-02T00:00:00.000Z'
+        storage.createThread({
+          thread: { id: 'legacy-code', title: 'Old Code', updatedAt: createdAt },
+          createdAt
+        })
+      }
+    }
+  )
+})
+
+test('channel capability policy restricts mode-derived tools without changing thread mode', async () => {
+  await withServer(async ({ server, completeRun, modelRequests, storage }) => {
+    const guest = server.createChannelUser({
+      id: 'guest-readonly',
+      platform: 'telegram',
+      externalUserId: 'guest-readonly',
+      username: 'guest',
+      label: '',
+      status: 'allowed',
+      role: 'guest',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/guest-readonly'
+    })
+    const thread = await server.createThread({
+      runMode: 'auto',
+      source: 'telegram',
+      channelUserId: guest.id
+    })
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Read-only channel message',
+      runTrigger: 'channel'
+    })
+    await completeRun(accepted.runId)
+    assert.equal(storage.getThread(thread.id)?.runMode, 'auto')
+    const available = resolveAvailableToolNamesFromToolSet(modelRequests.at(-1)?.tools)
+    assert.ok(available.includes('read'))
+    assert.equal(available.includes('bash'), false)
+    assert.equal(available.includes('write'), false)
+  })
+})
+
+test('a deleted schedule cannot regain Auto tools on a later thread run', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    const thread = await server.createThread({
+      runMode: 'auto',
+      createdFromScheduleId: 'schedule-deleted',
+      source: 'local'
+    })
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Continue old schedule.'
+    })
+    await completeRun(accepted.runId)
+    const available = resolveAvailableToolNamesFromToolSet(modelRequests.at(-1)?.tools)
+    assert.equal(available.includes('bash'), false)
+    assert.equal(available.includes('write'), false)
+  })
+})
+
+test('an existing schedule without a tool cap retains its thread mode tools', async () => {
+  await withServer(async ({ server, completeRun, modelRequests, storage }) => {
+    const createdAt = '2026-05-02T00:00:00.000Z'
+    storage.createSchedule({
+      id: 'schedule-unrestricted',
+      name: 'Unrestricted',
+      cronExpression: '0 0 * * *',
+      prompt: 'Check status',
+      enabled: true,
+      createdAt,
+      updatedAt: createdAt
+    })
+    const thread = await server.createThread({
+      runMode: 'auto',
+      createdFromScheduleId: 'schedule-unrestricted',
+      source: 'local'
+    })
+    const accepted = await server.sendChat({ threadId: thread.id, content: 'Continue schedule.' })
+    await completeRun(accepted.runId)
+    const available = resolveAvailableToolNamesFromToolSet(modelRequests.at(-1)?.tools)
+    assert.equal(available.includes('bash'), true)
+    assert.equal(available.includes('write'), true)
+  })
+})
+
+test('a missing channel user cannot regain Auto tools through a stale thread', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    const thread = await server.createThread({
+      runMode: 'auto',
+      source: 'telegram',
+      channelUserId: 'guest-deleted'
+    })
+    const accepted = await server.sendChat({ threadId: thread.id, content: 'Continue guest chat.' })
+    await completeRun(accepted.runId)
+    const available = resolveAvailableToolNamesFromToolSet(modelRequests.at(-1)?.tools)
+    assert.equal(available.includes('bash'), false)
+    assert.equal(available.includes('write'), false)
+  })
+})
+
 test('YachiyoServer.acceptThreadPlanDocument tells direct execution the accepted plan is now Auto Mode', async () => {
   await withServer(
     async ({ server, storage, completeRun, modelRequests, workspacePathForThread }) => {
-      const sourceThread = await server.createThread()
+      const sourceThread = await server.createThread({ runMode: 'plan' })
       await server.setThreadToolMode({
         threadId: sourceThread.id,
-        enabledTools: [...RUN_MODE_DEFINITIONS.plan.enabledTools]
+        runMode: 'plan'
       })
       const planRun = await server.sendChat({
         threadId: sourceThread.id,
@@ -1226,6 +1375,8 @@ test('YachiyoServer.acceptThreadPlanDocument tells direct execution the accepted
         mode: 'direct'
       })
       assertAcceptedHasUserMessage(accepted)
+      assert.equal(storage.getThread(sourceThread.id)?.runMode, 'auto')
+      assert.equal(accepted.thread.runMode, 'auto')
       await completeRun(accepted.runId)
 
       const sourceMessages = storage.listThreadMessages(sourceThread.id)
@@ -1251,6 +1402,8 @@ test('YachiyoServer.acceptThreadPlanDocument tells direct execution the accepted
 
 test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded with the plan document', async () => {
   await withServer(async ({ server, storage, completeRun, workspacePathForThread }) => {
+    const config = await server.getConfig()
+    await server.saveConfig({ ...config, chat: { ...config.chat, defaultRunMode: 'explore' } })
     const sourceThread = await server.createThread()
     const threadUpdatedEvents: ThreadUpdatedEvent[] = []
     const unsubscribe = server.subscribe((event) => {
@@ -1296,6 +1449,7 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     assert.equal(accepted.thread.title, 'Build Blog Generator')
     assert.equal(accepted.thread.icon, sourceThreadWithIcon.icon)
     assert.equal(accepted.thread.runMode, 'auto')
+    assert.equal(storage.getThread(accepted.thread.id)?.runMode, 'auto')
     assert.equal(accepted.userMessage.parentMessageId, planMessage.id)
     assert.notEqual(accepted.userMessage.hidden, true)
     assert.equal(accepted.userMessage.content, 'Execute the accepted plan.')

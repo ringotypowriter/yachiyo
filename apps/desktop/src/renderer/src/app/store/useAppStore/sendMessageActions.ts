@@ -172,26 +172,19 @@ export function createSendMessageActions(input: {
           const pendingAcp = currentState.pendingAcpBinding
           const pendingReasoningEffort =
             currentState.reasoningEffortByThread[getComposerDraftKey(null)]
-          const stagedPendingToolMode = currentState.toolModeByThread[getComposerDraftKey(null)]
-          const pendingToolMode =
-            stagedPendingToolMode?.runMode === 'custom'
-              ? undefined
-              : (stagedPendingToolMode ??
-                (initialToolMode.runMode !== 'auto' ? initialToolMode : undefined))
+          const pendingToolMode = initialToolMode
           const thread = await window.api.yachiyo.createThread({
             ...(workspacePath ? { workspacePath } : {}),
             ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
             ...(essential?.privacyMode ? { privacyMode: true } : {}),
-            ...(pendingToolMode ? { runMode: pendingToolMode.runMode } : {}),
+            runMode: pendingToolMode.runMode,
             ...(pendingReasoningEffort ? { reasoningEffort: pendingReasoningEffort } : {})
           })
 
           // Commit local state first so the thread is visible even if setup calls fail.
           if (pendingModel) thread.modelOverride = pendingModel
           if (pendingAcp) thread.runtimeBinding = pendingAcp
-          if (pendingToolMode) {
-            thread.runMode = pendingToolMode.runMode
-          }
+          thread.runMode = pendingToolMode.runMode
           if (pendingReasoningEffort) thread.reasoningEffort = pendingReasoningEffort
           if (essential?.privacyMode) {
             thread.privacyMode = true

@@ -10,10 +10,10 @@ import {
   type RunModeId,
   type SendChatRunTrigger,
   type ThreadRecord,
-  type ToolCallUpdatedEvent,
-  type ToolCallName
+  type ToolCallUpdatedEvent
 } from '@yachiyo/shared/protocol'
-import { deriveRunModeId } from '@yachiyo/shared/toolModes'
+import { normalizeRunModeId } from '@yachiyo/shared/toolModes'
+import { DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { streamCompactThreadHandoff } from '../handoff/threadHandoffRun.ts'
@@ -22,7 +22,6 @@ import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration
 import { createTodoProgressState } from '../todo/todoProgress.ts'
 
 export interface ActiveRunLoopInput {
-  enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   runMode: RunModeId
   previousRunMode?: RunModeId
@@ -65,7 +64,6 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
   context.activeRuns.set(input.runId, {
     threadId: input.thread.id,
     requestMessageId: input.requestMessageId,
-    enabledTools: [...input.enabledTools],
     ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
     runTrigger: input.runTrigger,
@@ -83,7 +81,6 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
   context.activeRunByThread.set(input.thread.id, input.runId)
 
   const runTask = context.runLoop({
-    enabledTools: input.enabledTools,
     enabledSkillNames: input.enabledSkillNames,
     runMode: input.runMode,
     previousRunMode: input.previousRunMode,
@@ -114,7 +111,7 @@ export function startRecoveredRun(
   }
 
   const thread = context.deps.requireThread(checkpoint.threadId)
-  const runMode = checkpoint.runMode ?? deriveRunModeId(checkpoint.enabledTools)
+  const runMode = normalizeRunModeId(thread.runMode ?? DEFAULT_RUN_MODE_ID)
   const toolCalls = context.deps
     .loadThreadToolCalls(thread.id)
     .filter((toolCall) => toolCall.runId === checkpoint.runId)
@@ -166,7 +163,6 @@ export function startRecoveredRun(
   context.activeRuns.set(checkpoint.runId, {
     threadId: checkpoint.threadId,
     requestMessageId: checkpoint.requestMessageId,
-    enabledTools: [...checkpoint.enabledTools],
     ...(checkpoint.enabledSkillNames
       ? { enabledSkillNames: [...checkpoint.enabledSkillNames] }
       : {}),
@@ -187,7 +183,6 @@ export function startRecoveredRun(
   context.activeRunByThread.set(checkpoint.threadId, checkpoint.runId)
 
   const runTask = context.runLoop({
-    enabledTools: checkpoint.enabledTools,
     enabledSkillNames: checkpoint.enabledSkillNames,
     runMode,
     reasoningEffort: checkpoint.reasoningEffort,

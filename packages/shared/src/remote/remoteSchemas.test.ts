@@ -6,7 +6,7 @@ import type { MessageRecord } from '../protocol.ts'
 import { remoteEventSchema, remotePushSchema } from './events.ts'
 import { remoteEndpointSchema } from './common.ts'
 import { buildRemoteProtocolJsonSchema } from './jsonSchema.ts'
-import { projectMessage, projectToolCall } from './project.ts'
+import { projectMessage, projectThreadSummary, projectToolCall } from './project.ts'
 import { mailboxPlaintextSchema } from './mailbox.ts'
 import { REMOTE_METHOD_NAMES, remoteMethods } from './methods.ts'
 import {
@@ -25,6 +25,14 @@ import {
 } from './projections.ts'
 
 const KEY = 'A'.repeat(43)
+
+test('remote thread summary exposes the persisted mode rather than a run snapshot', () => {
+  const summary = projectThreadSummary(
+    { id: 'thread-1', title: 'Thread', runMode: 'plan', updatedAt: '2026-05-02T00:00:00.000Z' },
+    { needsAttention: false }
+  )
+  assert.equal(summary.runMode, 'plan')
+})
 
 test('relay bearer is separate from a WSS phone base URL and can accompany an encrypted grant', () => {
   const relayEndpoint = {

@@ -106,18 +106,6 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   const activeRun = {
     threadId: thread.id,
     requestMessageId: 'user-1',
-    enabledTools: [
-      'read',
-      'write',
-      'edit',
-      'bash',
-      'jsRepl',
-      'pyRepl',
-      'grep',
-      'glob',
-      'webRead',
-      'webSearch'
-    ],
     enabledSkillNames: ['original-skill'],
     runMode: 'auto',
     reasoningEffort: 'medium' as ComposerReasoningSelection,
@@ -149,7 +137,6 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
     {
       activeRunId: 'run-1',
       content: 'steer',
-      enabledTools: [],
       enabledSkillNames: ['steer-skill'],
       runMode: 'chat',
       reasoningEffort: 'high',
@@ -162,28 +149,93 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   )
 
   assert.equal(activeRun.reasoningEffort, 'high')
-  assert.deepEqual(activeRun.enabledTools, [])
   assert.equal(activeRun.runMode, 'chat')
   assert.equal(activeRun.runTrigger, 'local')
 
   domain.withdrawPendingSteer(thread.id)
 
-  assert.deepEqual(activeRun.enabledTools, [
-    'read',
-    'write',
-    'edit',
-    'bash',
-    'jsRepl',
-    'pyRepl',
-    'grep',
-    'glob',
-    'webRead',
-    'webSearch'
-  ])
   assert.deepEqual(activeRun.enabledSkillNames, ['original-skill'])
   assert.equal(activeRun.runMode, 'auto')
   assert.equal(activeRun.reasoningEffort, 'medium')
   assert.equal(activeRun.runTrigger, 'channel')
+})
+
+test('withdrawing a steer retains the persisted thread mode after an explicit change', () => {
+  const domain = createDomain()
+  const thread = {
+    id: 'thread-1',
+    title: 'Thread',
+    runMode: 'plan' as const,
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRun = {
+    threadId: thread.id,
+    runMode: 'auto' as const,
+    pendingSteerInputs: [
+      {
+        content: 'steer',
+        attachments: [],
+        images: [],
+        messageId: 'steer-1',
+        timestamp: thread.updatedAt,
+        runMode: 'auto' as const,
+        previousRunMode: 'auto' as const
+      }
+    ]
+  }
+  const state = domain as unknown as {
+    activeRuns: Map<string, typeof activeRun>
+    activeRunByThread: Map<string, string>
+    deps: { requireThread: (id: string) => typeof thread }
+  }
+  state.deps.requireThread = () => thread
+  state.activeRuns.set('run-1', activeRun)
+  state.activeRunByThread.set(thread.id, 'run-1')
+  domain.withdrawPendingSteer(thread.id)
+  assert.equal(activeRun.runMode, 'plan')
+})
+
+test('an internal worker steer without a mode uses the parent thread mode, not the active run snapshot', async () => {
+  const thread: ThreadRecord = {
+    id: 'parent',
+    title: 'Parent',
+    runMode: 'code',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRun: RunState = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    runMode: 'auto',
+    abortController: new AbortController(),
+    executionPhase: 'generating',
+    updateHeadOnComplete: true
+  }
+  const context: SendChatFlowContext = {
+    deps: {
+      createId: () => 'worker-message',
+      timestamp: () => thread.updatedAt,
+      requireThread: () => thread,
+      emit: () => {}
+    } as unknown as SendChatFlowContext['deps'],
+    activeRuns: new Map([['run-1', activeRun]]),
+    activeRunByThread: new Map([[thread.id, 'run-1']]),
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: new Map(),
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+  const accepted = await sendChatFlow(context, {
+    threadId: thread.id,
+    content: '[Worker result]',
+    hidden: true,
+    mode: 'steer'
+  })
+  assert.equal(accepted.kind, 'active-run-steer-pending')
+  assert.equal(activeRun.runMode, 'code')
+  assert.equal(activeRun.pendingSteerInputs?.[0]?.runMode, 'code')
+  assert.equal('enabledTools' in (activeRun.pendingSteerInputs?.[0] ?? {}), false)
 })
 
 test('sendActiveRunSteer keeps hidden and visible pending steers separate', () => {
@@ -273,18 +325,6 @@ test('sendActiveRunSteer keeps steered run mode and enabled tools in sync', () =
   const activeRun: RunState = {
     threadId: thread.id,
     requestMessageId: 'user-1',
-    enabledTools: [
-      'read',
-      'write',
-      'edit',
-      'bash',
-      'jsRepl',
-      'pyRepl',
-      'grep',
-      'glob',
-      'webRead',
-      'webSearch'
-    ],
     runMode: 'auto',
     abortController: new AbortController(),
     executionPhase: 'generating',
@@ -306,7 +346,6 @@ test('sendActiveRunSteer keeps steered run mode and enabled tools in sync', () =
     {
       activeRunId: 'run-1',
       content: 'switch to chat',
-      enabledTools: [],
       runMode: 'chat',
       runTrigger: 'local',
       images: [],
@@ -317,8 +356,6 @@ test('sendActiveRunSteer keeps steered run mode and enabled tools in sync', () =
   )
 
   assert.equal(activeRun.runMode, 'chat')
-  assert.deepEqual(activeRun.enabledTools, [])
-  assert.deepEqual(activeRun.pendingSteerInputs?.[0]?.enabledTools, [])
 })
 
 test('sendChatFlow keeps active-run steer on the running tool mode', async () => {
@@ -330,7 +367,6 @@ test('sendChatFlow keeps active-run steer on the running tool mode', async () =>
   const activeRun: RunState = {
     threadId: thread.id,
     requestMessageId: 'user-1',
-    enabledTools: [...DEFAULT_ENABLED_TOOL_NAMES],
     runMode: 'auto',
     abortController: new AbortController(),
     executionPhase: 'generating',
@@ -363,9 +399,7 @@ test('sendChatFlow keeps active-run steer on the running tool mode', async () =>
 
   assert.equal(accepted.kind, 'active-run-steer-pending')
   assert.equal(activeRun.runMode, 'auto')
-  assert.deepEqual(activeRun.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   assert.equal(activeRun.pendingSteerInputs?.[0]?.runMode, 'auto')
-  assert.deepEqual(activeRun.pendingSteerInputs?.[0]?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
 })
 
 test('sendActiveRunSteer keeps visible steers as the final anchor when hidden arrives later', () => {
@@ -627,7 +661,7 @@ test('sendChatFlow does not expose hidden-only follow-up drafts as visible queue
   )
 })
 
-test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible draft', async () => {
+test('queued hidden notices execute with the current thread mode after a visible follow-up is withdrawn', async () => {
   let currentThread: ThreadRecord = {
     id: 'thread-1',
     title: 'Thread',
@@ -665,7 +699,6 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
     threadId: currentThread.id,
     content: 'visible follow-up',
     mode: 'follow-up',
-    toolPreset: ['read'],
     runMode: 'auto',
     enabledSkillNames: ['visible-skill'],
 
@@ -678,7 +711,6 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
     content: 'hidden notice',
     mode: 'follow-up',
     hidden: true,
-    toolPreset: [],
     runMode: 'chat',
     enabledSkillNames: ['hidden-skill'],
 
@@ -689,7 +721,6 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
   const startRunInputs: Array<{ userMessage?: { content: string; hidden?: boolean } }> = []
   const startActiveRunInputs: Array<{
     enabledSkillNames?: string[]
-    enabledTools: string[]
     runMode: string
     reasoningEffort?: string
     runTrigger: string
@@ -721,7 +752,6 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
     isRunAdmissionOpen: () => true,
     startActiveRun: (input) => {
       startActiveRunInputs.push({
-        enabledTools: input.enabledTools,
         enabledSkillNames: input.enabledSkillNames,
         runMode: input.runMode,
         runTrigger: input.runTrigger,
@@ -741,6 +771,7 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
   assert.equal(remainingDraft?.userMessage.hidden, true)
 
   activeRunByThread.clear()
+  currentThread = { ...currentThread, runMode: 'plan' }
   startQueuedFollowUpIfPresent(followUpContext, currentThread.id)
 
   assert.deepEqual(
@@ -752,8 +783,7 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
   )
   assert.deepEqual(startActiveRunInputs, [
     {
-      enabledTools: [],
-      runMode: 'chat',
+      runMode: 'plan',
       enabledSkillNames: ['hidden-skill'],
 
       runTrigger: 'channel',
@@ -844,7 +874,6 @@ test('reopening run admission starts a deferred queued follow-up exactly once', 
     createFollowUpQueueContext: () => FollowUpQueueContext
   }
   domainState.queuedFollowUpDrafts.set(thread.id, {
-    enabledTools: [],
     runMode: 'chat',
     runTrigger: 'local',
     userMessage: {
@@ -908,7 +937,6 @@ test('reopening run admission does not start a queued follow-up for an active th
   }
   domainState.activeRunByThread.set(thread.id, 'run-active')
   domainState.queuedFollowUpDrafts.set(thread.id, {
-    enabledTools: [],
     runMode: 'chat',
     runTrigger: 'local',
     userMessage: {
@@ -967,7 +995,6 @@ test('scheduled recovered runs wait for the admission owner to reopen admission'
     requestMessageId: 'message-deferred-recovery',
     assistantMessageId: 'assistant-deferred-recovery',
     content: '',
-    enabledTools: [],
     runMode: 'chat',
     runTrigger: 'local',
     updateHeadOnComplete: true,
@@ -1174,7 +1201,6 @@ test('startRecoveredRun does nothing while run admission is closed', () => {
     requestMessageId: 'user-recovered-closed',
     assistantMessageId: 'assistant-recovered-closed',
     content: 'partial',
-    enabledTools: [],
     runMode: 'chat',
     runTrigger: 'local',
     updateHeadOnComplete: true,
@@ -1241,10 +1267,11 @@ test('startRecoveredRun restores the persisted run trigger instead of deriving f
   assert.equal(runLoopInputs[0]?.runTrigger, 'local')
 })
 
-test('startRecoveredRun derives missing run mode from checkpoint tools', () => {
+test('startRecoveredRun uses the persisted thread mode instead of checkpoint tools', () => {
   const thread: ThreadRecord = {
     id: 'thread-recovered',
     title: 'Recovered',
+    runMode: 'chat',
     updatedAt: '2026-05-02T00:00:00.000Z'
   }
   const activeRuns = new Map()
@@ -1287,8 +1314,8 @@ test('startRecoveredRun derives missing run mode from checkpoint tools', () => {
     checkpoint
   )
 
-  assert.equal(activeRuns.get('run-recovered')?.runMode, 'explore')
-  assert.equal(runLoopInputs[0]?.runMode, 'explore')
+  assert.equal(activeRuns.get('run-recovered')?.runMode, 'chat')
+  assert.equal(runLoopInputs[0]?.runMode, 'chat')
 })
 test('reconciles the latest idle Worker snapshot after delegate details are persisted', async () => {
   const toolCalls: ToolCallRecord[] = []
@@ -1407,7 +1434,6 @@ test('Worker delivery after shutdown begins does not create chat work', async ()
           message: string
           kind: 'initial-result' | 'message'
           parentDeliveryContext: {
-            enabledTools: string[]
             runMode: 'auto'
             runTrigger: 'local'
           }
@@ -1427,7 +1453,6 @@ test('Worker delivery after shutdown begins does not create chat work', async ()
     message: 'late Worker result',
     kind: 'initial-result',
     parentDeliveryContext: {
-      enabledTools: [],
       runMode: 'auto',
       runTrigger: 'local'
     }
@@ -1520,7 +1545,6 @@ test('Worker delivery retains output when its parent thread is archived', async 
     workspacePath: '/workspace',
     prompt: 'Inspect the workspace.',
     parentDeliveryContext: {
-      enabledTools: [],
       runMode: 'auto',
       runTrigger: 'local'
     },

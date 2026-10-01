@@ -3,13 +3,11 @@ import type { ThreadSentinelRecord, ThreadSentinelUpdatedEvent } from '@yachiyo/
 import type {
   ComposerReasoningSelection,
   RunModeId,
-  SendChatRunTrigger,
-  ToolCallName
+  SendChatRunTrigger
 } from '@yachiyo/shared/protocol'
 import type { EmitServerEvent } from '../shared/shared.ts'
 
 export interface ThreadSentinelWakeContext {
-  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
@@ -165,7 +163,6 @@ export function createThreadSentinelManager(
 
 function cloneWakeContext(context: ThreadSentinelWakeContext): ThreadSentinelWakeContext {
   return {
-    ...(context.enabledTools ? { enabledTools: [...context.enabledTools] } : {}),
     ...(context.enabledSkillNames ? { enabledSkillNames: [...context.enabledSkillNames] } : {}),
     ...(context.runMode ? { runMode: context.runMode } : {}),
     ...(context.reasoningEffort ? { reasoningEffort: context.reasoningEffort } : {}),

@@ -455,7 +455,8 @@ test('sendMessage creates a privacy-mode thread from an essential preset', async
     assert.deepEqual(createThreadCalls, [
       {
         createdFromEssentialId: 'essential-private',
-        privacyMode: true
+        privacyMode: true,
+        runMode: 'auto'
       }
     ])
     assert.equal(state.threads[0]?.privacyMode, true)
@@ -488,7 +489,9 @@ test('createNewThread preserves the drafted workspace selection', async () => {
     await useAppStore.getState().createNewThread()
 
     const state = useAppStore.getState()
-    assert.deepEqual(createThreadCalls, [{ workspacePath: '/tmp/pinned-workspace' }])
+    assert.deepEqual(createThreadCalls, [
+      { runMode: 'auto', workspacePath: '/tmp/pinned-workspace' }
+    ])
     assert.equal(state.activeThreadId, 'thread-1')
     assert.equal(state.pendingWorkspacePath, null)
     assert.equal(state.threads[0]?.workspacePath, '/tmp/pinned-workspace')
@@ -982,7 +985,7 @@ test('createNewThread moves the staged new-chat reasoning effort into a new chat
     await useAppStore.getState().createNewThread()
 
     const state = useAppStore.getState()
-    assert.deepEqual(createThreadInputs, [{ reasoningEffort: 'high' }])
+    assert.deepEqual(createThreadInputs, [{ runMode: 'auto', reasoningEffort: 'high' }])
     assert.equal(state.activeThreadId, 'thread-2')
     assert.equal(state.reasoningEffortByThread.__new__, undefined)
     assert.equal(state.reasoningEffortByThread['thread-2'], 'high')
@@ -1030,7 +1033,7 @@ test('createNewThread does not reuse a New Chat that already has unsent draft co
     await useAppStore.getState().createNewThread()
 
     const state = useAppStore.getState()
-    assert.deepEqual(createThreadCalls, [undefined])
+    assert.deepEqual(createThreadCalls, [{ runMode: 'auto' }])
     assert.equal(state.activeThreadId, 'thread-2')
   } finally {
     restoreWindow()

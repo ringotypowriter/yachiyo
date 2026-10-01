@@ -15,7 +15,6 @@ import type {
   SubagentState,
   SubagentToolCallEvent,
   SubagentUpdatedEvent,
-  ToolCallName,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import { isRetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
@@ -30,7 +29,6 @@ export const MAX_AGENT_MESSAGE_LENGTH = 8_000
 export const MAX_TASK_PROGRESS_LENGTH = 12_000
 
 export interface SubagentParentDeliveryContext {
-  enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   runMode: RunModeId
   reasoningEffort?: ComposerReasoningSelection

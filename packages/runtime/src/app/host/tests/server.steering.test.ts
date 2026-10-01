@@ -503,8 +503,7 @@ test('withdrawing a pending steer restores the active run skill override before 
 
       const accepted = await server.sendChat({
         threadId: thread.id,
-        content: 'Start here',
-        toolPreset: ['read']
+        content: 'Start here'
       })
 
       await ready

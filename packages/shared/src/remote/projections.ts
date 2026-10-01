@@ -34,6 +34,7 @@ export const remoteThreadSummarySchema = z
   .object({
     id: idSchema,
     title: z.string(),
+    runMode: runModeSchema.optional(),
     icon: z.string().optional(),
     colorTag: z.enum(['coral', 'azure', 'emerald', 'amethyst', 'slate']).optional(),
     starred: z.boolean(),

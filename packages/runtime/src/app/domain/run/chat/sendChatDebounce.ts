@@ -5,8 +5,7 @@ import type {
   SendChatInput,
   RunModeId,
   SendChatMode,
-  SendChatRunTrigger,
-  ToolCallName
+  SendChatRunTrigger
 } from '@yachiyo/shared/protocol'
 
 export const SEND_CHAT_DEBOUNCE_WINDOW_MS = 1_500
@@ -22,7 +21,6 @@ export function createDebouncedSendChatKey(input: {
   channelHint?: string
   content: string
   enabledSkillNames?: string[]
-  enabledTools: ToolCallName[]
   runMode: RunModeId
   previousRunMode?: RunModeId
   extraTools?: SendChatInput['extraTools']
@@ -47,7 +45,6 @@ export function createDebouncedSendChatKey(input: {
     channelHint: input.channelHint ?? null,
     content: input.content,
     enabledSkillNames: input.enabledSkillNames ?? [],
-    enabledTools: input.enabledTools,
     runMode: input.runMode,
     previousRunMode: input.previousRunMode ?? null,
     hidden: input.hidden === true,

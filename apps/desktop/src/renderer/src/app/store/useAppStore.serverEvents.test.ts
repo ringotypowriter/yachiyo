@@ -1388,7 +1388,7 @@ test('selectModel ignores changes while a run is active', async () => {
 test('setEnabledTools recognizes reordered standard tool sets as that mode', async () => {
   resetStore()
 
-  const calls: Array<{ threadId: string; enabledTools: string[]; runMode?: string }> = []
+  const calls: Array<{ threadId: string; runMode: string }> = []
   const exploreTools = resolveRunModeEnabledTools('explore')
   const restoreWindow = withWindowApiMock({
     setThreadToolMode: async (input) => {
@@ -1417,9 +1417,7 @@ test('setEnabledTools recognizes reordered standard tool sets as that mode', asy
 
     await useAppStore.getState().setEnabledTools(['webSearch', 'glob', 'read', 'webRead', 'grep'])
 
-    assert.deepEqual(calls, [
-      { threadId: 'thread-1', enabledTools: exploreTools, runMode: 'explore' }
-    ])
+    assert.deepEqual(calls, [{ threadId: 'thread-1', runMode: 'explore' }])
     assert.deepEqual(useAppStore.getState().enabledTools, exploreTools)
     assert.equal(useAppStore.getState().runMode, 'explore')
   } finally {
@@ -1430,7 +1428,7 @@ test('setEnabledTools recognizes reordered standard tool sets as that mode', asy
 test('setEnabledTools drops custom tool sets and keeps the thread on auto', async () => {
   resetStore()
 
-  const calls: Array<{ threadId: string; enabledTools: string[]; runMode?: string }> = []
+  const calls: Array<{ threadId: string; runMode: string }> = []
   let saveToolPreferencesCalled = false
   const restoreWindow = withWindowApiMock({
     setThreadToolMode: async (input) => {
@@ -1474,14 +1472,14 @@ test('setEnabledTools drops custom tool sets and keeps the thread on auto', asyn
     await useAppStore.getState().setEnabledTools(['read', 'bash'])
 
     let state = useAppStore.getState()
-    assert.deepEqual(calls, [])
+    assert.deepEqual(calls, [{ threadId: 'thread-1', runMode: 'auto' }])
     assert.equal(saveToolPreferencesCalled, false)
     assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
     assert.equal(state.runMode, 'auto')
 
     const thread = state.threads.find((item) => item.id === 'thread-1')
     assert.equal(thread?.enabledTools, undefined)
-    assert.equal(thread?.runMode, undefined)
+    assert.equal(thread?.runMode, 'auto')
 
     state.setActiveThread('thread-2')
     state = useAppStore.getState()

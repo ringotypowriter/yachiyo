@@ -110,6 +110,7 @@ export const remoteMethods = {
   },
   'threads.create': {
     input: z.object({
+      runMode: runModeSchema.optional(),
       workspacePath: z.string().max(4096).optional(),
       modelOverride: modelOverrideSchema.optional(),
       reasoningEffort: reasoningSelectionSchema.optional()

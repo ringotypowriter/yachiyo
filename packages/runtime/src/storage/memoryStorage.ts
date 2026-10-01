@@ -163,6 +163,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   }
 
   return {
+    persistMissingThreadRunModes(defaultRunMode) {
+      for (const thread of threads.values()) {
+        if (thread.runMode === null) thread.runMode = defaultRunMode
+      }
+    },
     close() {
       // In-memory storage does not hold external resources.
     },

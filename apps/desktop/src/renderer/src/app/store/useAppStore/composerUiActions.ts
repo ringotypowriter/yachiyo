@@ -133,7 +133,9 @@ export function createComposerUiActions(input: {
 
       if (
         areEnabledToolsEqual(previousMode.enabledTools, nextEnabledTools) &&
-        previousMode.runMode === nextRunMode
+        previousMode.runMode === nextRunMode &&
+        (!threadId ||
+          currentState.threads.find((thread) => thread.id === threadId)?.runMode === nextRunMode)
       ) {
         return
       }
@@ -167,7 +169,6 @@ export function createComposerUiActions(input: {
       try {
         const updatedThread = await window.api.yachiyo.setThreadToolMode({
           threadId,
-          enabledTools: nextEnabledTools,
           runMode: nextRunMode
         })
         const persistedRunMode = normalizeRunModeId(updatedThread.runMode, nextRunMode)

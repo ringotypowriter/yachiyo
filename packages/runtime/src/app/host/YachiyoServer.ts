@@ -70,7 +70,6 @@ import type {
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
   ThingsUpdatedEvent,
-  ToolCallName,
   ChannelsConfig,
   ChannelGroupHistoryClearCompletedEvent,
   ChannelGroupHistoryClearFailedEvent,
@@ -467,6 +466,9 @@ export class YachiyoServer {
           )
       }
     })
+    this.storage.persistMissingThreadRunModes?.(
+      this.configDomain.readConfig().chat?.defaultRunMode ?? 'auto'
+    )
     this.createModelRuntimeFn = createModelRuntime
     const auxiliaryGeneration = createAuxiliaryGenerationService({
       createModelRuntime,
@@ -517,7 +519,6 @@ export class YachiyoServer {
         await this.sendChat({
           threadId,
           content,
-          toolPreset: wakeContext?.enabledTools,
           enabledSkillNames: wakeContext?.enabledSkillNames,
           runMode: wakeContext?.runMode,
           reasoningEffort: wakeContext?.reasoningEffort,
@@ -566,6 +567,7 @@ export class YachiyoServer {
     })
     this.threadDomain = new YachiyoServerThreadDomain({
       storage: this.storage,
+      defaultRunMode: () => this.configDomain.readConfig().chat?.defaultRunMode ?? 'auto',
       createId: this.createId,
       timestamp: this.timestamp.bind(this),
       emit: this.emit.bind(this),
@@ -1439,6 +1441,7 @@ export class YachiyoServer {
       privacyMode?: boolean
       modelOverride?: ThreadModelOverride
       reasoningEffort?: ComposerReasoningSelection
+      runMode?: RunModeId
     } = {}
   ): Promise<ThreadRecord> {
     return createThreadWithHandoffWorkspace({
@@ -1695,11 +1698,7 @@ export class YachiyoServer {
     return this.threadDomain.setThreadModelOverride(input)
   }
 
-  async setThreadToolMode(input: {
-    threadId: string
-    enabledTools: ToolCallName[]
-    runMode?: RunModeId
-  }): Promise<ThreadRecord> {
+  async setThreadToolMode(input: { threadId: string; runMode: RunModeId }): Promise<ThreadRecord> {
     this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadToolMode(input)
   }

@@ -38,8 +38,8 @@ import {
   BackgroundBashManager,
   type BackgroundBashLogTarget
 } from '../background/backgroundBashManager.ts'
-import { resolveRunModeEnabledToolsForInput } from '../config/configDomain.ts'
-import { resolveRunModeId } from '@yachiyo/shared/toolModes'
+import { normalizeRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import { resolveChannelPolicy } from '../../../channels/shared/channelPolicy.ts'
 import { isLatestRunPlanMode } from '@yachiyo/shared/planMode'
 import { RECAP_PROMPT } from './recap/recapPrompt.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
@@ -119,7 +119,7 @@ export class YachiyoServerRunDomain {
   private readonly latestSubagentSnapshots = new Map<string, SubagentSnapshot>()
   /**
    * Per-task snapshot of the launching run's channel/tooling context, captured at
-   * `onBackgroundBashStarted`. We use it to call `sendChat` with the same `enabledTools`,
+   * `onBackgroundBashStarted`. Completion wakes resolve tools from the thread mode,
    * `enabledSkillNames`, `channelHint`, and `extraTools` (e.g. an owner-DM `replyTool`)
    * when the background task finishes, so the auto-delivered "background task completed"
    * user message can drive a model run that matches the original transport contract.
@@ -168,11 +168,9 @@ export class YachiyoServerRunDomain {
               ? `[Worker ${input.agentId} initial result]\n\n${input.message}`
               : `[Message from Worker ${input.agentId}]\n\n${input.message}`,
           hidden: true,
-          toolPreset: parentDeliveryContext.enabledTools,
           ...(parentDeliveryContext.enabledSkillNames
             ? { enabledSkillNames: parentDeliveryContext.enabledSkillNames }
             : {}),
-          runMode: parentDeliveryContext.runMode,
           ...(parentDeliveryContext.reasoningEffort !== undefined
             ? { reasoningEffort: parentDeliveryContext.reasoningEffort }
             : {}),
@@ -696,15 +694,7 @@ export class YachiyoServerRunDomain {
       throw new Error('This thread already has an active run.')
     }
 
-    const runMode = resolveRunModeId({
-      runMode: input.runMode,
-      fallbackEnabledTools: thread.enabledTools,
-      fallbackRunMode: thread.runMode ?? DEFAULT_RUN_MODE_ID
-    })
-    const enabledTools = resolveRunModeEnabledToolsForInput({
-      runMode,
-      fallbackEnabledTools: thread.enabledTools
-    })
+    const runMode = normalizeRunModeId(thread.runMode ?? DEFAULT_RUN_MODE_ID)
     const enabledSkillNames =
       input.enabledSkillNames === undefined
         ? undefined
@@ -753,7 +743,6 @@ export class YachiyoServerRunDomain {
     })
 
     startActiveRun(this.createActiveRunStartContext(), {
-      enabledTools,
       enabledSkillNames,
       runMode,
       reasoningEffort: input.reasoningEffort,
@@ -843,15 +832,10 @@ export class YachiyoServerRunDomain {
         createdAt: timestamp
       }
 
-      const runMode = thread.runMode ?? DEFAULT_RUN_MODE_ID
-      const enabledTools = resolveRunModeEnabledToolsForInput({
-        runMode,
-        fallbackEnabledTools: thread.enabledTools
-      })
+      const runMode = normalizeRunModeId(thread.runMode ?? DEFAULT_RUN_MODE_ID)
 
       return new Promise<string | null>((resolve) => {
         startActiveRun(this.createActiveRunStartContext(), {
-          enabledTools,
           runMode,
           runTrigger: 'local',
           runId,
@@ -915,6 +899,10 @@ export class YachiyoServerRunDomain {
           return
         }
 
+        // The thread preference can change while a previous attempt is backing off.
+        // A run/checkpoint snapshot must not decide the next execution leg's mode.
+        currentThread = this.deps.requireThread(input.thread.id)
+
         const abortController = new AbortController()
         activeRun.abortController = abortController
         activeRun.requestMessageId = currentRequestMessageId
@@ -964,8 +952,28 @@ export class YachiyoServerRunDomain {
           ? createEphemeralStorageProxy(this.deps.storage)
           : this.deps.storage
         const recapEmit: typeof this.deps.emit = isRecapRun ? () => {} : this.deps.emit
-        const executionEnabledTools = activeRun.enabledTools ?? input.enabledTools
-        const executionRunMode = activeRun.runMode ?? input.runMode
+        const executionRunMode = normalizeRunModeId(currentThread.runMode ?? DEFAULT_RUN_MODE_ID)
+        const modeEnabledTools = resolveRunModeEnabledTools(executionRunMode)
+        const channelUser = currentThread.channelUserId
+          ? this.deps.storage.getChannelUser(currentThread.channelUserId)
+          : undefined
+        const schedule = currentThread.createdFromScheduleId
+          ? this.deps.storage.getSchedule(currentThread.createdFromScheduleId)
+          : undefined
+        const policyTools = currentThread.channelUserId
+          ? channelUser?.role === 'owner'
+            ? undefined
+            : channelUser
+              ? resolveChannelPolicy(channelUser.platform).allowedTools
+              : []
+          : currentThread.createdFromScheduleId
+            ? schedule
+              ? schedule.enabledTools
+              : []
+            : undefined
+        const executionEnabledTools = policyTools
+          ? modeEnabledTools.filter((tool) => policyTools.includes(tool))
+          : modeEnabledTools
 
         result = await executeServerRun(
           buildRunExecutionDeps(this.createRunExecutionDepsContext(), {

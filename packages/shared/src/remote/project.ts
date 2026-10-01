@@ -1,6 +1,7 @@
 import { isPlanDocumentMessage, stripPlanDocumentMarker } from '../planMode.ts'
 import type { MessageRecord, RunRecord, ThreadRecord, ToolCallRecord } from '../protocol.ts'
 import { getThreadCapabilities } from '../protocol.ts'
+import { normalizeRunModeId } from '../toolModes.ts'
 import type { TodoItemRecord } from '../protocol/events.ts'
 import {
   REMOTE_THREAD_PREVIEW_LIMIT,
@@ -45,6 +46,7 @@ export function projectThreadSummary(
   return {
     id: thread.id,
     title: thread.title,
+    ...(thread.runMode ? { runMode: normalizeRunModeId(thread.runMode) } : {}),
     ...(thread.icon ? { icon: thread.icon } : {}),
     ...(thread.colorTag ? { colorTag: thread.colorTag } : {}),
     starred: Boolean(thread.starredAt),

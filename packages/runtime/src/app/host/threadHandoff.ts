@@ -2,7 +2,8 @@ import type {
   CompactThreadAccepted,
   CompactThreadInput,
   ComposerReasoningSelection,
-  ThreadRecord
+  ThreadRecord,
+  RunModeId
 } from '@yachiyo/shared/protocol'
 import type { FolderDomain } from '../domain/folders/folderDomain.ts'
 import type { YachiyoServerRunDomain } from '../domain/run/runDomain.ts'
@@ -31,6 +32,7 @@ export async function createThreadWithHandoffWorkspace(input: {
     privacyMode?: boolean
     modelOverride?: ThreadRecord['modelOverride']
     reasoningEffort?: ComposerReasoningSelection
+    runMode?: RunModeId
   }
   requireThread: (threadId: string) => ThreadRecord
   ensureThreadWorkspace: (threadId: string) => Promise<string>

@@ -9,7 +9,6 @@ import type {
   ThreadRecord,
   ThreadUpdatedEvent
 } from '@yachiyo/shared/protocol'
-import { DEFAULT_ENABLED_TOOL_NAMES } from '@yachiyo/shared/protocol'
 import { summarizeMessagePreview } from '@yachiyo/shared/messageContent'
 import { PLAN_DOCUMENT_MARKER, PLAN_EXECUTION_USER_MESSAGE } from '@yachiyo/shared/planMode'
 import type { YachiyoStorage } from '../../storage/storage.ts'
@@ -116,7 +115,7 @@ function seedAcceptedPlanMessage(input: {
 async function startPlanAcceptanceDirect(input: PlanAcceptanceInput): Promise<ChatAccepted> {
   const toolEnabledThread = input.threadDomain.setThreadToolMode({
     threadId: input.sourceThread.id,
-    enabledTools: DEFAULT_ENABLED_TOOL_NAMES
+    runMode: 'auto'
   })
   const seeded = seedAcceptedPlanMessage({
     ...input,
@@ -139,7 +138,7 @@ async function startPlanAcceptanceWithHandoff(input: PlanAcceptanceInput): Promi
     title: derivePlanExecutionThreadTitle(input.plan.content, input.sourceThread),
     ...(input.sourceThread.icon ? { icon: input.sourceThread.icon } : {}),
     handoffFromThreadId: input.sourceThread.id,
-    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+    runMode: 'auto',
     workspacePath: input.sourceThread.workspacePath?.trim()
       ? resolve(input.sourceThread.workspacePath)
       : input.resolveThreadWorkspacePath(input.sourceThread.id),
