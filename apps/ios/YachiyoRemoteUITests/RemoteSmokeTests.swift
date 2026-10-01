@@ -508,6 +508,37 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertFalse(error.exists && !error.label.isEmpty, "Plan acceptance succeeds without a conversation error")
     }
 
+    /// The fake desktop's long thread arrives in pages of 50. Scrolling up pages older history in
+    /// above the reader until the first message, without the timeline jumping to a new page.
+    func testEarlierHistoryPagesInAboveTheReader() {
+        continueAfterPairing()
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "thread:demo-thread-long-history"]
+        app.launch()
+        let timeline = element("thread.timeline")
+        XCTAssertTrue(timeline.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["History question 159"].waitForExistence(timeout: 30), "opens at the newest messages")
+
+        let questions = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'History question '"))
+        func earliestVisibleQuestion() -> Int? {
+            questions.allElementsBoundByIndex
+                .compactMap { $0.exists ? Int($0.label.dropFirst("History question ".count)) : nil }
+                .min()
+        }
+        var earliest = 159
+        for _ in 0 ..< 80 where earliest > 1 {
+            timeline.swipeDown()
+            guard let visible = earliestVisibleQuestion() else { continue }
+            // One swipe covers a few messages. A page that displaced the reader would skip 50.
+            XCTAssertGreaterThan(visible, earliest - 30, "the timeline kept its place while a page loaded")
+            earliest = min(earliest, visible)
+        }
+        XCTAssertEqual(earliest, 1, "every page loaded, back to the first message")
+        timeline.swipeDown()
+        XCTAssertTrue(app.staticTexts["History question 1"].isHittable)
+        XCTAssertFalse(element("thread.earlierHistory").exists, "nothing earlier is offered at the first message")
+    }
+
     private func continueAfterPairing() {
         if ProcessInfo.processInfo.environment["YACHIYO_REUSE_PAIRING"] == "1" { return }
         XCTAssertTrue(app.staticTexts["pairing.message"].waitForExistence(timeout: 30))

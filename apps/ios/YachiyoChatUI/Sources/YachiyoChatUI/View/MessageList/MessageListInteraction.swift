@@ -24,6 +24,8 @@ public protocol MessageListInteractionDelegate: AnyObject {
     func messageList(_ list: MessageListView, openLink destination: String, messageId: String)
     func messageList(_ list: MessageListView, menuForMessage messageId: String, role: MessageRole) -> UIMenu?
     func messageList(_ list: MessageListView, didChangeFollowingBottom isFollowing: Bool)
+    /// The reader tapped the earlier-history row or scrolled close to the first loaded message.
+    func messageListDidRequestEarlierHistory(_ list: MessageListView)
 }
 
 public extension MessageListInteractionDelegate {
@@ -34,4 +36,5 @@ public extension MessageListInteractionDelegate {
     }
     func messageList(_: MessageListView, menuForMessage _: String, role _: MessageRole) -> UIMenu? { nil }
     func messageList(_: MessageListView, didChangeFollowingBottom _: Bool) {}
+    func messageListDidRequestEarlierHistory(_: MessageListView) {}
 }

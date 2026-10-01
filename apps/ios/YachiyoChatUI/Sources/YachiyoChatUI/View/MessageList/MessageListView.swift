@@ -44,12 +44,14 @@ public final class MessageListView: UIView {
         let messages: [ConversationMessage]
         let scrolling: Bool
         let isLoading: String?
+        let earlierHistory: EarlierHistoryState
     }
 
     private var pendingUpdate: PendingUpdate?
     private var isParsingMarkdown = false
     private static let markdownParseQueue = DispatchQueue(label: "YachiyoChatUI.MarkdownParse", qos: .userInitiated)
     private var appliedEntryIDs: Set<String> = []
+    private var appliedEntryOrder: [String] = []
     private var appliedContinuationIDs: Set<String> = []
     var responseChunkCache: [String: (text: String, chunks: [MarkdownChunker.Chunk])] = [:]
 
@@ -74,14 +76,15 @@ public final class MessageListView: UIView {
             sessionScopedCancellables.forEach { $0.cancel() }
             sessionScopedCancellables.removeAll()
             guard let session else { return }
-            Publishers.CombineLatest(
+            Publishers.CombineLatest3(
                 session.messagesDidChange.prepend((session.messages, false)),
-                loadingState
+                loadingState,
+                earlierHistoryState
             )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] v1, v2 in
+            .sink { [weak self] v1, v2, v3 in
                 guard let self else { return }
-                updateFromUpstreamPublisher(v1.0, v1.1, isLoading: v2)
+                updateFromUpstreamPublisher(v1.0, v1.1, isLoading: v2, earlierHistory: v3)
             }
             .store(in: &sessionScopedCancellables)
             session.userDidSendMessage
@@ -101,6 +104,19 @@ public final class MessageListView: UIView {
     }
     private var sessionScopedCancellables: Set<AnyCancellable> = .init()
     let loadingState = CurrentValueSubject<String?, Never>(nil)
+    private let earlierHistoryState = CurrentValueSubject<EarlierHistoryState, Never>(.none)
+    private var hasRequestedEarlierHistory = false
+
+    /// Shown as the first row unless `.none`. While `.available`, scrolling near the first
+    /// loaded message requests the earlier page once.
+    public var earlierHistory: EarlierHistoryState {
+        get { earlierHistoryState.value }
+        set {
+            guard newValue != earlierHistoryState.value else { return }
+            hasRequestedEarlierHistory = false
+            earlierHistoryState.send(newValue)
+        }
+    }
 
     var contentSafeAreaInsets: UIEdgeInsets = .zero {
         didSet {
@@ -120,7 +136,7 @@ public final class MessageListView: UIView {
             listView.reloadData()
             // Chunk spacing is measured per theme; re-annotate what is on screen.
             if let session, !isFirstLoad {
-                updateFromUpstreamPublisher(session.messages, false, isLoading: loadingState.value)
+                updateFromUpstreamPublisher(session.messages, false, isLoading: loadingState.value, earlierHistory: earlierHistory)
             }
         }
     }
@@ -255,10 +271,12 @@ public final class MessageListView: UIView {
         loadingState.send(nil)
     }
 
-    func updateFromUpstreamPublisher(_ messages: [ConversationMessage], _ scrolling: Bool, isLoading: String?) {
+    func updateFromUpstreamPublisher(
+        _ messages: [ConversationMessage], _ scrolling: Bool, isLoading: String?, earlierHistory: EarlierHistoryState
+    ) {
         // A superseded update's request to follow the newest content still applies.
         let scrolling = scrolling || (pendingUpdate?.scrolling ?? false)
-        pendingUpdate = PendingUpdate(messages: messages, scrolling: scrolling, isLoading: isLoading)
+        pendingUpdate = PendingUpdate(messages: messages, scrolling: scrolling, isLoading: isLoading, earlierHistory: earlierHistory)
         drainPendingUpdate()
     }
 
@@ -289,6 +307,7 @@ public final class MessageListView: UIView {
 
         pendingUpdate = nil
         annotateChunkSpacing(&entries)
+        if update.earlierHistory != .none { entries.insert(.earlierHistory(update.earlierHistory), at: 0) }
         if let isLoading = update.isLoading { entries.append(.activityReporting(isLoading)) }
         pruneResponseChunkCache(keeping: update.messages)
         apply(entries, scrolling: update.scrolling)
@@ -302,8 +321,11 @@ public final class MessageListView: UIView {
         })
         let previousIDs = appliedEntryIDs
         let previousContinuationIDs = appliedContinuationIDs
+        let previousOrder = appliedEntryOrder
+        let order = entries.map(\.id)
         appliedEntryIDs = ids
         appliedContinuationIDs = continuationIDs
+        appliedEntryOrder = order
         pruneCaches(keeping: ids)
 
         let shouldScrolling = scrolling && isAutoScrollingToBottom
@@ -322,10 +344,62 @@ public final class MessageListView: UIView {
             // into) applies in place, so streaming never stacks list springs.
             let isStructural = !ids.subtracting(previousIDs).subtracting(continuationIDs).isEmpty
                 || !previousIDs.subtracting(ids).subtracting(previousContinuationIDs).isEmpty
-            dataSource.applySnapshot(using: entries, animatingDifferences: isStructural)
+            let anchor = readingAnchor(in: previousOrder, surviving: ids)
+            // Rows inserted or removed above the anchor shift it; animating their layout would
+            // show that shift before the offset correction lands.
+            let shiftsAnchor = isStructural && anchor.map { anchor in
+                order.prefix { $0 != anchor.id }.contains { !previousIDs.contains($0) }
+                    || previousOrder.prefix { $0 != anchor.id }.contains { !ids.contains($0) }
+            } ?? false
+            dataSource.applySnapshot(using: entries, animatingDifferences: isStructural && !shiftsAnchor)
+            if let anchor { restore(anchor) }
             if shouldScrolling {
                 followBottom(animated: isStructural)
             }
+        }
+    }
+
+    /// A row and where it sits in the viewport, so the same content stays under the reader's eyes
+    /// when rows above it are inserted, removed or resized.
+    private struct ReadingAnchor {
+        let id: String
+        let offsetInViewport: CGFloat
+    }
+
+    /// Rows that move or disappear with the history around them and so cannot hold a position.
+    private static func holdsReadingPosition(_ id: String) -> Bool {
+        id != Entry.earlierHistoryID && !id.hasPrefix("hint-") && !id.hasPrefix("activity-")
+    }
+
+    /// The first visible row that survives the update, else the nearest surviving row below or
+    /// above the viewport.
+    private func readingAnchor(in order: [String], surviving ids: Set<String>) -> ReadingAnchor? {
+        let visible = listView.indicesForVisibleRows
+        guard let firstVisible = visible.first, let lastVisible = visible.last, lastVisible < order.count else { return nil }
+        func holds(_ index: Int) -> Bool {
+            ids.contains(order[index]) && Self.holdsReadingPosition(order[index])
+        }
+        guard let index = visible.first(where: holds)
+            ?? ((lastVisible + 1) ..< order.count).first(where: holds)
+            ?? (0 ..< firstVisible).last(where: holds)
+        else { return nil }
+        return ReadingAnchor(id: order[index], offsetInViewport: listView.rectForRow(at: index).minY - listView.contentOffset.y)
+    }
+
+    private func restore(_ anchor: ReadingAnchor) {
+        let current = listView.contentOffset.y
+        let target = listView.rectForRow(with: anchor.id).minY - anchor.offsetInViewport
+        // An unmoved anchor leaves the offset alone, including while it rubber-bands.
+        guard abs(target - current) > 0.5 else { return }
+        let bounds = listView.minimumContentOffset.y ... max(listView.minimumContentOffset.y, listView.maximumContentOffset.y)
+        let clamped = min(max(target, bounds.lowerBound), bounds.upperBound)
+        listView.cancelCurrentScrolling()
+        if bounds.contains(current) {
+            // Assigning the offset keeps a drag or deceleration going from the corrected position.
+            listView.contentOffset.y = clamped
+        } else {
+            // A bounce would animate back to its stale target; end it at the corrected position.
+            listView.setContentOffset(CGPoint(x: listView.contentOffset.x, y: clamped), animated: false)
         }
     }
 
@@ -345,6 +419,16 @@ public final class MessageListView: UIView {
 extension MessageListView: UIScrollViewDelegate {
     public func scrollViewWillBeginDragging(_: UIScrollView) {
         isAutoScrollingToBottom = false
+    }
+
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Only the reader's own scrolling asks for more; the row's button covers everything else.
+        guard earlierHistory == .available, !hasRequestedEarlierHistory, !isFirstLoad,
+              scrollView.isTracking || scrollView.isDecelerating,
+              scrollView.contentOffset.y - listView.minimumContentOffset.y < scrollView.bounds.height
+        else { return }
+        hasRequestedEarlierHistory = true
+        interactionDelegate?.messageListDidRequestEarlierHistory(self)
     }
 
     public func scrollViewDidEndDecelerating(_: UIScrollView) {

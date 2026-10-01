@@ -24,6 +24,7 @@ enum ThreadReplyState: Equatable {
 final class ThreadStore: ChatMessageSource {
     private static let maxFinishedRuns = 64
     private static let maxRunFooters = 8
+    private static let historyPageSize = 50
 
     let desktopId: String
     let threadId: String
@@ -37,6 +38,17 @@ final class ThreadStore: ChatMessageSource {
 
     @Published private(set) var summary: RemoteThreadSummary?
     @Published private(set) var detail: RemoteThreadDetail? { didSet { toolCallsCache = nil } }
+    /// Owns `detail`: the newest page plus the older pages loaded above it this session.
+    private var history: RemoteHistoryWindow? {
+        didSet {
+            detail = history?.detail
+            updateEarlierHistory()
+        }
+    }
+    @Published private(set) var earlierHistory: EarlierHistoryState = .none
+    private var earlierLoadToken: UUID?
+    /// A failure belongs to the cursor it was requested with; a new window clears it.
+    private var earlierLoadFailedCursor: String?
     @Published private(set) var isLoading = false
     @Published private(set) var loadError: String?
     @Published private(set) var isStopping = false
@@ -133,8 +145,12 @@ final class ThreadStore: ChatMessageSource {
             .removeDuplicates()
             .sink { [weak self] state in
                 guard let self, isOpen else { return }
-                if state == .online { Task { await self.reloadIfNeeded() } }
-                else {
+                if state == .online {
+                    // An earlier-history failure while disconnected is retryable again.
+                    earlierLoadFailedCursor = nil
+                    updateEarlierHistory()
+                    Task { await self.reloadIfNeeded() }
+                } else {
                     if loadToken != nil || planReadToken != nil { needsReload = true }
                     planReadToken = nil
                     loadToken = nil; isLoading = false; eventsDuringLoad.removeAll()
@@ -154,7 +170,7 @@ final class ThreadStore: ChatMessageSource {
         cacheLoadTask = nil
         // A network snapshot that already arrived is newer than anything on disk.
         guard let cached, detail == nil else { return }
-        detail = cached.detail
+        history = RemoteHistoryWindow(latest: cached.detail)
         if activeRunId == nil, let runId = cached.detail.activeRunId, !finishedRunIds.contains(runId) { activeRunId = runId }
         updateReplyState()
         needsReload = cached.needsRefresh || activeRunId != nil
@@ -212,6 +228,8 @@ final class ThreadStore: ChatMessageSource {
         isLoading = false
         eventsDuringLoad.removeAll()
         loadEventsOverflowed = false
+        earlierLoadToken = nil
+        updateEarlierHistory()
         store.clearOpenThread(desktopId: desktopId, threadId: threadId)
     }
 
@@ -259,18 +277,21 @@ final class ThreadStore: ChatMessageSource {
         }
         do {
             // Previews are fetched when a tool call is opened; older desktops ignore the flag.
-            let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: 50, beforeMessageId: nil, omitToolPreviews: true))
+            let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: Self.historyPageSize, beforeMessageId: nil, omitToolPreviews: true))
             guard loadToken == token, isOpen, !loadEventsOverflowed, !Task.isCancelled else { return }
             cacheLoadTask?.cancel()
             cacheLoadTask = nil
             pendingPlanContent = nil
-            detail = loaded
+            var window = history ?? RemoteHistoryWindow(latest: loaded)
+            window.replaceLatest(loaded)
+            history = window
             if summary != loaded.thread { summary = loaded.thread }
             store.upsert(desktopId: desktopId, summary: loaded.thread)
             activeRunId = loaded.activeRunId.flatMap { finishedRunIds.contains($0) ? nil : $0 }
             updateReplyState()
             clearStreaming()
-            toolPreviews = toolPreviews.filter { id, _ in loaded.toolCalls.contains { $0.id == id } }
+            let loadedToolIds = Set(window.detail.toolCalls.map(\.id))
+            toolPreviews = toolPreviews.filter { loadedToolIds.contains($0.key) }
             let buffered = eventsDuringLoad
             needsReload = reloadAgain
             store.cacheThread(desktopId: desktopId, detail: loaded, needsRefresh: !buffered.isEmpty || reloadAgain)
@@ -323,6 +344,47 @@ final class ThreadStore: ChatMessageSource {
         } catch {
             guard loadToken == token, !Task.isCancelled, !(error is CancellationError) else { return }
             loadError = describe(error)
+        }
+    }
+
+    private func updateEarlierHistory() {
+        let next: EarlierHistoryState
+        if earlierLoadToken != nil { next = .loading }
+        else if let cursor = history?.olderCursor { next = cursor == earlierLoadFailedCursor ? .failed : .available }
+        else { next = .none }
+        if earlierHistory != next { earlierHistory = next }
+    }
+
+    /// Loads the page before the first loaded message. One request at a time; a response is
+    /// dropped when the loaded window no longer starts at the message it was requested for.
+    func loadEarlier() async {
+        guard isOpen, earlierLoadToken == nil, let cursor = history?.olderCursor else { return }
+        guard store.link(for: desktopId)?.state == .online else {
+            earlierLoadFailedCursor = cursor
+            updateEarlierHistory()
+            return
+        }
+        let token = UUID()
+        earlierLoadToken = token
+        earlierLoadFailedCursor = nil
+        updateEarlierHistory()
+        do {
+            let page: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: Self.historyPageSize, beforeMessageId: cursor, omitToolPreviews: true))
+            guard earlierLoadToken == token else { return }
+            earlierLoadToken = nil
+            guard var window = history, window.prependOlder(page, cursor: cursor) else {
+                updateEarlierHistory()
+                return
+            }
+            history = window
+            rebuild(scrolling: false)
+        } catch {
+            guard earlierLoadToken == token else { return }
+            earlierLoadToken = nil
+            earlierLoadFailedCursor = cursor
+            updateEarlierHistory()
+            // The desktop no longer has this message on the current branch; resync the window.
+            if (error as? RemoteCallError)?.name == "RemoteNotFound" { invalidate() }
         }
     }
 
@@ -500,7 +562,8 @@ final class ThreadStore: ChatMessageSource {
             needsReload = false
             isLoading = false
             eventsDuringLoad.removeAll()
-            detail = nil
+            earlierLoadToken = nil
+            history = nil
             summary = nil
             activeRunId = nil
             updateReplyState()
@@ -513,16 +576,11 @@ final class ThreadStore: ChatMessageSource {
     }
 
     private func upsertLoaded(_ message: RemoteMessage) {
-        guard let current = detail else { return }
-        var list = current.messages
-        if let index = list.firstIndex(where: { $0.id == message.id }) {
-            list[index] = message
-        } else {
-            list.append(message)
-        }
+        guard var window = history else { return }
+        window.upsert(message)
         if message.role == .user { standaloneFooterRunId = nil }
-        detail = current.replacing(messages: list)
-        if let detail { store.cacheThread(desktopId: desktopId, detail: detail, needsRefresh: true) }
+        history = window
+        store.cacheThread(desktopId: desktopId, detail: window.latestPage, needsRefresh: true)
     }
 
     // MARK: Timeline
@@ -1158,17 +1216,6 @@ struct EditInput: Encodable { let threadId: String; let messageId: String; let c
 struct BranchSelectInput: Encodable { let threadId: String; let assistantMessageId: String }
 struct PlanAcceptInput: Encodable { let threadId: String; let mode: String }
 struct StarInput: Encodable { let threadId: String; let starred: Bool }
-
-extension RemoteThreadDetail {
-    func replacing(messages: [RemoteMessage]) -> RemoteThreadDetail {
-        RemoteThreadDetail(
-            activeRunId: activeRunId, activeRunMode: activeRunMode, hasMoreBefore: hasMoreBefore,
-            messages: messages, pendingPlan: pendingPlan, queuedFollowUps: queuedFollowUps,
-            streamSnapshotSeq: streamSnapshotSeq,
-            thread: thread, todoItems: todoItems, toolCalls: toolCalls
-        )
-    }
-}
 
 extension RemoteToolCall {
     func answered(_ answer: String) -> RemoteToolCall {

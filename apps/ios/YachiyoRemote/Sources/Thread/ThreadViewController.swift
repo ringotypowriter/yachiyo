@@ -307,6 +307,9 @@ final class ThreadViewController: UIViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateChrome() }
             .store(in: &cancellables)
+        thread.$earlierHistory
+            .sink { [weak self] state in self?.messageList.earlierHistory = state }
+            .store(in: &cancellables)
     }
 
     // MARK: State
@@ -748,6 +751,10 @@ extension ThreadViewController: MessageListInteractionDelegate {
             })
         }
         return UIMenu(children: actions)
+    }
+
+    func messageListDidRequestEarlierHistory(_: MessageListView) {
+        Task { await thread.loadEarlier() }
     }
 
     func messageList(_: MessageListView, didChangeFollowingBottom isFollowing: Bool) {

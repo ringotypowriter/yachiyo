@@ -2,8 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { MessageRecord } from '@yachiyo/shared/protocol'
+import { summarizeMessagePreview } from '@yachiyo/shared/messageContent'
+import { withThreadCapabilities } from '@yachiyo/shared/protocol'
+
 import { createDemoYachiyoStorage } from '../../../../demo/demoMode.ts'
 import { createInMemoryYachiyoStorage } from '../../../../storage/memoryStorage.ts'
+import type { YachiyoStorage } from '../../../../storage/storage.ts'
 import { YachiyoServer } from '../../YachiyoServer.ts'
 import { createScriptedModelRuntime } from './scriptedModelRuntime.ts'
 
@@ -20,6 +25,42 @@ export interface FakeDesktopServerOptions {
   slowChunkDelayMs?: number
   /** Seed the demo threads used by screenshots and the fake-desktop harness. */
   demo?: boolean
+}
+
+const LONG_HISTORY_THREAD_ID = 'demo-thread-long-history'
+const LONG_HISTORY_MESSAGE_COUNT = 160
+
+/** Several `threads.load` pages of history, older than every other demo thread. */
+function seedLongHistoryThread(storage: YachiyoStorage): void {
+  const startedAt = Date.parse('2026-03-01T09:00:00.000Z')
+  const messages: MessageRecord[] = []
+  for (let index = 1; index <= LONG_HISTORY_MESSAGE_COUNT; index += 1) {
+    const isUser = index % 2 === 1
+    messages.push({
+      id: `demo-msg-long-${index}`,
+      threadId: LONG_HISTORY_THREAD_ID,
+      ...(index > 1 ? { parentMessageId: `demo-msg-long-${index - 1}` } : {}),
+      role: isUser ? 'user' : 'assistant',
+      content: isUser
+        ? `History question ${index}`
+        : `History answer ${index}\n\nThis reply fills a few lines so that one page of history is taller than the screen and paging has to keep the reading position.`,
+      status: 'completed',
+      createdAt: new Date(startedAt + index * 60_000).toISOString(),
+      ...(isUser ? {} : { providerName: 'scripted', modelId: 'scripted-model' })
+    })
+  }
+  const last = messages.at(-1)!
+  storage.createThread({
+    thread: withThreadCapabilities({
+      id: LONG_HISTORY_THREAD_ID,
+      title: 'Long history',
+      preview: summarizeMessagePreview(last),
+      updatedAt: last.createdAt,
+      headMessageId: last.id
+    }),
+    createdAt: new Date(startedAt).toISOString(),
+    messages
+  })
 }
 
 /**
@@ -53,8 +94,11 @@ export async function createFakeDesktopServer(
   )
   const workspacePathForThread = (threadId: string): string => join(root, 'workspaces', threadId)
 
+  const storage = options.demo ? createDemoYachiyoStorage() : createInMemoryYachiyoStorage()
+  if (options.demo) seedLongHistoryThread(storage)
+
   const server = new YachiyoServer({
-    storage: options.demo ? createDemoYachiyoStorage() : createInMemoryYachiyoStorage(),
+    storage,
     settingsPath,
     resolveThreadWorkspacePath: workspacePathForThread,
     ensureThreadWorkspace: async (threadId) => {

@@ -256,6 +256,12 @@
         }
       }
     },
+    "Load earlier messages" : {
+
+    },
+    "Loading earlier messages…" : {
+
+    },
     "Microphone is not authorized." : {
       "localizations" : {
         "zh-Hans" : {
@@ -377,6 +383,9 @@
 
     },
     "Request changes" : {
+
+    },
+    "Retry loading earlier messages" : {
 
     },
     "Send" : {

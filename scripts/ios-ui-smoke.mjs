@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 // Runs the iOS XCUITest smoke flow against the fake desktop, then captures themed screenshots.
 //   node scripts/ios-ui-smoke.mjs [--skip-screenshots] [--min-ios 26] [--max-ios <major>] [--device ipad]
+//     [--only <RemoteSmokeTests method>]
+// `--only` runs that acceptance test instead of the default flow, without screenshots.
 // Picks the newest available iOS simulator runtime in range (26+ by default) and an iPhone (or
 // iPad, which the test drives in landscape) on it. Screenshots go to
 // apps/ios/Artifacts/ (git-ignored). Exits non-zero when the UI test fails.
@@ -18,7 +20,10 @@ const derivedData = join(
   'Library/Developer/Xcode/DerivedData/YachiyoRemote-smoke'
 )
 const bundleId = 'sh.ringo.yachiyo.remote'
-const skipScreenshots = process.argv.includes('--skip-screenshots')
+const onlyIndex = process.argv.indexOf('--only')
+const testName =
+  onlyIndex === -1 ? 'testPairChatAnswerSteerStopAndStartThread' : process.argv[onlyIndex + 1]
+const skipScreenshots = process.argv.includes('--skip-screenshots') || onlyIndex !== -1
 const flag = (name, fallback) => {
   const index = process.argv.indexOf(name)
   return index === -1 ? fallback : Number(process.argv[index + 1])
@@ -115,7 +120,7 @@ try {
       [
         'test-without-building',
         ...common,
-        '-only-testing:YachiyoRemoteUITests/RemoteSmokeTests/testPairChatAnswerSteerStopAndStartThread'
+        `-only-testing:YachiyoRemoteUITests/RemoteSmokeTests/${testName}`
       ],
       {
         cwd: iosDir,

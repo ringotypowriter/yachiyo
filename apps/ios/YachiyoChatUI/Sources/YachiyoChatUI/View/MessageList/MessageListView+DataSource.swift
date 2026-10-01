@@ -64,6 +64,9 @@ extension MessageListView {
         case questionCard(String, QuestionContentPart)
         case planCard(String, PlanCard)
         case branchNavigator(String, BranchPosition)
+        case earlierHistory(EarlierHistoryState)
+
+        static let earlierHistoryID = "earlier-history"
 
         var id: String {
             switch self {
@@ -77,6 +80,7 @@ extension MessageListView {
             case let .questionCard(id, _): "question-\(id)"
             case let .planCard(id, _): "plan-\(id)"
             case let .branchNavigator(id, _): "branch-\(id)"
+            case .earlierHistory: Self.earlierHistoryID
             }
         }
 

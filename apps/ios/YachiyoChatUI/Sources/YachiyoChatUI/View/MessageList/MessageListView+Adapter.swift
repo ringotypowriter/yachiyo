@@ -20,6 +20,7 @@ private extension MessageListView {
         case questionCard
         case planCard
         case branchNavigator
+        case earlierHistory
     }
 }
 
@@ -42,6 +43,7 @@ extension MessageListView: ListViewAdapter {
         case .questionCard: RowType.questionCard
         case .planCard: RowType.planCard
         case .branchNavigator: RowType.branchNavigator
+        case .earlierHistory: RowType.earlierHistory
         }
     }
 
@@ -69,6 +71,8 @@ extension MessageListView: ListViewAdapter {
             PlanCardView()
         case .branchNavigator:
             BranchNavigatorView()
+        case .earlierHistory:
+            EarlierHistoryView()
         }
         view.theme = theme
         return view
@@ -152,6 +156,8 @@ extension MessageListView: ListViewAdapter {
             return PlanCardView.height(for: plan, width: containerWidth)
         case .branchNavigator:
             return BranchNavigatorView.height
+        case .earlierHistory:
+            return EarlierHistoryView.height
         }
     }
 
@@ -197,6 +203,17 @@ extension MessageListView: ListViewAdapter {
                 branchView.onStep = { [weak self] offset in
                     guard let self else { return }
                     interactionDelegate?.messageList(self, showSiblingOf: position.messageId, offset: offset)
+                }
+            }
+            return
+        }
+        if let earlierView = rowView as? EarlierHistoryView {
+            if case let .earlierHistory(state) = entry {
+                earlierView.theme = theme
+                earlierView.state = state
+                earlierView.onRequest = { [weak self] in
+                    guard let self else { return }
+                    interactionDelegate?.messageListDidRequestEarlierHistory(self)
                 }
             }
             return
