@@ -35,7 +35,7 @@ export interface RemoteCommandDeps {
   createPairingQr?(): Promise<{ imagePath: string; expiresAt: string }>
   icloudDrive(): Promise<ICloudDriveState>
   relayActivation?(): Promise<{ server: string } | null>
-  activateRelay?(server: string, code: string): Promise<void>
+  activateRelay?(code: string): Promise<void>
 }
 
 function remoteConfigOf(config: SettingsConfig): RemoteConfig {
@@ -88,7 +88,7 @@ export async function handleRemoteCommand(
   switch (request.action) {
     case 'relay-activate': {
       if (!deps.activateRelay) throw new Error('Relay activation is unavailable.')
-      await deps.activateRelay(request.server, request.code)
+      await deps.activateRelay(request.code)
       return status(deps)
     }
     case 'status':

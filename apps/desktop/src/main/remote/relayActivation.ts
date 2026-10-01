@@ -2,8 +2,9 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 
+import { YACHIYO_CONNECT_SERVER } from '@yachiyo/shared/protocol'
+
 import type { SecretBox } from './pairingStore.ts'
-import { relayServerOrigin } from './relayHost.ts'
 
 export interface RelayCredential {
   server: string
@@ -73,15 +74,14 @@ export class RelayActivation {
     const parsed = credentialSchema.safeParse(
       JSON.parse(this.secretBox.decrypt(bytes).toString('utf8'))
     )
-    if (!parsed.success) return null
+    if (!parsed.success || parsed.data.server !== YACHIYO_CONNECT_SERVER) return null
     const payload = tokenPayload(parsed.data.key, 'host')
     if (!payload || payload.id !== parsed.data.hostId || payload.exp <= this.now()) return null
-    relayServerOrigin(parsed.data.server)
     return parsed.data
   }
 
-  async redeem(server: string, code: string): Promise<{ hostId: string }> {
-    const origin = relayServerOrigin(server)
+  async redeem(code: string): Promise<{ hostId: string }> {
+    const origin = YACHIYO_CONNECT_SERVER
     const invitation = tokenPayload(code, 'invite')
     if (!invitation || invitation.exp <= this.now())
       throw new Error('Enter a valid invitation code.')

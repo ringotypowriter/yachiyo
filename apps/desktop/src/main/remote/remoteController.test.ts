@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { DEFAULT_REMOTE_CONFIG, type RemoteConfig } from '@yachiyo/shared/protocol'
+import {
+  DEFAULT_REMOTE_CONFIG,
+  YACHIYO_CONNECT_SERVER,
+  type RemoteConfig
+} from '@yachiyo/shared/protocol'
 import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 
 import { RemoteController, type RemoteServiceParams } from './remoteController.ts'
@@ -88,18 +92,23 @@ test('relay bearer is loaded only for selected enabled relay; switching away sto
   let reads = 0
   const { controller, created } = createController(async (server) => {
     reads++
+    assert.equal(server, YACHIYO_CONNECT_SERVER)
     return { server, hostId: 'mac-1', key: 'A'.repeat(43) }
   })
-  const relay = enabled({ tunnel: 'relay', relayServer: 'https://relay.example' })
+  const relay = { ...enabled({ tunnel: 'relay' }), relayServer: 'https://retired.example' }
   await controller.apply({ ...relay, enabled: false })
-  await controller.apply(enabled({ relayServer: relay.relayServer }))
+  await controller.apply(enabled())
   assert.equal(reads, 0)
   assert.equal(created[0]?.params.relayCredential, null)
   await controller.apply(relay)
   assert.equal(reads, 1)
   assert.equal(created[1]?.params.relayCredential?.hostId, 'mac-1')
   assert.deepEqual(created[1]?.params.endpoints(), [])
-  await controller.apply(enabled({ relayServer: relay.relayServer }))
+  const changedLegacyAddress = { ...relay, relayServer: 'https://another-retired.example' }
+  await controller.apply(changedLegacyAddress)
+  assert.equal(reads, 1)
+  assert.equal(created.length, 2)
+  await controller.apply(enabled())
   assert.equal(created[1]?.running, false)
   assert.equal(created[2]?.params.relayCredential, null)
 })

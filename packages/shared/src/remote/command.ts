@@ -17,7 +17,6 @@ export const remoteCommandRequestSchema = z.union([
   z.object({ action: z.literal('status') }),
   z.object({
     action: z.literal('relay-activate'),
-    server: z.string().min(1).max(2048),
     code: z.string().min(1).max(200)
   }),
   z.object({ action: z.literal('tunnel-install'), mode: z.literal('quick') }),

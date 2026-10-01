@@ -46,7 +46,7 @@ export interface GatewayRemoteBinding {
   listPairings(): Promise<PairingRecord[]>
   revokePairing(pairingId: string): Promise<boolean>
   stop(): Promise<void>
-  activateRelay(server: string, code: string): Promise<unknown>
+  activateRelay(code: string): Promise<unknown>
 }
 
 export interface RemotePairingQr {
@@ -59,8 +59,8 @@ export interface RemotePairingQr {
 /** IPC for Settings > Remote. The pairing URL never leaves the settings window. */
 export function registerRemoteIpc(binding: GatewayRemoteBinding): void {
   handleYachiyoIpc(IPC_CHANNELS.remoteStatus, () => binding.handleCommand({ action: 'status' }))
-  handleYachiyoIpc(IPC_CHANNELS.remoteActivateRelay, (input: { server: string; code: string }) =>
-    binding.activateRelay(input.server, input.code)
+  handleYachiyoIpc(IPC_CHANNELS.remoteActivateRelay, (input: { code: string }) =>
+    binding.activateRelay(input.code)
   )
   handleYachiyoIpc(IPC_CHANNELS.remoteCreatePairing, async (): Promise<RemotePairingQr> => {
     const pairing = await binding.createPairingUrl()
@@ -108,7 +108,7 @@ export function createGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Gate
       await encryptedBinding?.stop()
       encryptedBinding = null
     },
-    activateRelay: (server, code) => binding().activateRelay(server, code)
+    activateRelay: (code) => binding().activateRelay(code)
   }
 }
 
@@ -261,8 +261,8 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
     icloudDrive: () =>
       icloudRoot ? detectICloudDrive(icloudRoot) : Promise.resolve('unavailable'),
     relayActivation: () => activation.load(),
-    activateRelay: async (server, code) => {
-      await activation.redeem(server, code)
+    activateRelay: async (code) => {
+      await activation.redeem(code)
     }
   })
 
@@ -282,8 +282,7 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
     },
     listPairings: () => pairingStore().list(),
     revokePairing,
-    activateRelay: (server, code) =>
-      handleRemoteCommand({ action: 'relay-activate', server, code }, commandDeps()),
+    activateRelay: (code) => handleRemoteCommand({ action: 'relay-activate', code }, commandDeps()),
     stop: async () => {
       await controller?.stop()
       controller = null

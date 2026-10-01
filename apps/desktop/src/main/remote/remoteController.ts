@@ -1,12 +1,15 @@
 import { networkInterfaces } from 'node:os'
 
-import { DEFAULT_REMOTE_CONFIG, type RemoteConfig } from '@yachiyo/shared/protocol'
+import {
+  DEFAULT_REMOTE_CONFIG,
+  YACHIYO_CONNECT_SERVER,
+  type RemoteConfig
+} from '@yachiyo/shared/protocol'
 import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 import { REMOTE_WS_PATH } from '@yachiyo/shared/remote/wire'
 
 import type { RemoteKeepAwake } from './keepAwake.ts'
 import type { RelayCredential } from './relayActivation.ts'
-import { relayServerOrigin } from './relayHost.ts'
 
 export interface ManagedRemoteService {
   readonly port: number | null
@@ -120,7 +123,7 @@ export class RemoteController<TService extends ManagedRemoteService> {
   }
 
   private async reconcile(config: RemoteConfig): Promise<void> {
-    const key = `${config.port}|${config.lanEndpoint}|${config.tunnel === 'relay' ? config.relayServer : ''}|${config.tunnel === 'relay'}`
+    const key = `${config.port}|${config.lanEndpoint}|${config.tunnel === 'relay'}`
     if (!config.enabled) {
       this.deps.keepAwake.setWanted(false)
       this.deps.tunnel.stopMonitoring()
@@ -139,11 +142,10 @@ export class RemoteController<TService extends ManagedRemoteService> {
     if (!this.current) {
       let relayCredential: RelayCredential | null = null
       if (config.tunnel === 'relay') {
-        const origin = relayServerOrigin(config.relayServer ?? '')
-        relayCredential = (await this.deps.relayCredential?.(origin)) ?? null
+        relayCredential = (await this.deps.relayCredential?.(YACHIYO_CONNECT_SERVER)) ?? null
       }
       if (config.tunnel === 'relay' && !relayCredential)
-        throw new Error('Activate this relay server with an invitation before enabling Remote.')
+        throw new Error('Activate Yachiyo Connect with an invitation before enabling Remote.')
       const service = this.deps.createService({
         listen: { host: config.lanEndpoint ? '0.0.0.0' : '127.0.0.1', port: config.port },
         endpoints: () => this.endpoints(this.current?.config ?? config, service.port),

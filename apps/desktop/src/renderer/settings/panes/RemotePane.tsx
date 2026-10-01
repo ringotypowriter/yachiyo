@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Smartphone } from 'lucide-react'
-import type { RemoteTunnelMode, SettingsConfig } from '@yachiyo/shared/protocol'
+import {
+  YACHIYO_CONNECT_SERVER,
+  type RemoteTunnelMode,
+  type SettingsConfig
+} from '@yachiyo/shared/protocol'
 import type { RemotePairingInfo, RemoteStatusResult } from '@yachiyo/shared/remote/command'
 import { useT } from '@yachiyo/i18n/react'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
@@ -209,18 +213,13 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
     { value: 'none', label: t('settings.remote.tunnelNone') }
   ]
   const relayActivated = Boolean(
-    status?.relay.activated && status.relay.server === remote.relayServer
+    status?.relay.activated && status.relay.server === YACHIYO_CONNECT_SERVER
   )
   const activate = async (): Promise<void> => {
     setActivating(true)
     setError(null)
     try {
-      const activated = await window.api.yachiyo.activateRemoteRelay(
-        remote.relayServer ?? '',
-        invite.trim()
-      )
-      if (activated.relay.server)
-        onChange(withRemote(draft, { relayServer: activated.relay.server }))
+      await window.api.yachiyo.activateRemoteRelay(invite.trim())
       setInvite('')
       await reload()
     } catch {
@@ -291,8 +290,8 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
               />
               <button
                 type="button"
-                style={buttonStyle(activating || !invite || !remote.relayServer)}
-                disabled={activating || !invite || !remote.relayServer}
+                style={buttonStyle(activating || !invite)}
+                disabled={activating || !invite}
                 onClick={() => void activate()}
               >
                 {t('settings.remote.relayActivate')}

@@ -976,7 +976,6 @@ test('remote settings round-trip through parse → normalize → stringify → p
     metricsPort: 48002,
     namedHostname: 'yachiyo.example.com',
     publicEndpoint: 'https://vm.example.com',
-    relayServer: '',
     lanEndpoint: true,
     keepAwakeOnPower: false
   }
@@ -998,32 +997,32 @@ test('relay settings survive normalization and TOML persistence without storing 
   }
   const normalized = normalizeSettingsConfig({ remote })
   assert.equal(normalized.remote?.tunnel, 'relay')
-  assert.equal(normalized.remote?.relayServer, remote.relayServer)
+  assert.equal(Object.hasOwn(normalized.remote!, 'relayServer'), false)
   const serialized = stringifySettingsToml(normalized)
   const restored = normalizeSettingsConfig(parseSettingsToml(serialized))
   assert.deepEqual(restored.remote, {
     ...DEFAULT_REMOTE_CONFIG,
     enabled: true,
-    tunnel: 'relay',
-    relayServer: remote.relayServer
+    tunnel: 'relay'
   })
   assert.equal(serialized.includes('not-a-persisted-setting'), false)
+  assert.equal(serialized.includes('relayServer'), false)
 })
 
-test('missing relay addresses use the confirmed service while custom addresses and modes remain unchanged', () => {
+test('Connect server is not a user setting; legacy addresses are discarded without changing modes', () => {
   const defaulted = normalizeSettingsConfig({ remote: {} }).remote
-  assert.equal(defaulted?.relayServer, 'https://yachiyo-relay-production.up.railway.app')
+  assert.equal(Object.hasOwn(defaulted!, 'relayServer'), false)
   assert.equal(defaulted?.enabled, false)
   assert.equal(defaulted?.tunnel, 'quick')
   const custom = normalizeSettingsConfig({
     remote: { relayServer: 'https://custom.example.com' }
   }).remote
-  assert.equal(custom?.relayServer, 'https://custom.example.com')
+  assert.equal(Object.hasOwn(custom!, 'relayServer'), false)
 })
 
-test('invalid relay server values normalize to the default address without changing existing modes', () => {
+test('invalid legacy relay server values are discarded without changing existing modes', () => {
   const remote = normalizeSettingsConfig({ remote: { tunnel: 'named', relayServer: 123 } }).remote
-  assert.equal(remote?.relayServer, DEFAULT_REMOTE_CONFIG.relayServer)
+  assert.equal(Object.hasOwn(remote!, 'relayServer'), false)
   assert.equal(remote?.tunnel, 'named')
   assert.equal(normalizeSettingsConfig({ remote: {} }).remote?.tunnel, 'quick')
 })

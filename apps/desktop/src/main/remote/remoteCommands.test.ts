@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { DEFAULT_REMOTE_CONFIG, type SettingsConfig } from '@yachiyo/shared/protocol'
-import type { RemoteStatusResult } from '@yachiyo/shared/remote/command'
+import { remoteCommandRequestSchema, type RemoteStatusResult } from '@yachiyo/shared/remote/command'
 
 import { handleRemoteCommand, type RemoteCommandDeps } from './remoteCommands.ts'
 import type { TunnelInstallMode } from './tunnelSupervisor.ts'
@@ -129,4 +129,22 @@ test('pairing QR command returns only an image and its expiry', async () => {
     imagePath: '/private/pairing qr/abc.png',
     expiresAt: '2026-09-22T00:05:00.000Z'
   })
+})
+
+test('Connect activation accepts only an invitation and strips caller-supplied server addresses', async () => {
+  const { deps } = createDeps()
+  const code = 'test-invitation'
+  const request = remoteCommandRequestSchema.parse({
+    action: 'relay-activate',
+    code,
+    server: 'https://untrusted.example'
+  })
+  assert.deepEqual(request, { action: 'relay-activate', code })
+  let calls = 0
+  deps.activateRelay = async (...args) => {
+    assert.deepEqual(args, [code])
+    calls++
+  }
+  await handleRemoteCommand(request, deps)
+  assert.equal(calls, 1)
 })

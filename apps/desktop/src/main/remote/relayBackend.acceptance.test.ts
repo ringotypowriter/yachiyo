@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import WebSocket from 'ws'
 
+import { YACHIYO_CONNECT_SERVER } from '@yachiyo/shared/protocol'
 import type { RemoteChatAccepted } from '@yachiyo/shared/remote/methods'
 import { decodePairingUrl } from '@yachiyo/shared/remote/pairing'
 import { createFakeDesktopServer } from '@yachiyo/runtime/app/host/remote/testing/createFakeDesktopServer'
@@ -39,7 +40,7 @@ test(
     const port = (holder.address() as { port: number }).port
     await new Promise<void>((resolve) => holder.close(() => resolve()))
     const origin = `http://127.0.0.1:${port}`
-    const server = 'https://relay.example'
+    const server = YACHIYO_CONNECT_SERVER
     const adminToken = randomBytes(32).toString('base64url')
     const signingKey = randomBytes(32).toString('base64url')
     // Real HTTP/WS Relay; only the final Apple transport is replaced with a recorder.
@@ -124,12 +125,12 @@ test(
       )
       const invitation = (await minted.json()) as { code: string; expiresAt: string }
       const activation = new RelayActivation(join(dir, 'remote'), plaintextSecretBox, localFetch)
-      const redeemed = await activation.redeem(server, invitation.code)
+      const redeemed = await activation.redeem(invitation.code)
       const credential = await activation.load()
       assert.equal(credential?.hostId, redeemed.hostId)
       assert.match(redeemed.hostId, /^[A-Za-z0-9_-]{22}$/)
       assert.ok(credential?.key.includes('.'), 'redeemed host credential is signed and expiring')
-      assert.deepEqual(await activation.redeem(server, invitation.code), redeemed)
+      assert.deepEqual(await activation.redeem(invitation.code), redeemed)
       fake = await createFakeDesktopServer({ chunkDelayMs: 0 })
       const ports = createInProcessRemotePorts(fake.server)
       let lanEndpoint = ''
@@ -150,7 +151,10 @@ test(
         relayTestTransport: {
           fetch: localFetch,
           connect: (url, headers) =>
-            new WebSocket(url.replace('wss://relay.example', `ws://127.0.0.1:${port}`), { headers })
+            new WebSocket(
+              url.replace(server.replace(/^https:/, 'wss:'), `ws://127.0.0.1:${port}`),
+              { headers }
+            )
         }
       })
       await service.start()
@@ -163,7 +167,7 @@ test(
       if (bootstrap.kind !== 'relay') throw new Error('Missing relay endpoint')
       const localPhone = (endpoint: typeof bootstrap): string =>
         endpoint.url
-          .replace('wss://relay.example', `ws://127.0.0.1:${port}`)
+          .replace(server.replace(/^https:/, 'wss:'), `ws://127.0.0.1:${port}`)
           .replace(/\/ws$/, `/${randomUUID()}/ws`)
       const paired = await RemoteTestClient.pair(pairingUrl, {
         endpoint: localPhone(bootstrap),

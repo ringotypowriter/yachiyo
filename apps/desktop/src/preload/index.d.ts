@@ -275,7 +275,7 @@ declare global {
         listSyncConflicts: () => Promise<ListSyncConflictsResult>
         resolveSyncConflict: (input: ResolveSyncConflictInput) => Promise<ListSyncConflictsResult>
         getRemoteStatus: () => Promise<RemoteStatusResult>
-        activateRemoteRelay: (server: string, code: string) => Promise<RemoteStatusResult>
+        activateRemoteRelay: (code: string) => Promise<RemoteStatusResult>
         createRemotePairing: () => Promise<{ url: string; expiresAt: string; svg: string }>
         listRemotePairings: () => Promise<RemotePairingInfo[]>
         revokeRemotePairing: (pairingId: string) => Promise<boolean>
