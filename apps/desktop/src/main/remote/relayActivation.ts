@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { z } from 'zod'
 
 import type { SecretBox } from './pairingStore.ts'
 import { relayServerOrigin } from './relayHost.ts'
@@ -10,34 +11,80 @@ export interface RelayCredential {
   key: string
 }
 
+const signedTokenSchema = z
+  .string()
+  .max(224)
+  .regex(/^[A-Za-z0-9_-]{60,180}\.[A-Za-z0-9_-]{43}$/)
+const tokenPayloadSchema = z.strictObject({
+  v: z.literal(1),
+  t: z.enum(['invite', 'host']),
+  id: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+  exp: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+})
+const credentialSchema = z.object({
+  server: z.string(),
+  hostId: tokenPayloadSchema.shape.id,
+  key: signedTokenSchema
+})
+type TokenPayload = z.infer<typeof tokenPayloadSchema>
+
+/** Decode public metadata only; the relay verifies the signature, never the desktop. */
+function tokenPayload(value: unknown, purpose: TokenPayload['t']): TokenPayload | null {
+  const token = signedTokenSchema.safeParse(value)
+  if (!token.success) return null
+  const encoded = token.data.split('.')[0]!
+  try {
+    const bytes = Buffer.from(encoded, 'base64url')
+    if (bytes.toString('base64url') !== encoded) return null
+    const parsed = tokenPayloadSchema.safeParse(JSON.parse(bytes.toString('utf8')))
+    return parsed.success && parsed.data.t === purpose ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
 /** Invitations are never stored; only the SecretBox-wrapped host credential survives restart. */
 export class RelayActivation {
   private readonly path: string
   private readonly directory: string
   private readonly secretBox: SecretBox
   private readonly fetchImpl: typeof fetch
-  constructor(directory: string, secretBox: SecretBox, fetchImpl: typeof fetch = fetch) {
+  private readonly now: () => number
+
+  constructor(
+    directory: string,
+    secretBox: SecretBox,
+    fetchImpl: typeof fetch = fetch,
+    now = Date.now
+  ) {
     this.directory = directory
     this.secretBox = secretBox
     this.fetchImpl = fetchImpl
+    this.now = now
     this.path = join(directory, 'relay-activation.bin')
   }
+
   async load(): Promise<RelayCredential | null> {
     const bytes = await readFile(this.path).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return null
       throw error
     })
     if (!bytes) return null
-    const value = JSON.parse(this.secretBox.decrypt(bytes).toString('utf8')) as RelayCredential
-    if (!/^[A-Za-z0-9_-]{43,128}$/.test(value.key) || !/^[A-Za-z0-9_-]{1,48}$/.test(value.hostId)) {
-      throw new Error('Stored relay activation is invalid.')
-    }
-    relayServerOrigin(value.server)
-    return value
+    const parsed = credentialSchema.safeParse(
+      JSON.parse(this.secretBox.decrypt(bytes).toString('utf8'))
+    )
+    if (!parsed.success) return null
+    const payload = tokenPayload(parsed.data.key, 'host')
+    if (!payload || payload.id !== parsed.data.hostId || payload.exp <= this.now()) return null
+    relayServerOrigin(parsed.data.server)
+    return parsed.data
   }
+
   async redeem(server: string, code: string): Promise<{ hostId: string }> {
     const origin = relayServerOrigin(server)
-    if (!/^[A-Za-z0-9_-]{43}$/.test(code)) throw new Error('Enter a valid invitation code.')
+    const invitation = tokenPayload(code, 'invite')
+    if (!invitation || invitation.exp <= this.now())
+      throw new Error('Enter a valid invitation code.')
     const response = await this.fetchImpl(`${origin}/v1/invitations/redeem`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -46,19 +93,23 @@ export class RelayActivation {
       signal: AbortSignal.timeout(10_000)
     })
     if (!response.ok) throw new Error('Relay invitation could not be redeemed.')
-    const value: unknown = await response.json()
+    const parsed = credentialSchema.omit({ server: true }).safeParse(await response.json())
+    const host = parsed.success ? tokenPayload(parsed.data.key, 'host') : null
     if (
-      !value ||
-      typeof value !== 'object' ||
-      !('hostId' in value) ||
-      typeof value.hostId !== 'string' ||
-      !/^[A-Za-z0-9_-]{1,48}$/.test(value.hostId) ||
-      !('key' in value) ||
-      typeof value.key !== 'string' ||
-      !/^[A-Za-z0-9_-]{43,128}$/.test(value.key)
-    )
+      !parsed.success ||
+      !host ||
+      host.id !== parsed.data.hostId ||
+      host.id !== invitation.id ||
+      host.exp !== invitation.exp ||
+      host.exp <= this.now()
+    ) {
       throw new Error('Relay activation response is invalid.')
-    const credential: RelayCredential = { server: origin, hostId: value.hostId, key: value.key }
+    }
+    const credential: RelayCredential = {
+      server: origin,
+      hostId: parsed.data.hostId,
+      key: parsed.data.key
+    }
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
     const temp = `${this.path}.${process.pid}.tmp`
     await writeFile(temp, this.secretBox.encrypt(Buffer.from(JSON.stringify(credential))), {

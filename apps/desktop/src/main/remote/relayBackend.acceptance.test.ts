@@ -33,15 +33,15 @@ test(
     await new Promise<void>((resolve) => holder.close(() => resolve()))
     const origin = `http://127.0.0.1:${port}`
     const server = 'https://relay.example'
-    const hostKey = randomBytes(32).toString('base64url')
-    const invite = randomBytes(32).toString('base64url')
+    const adminToken = randomBytes(32).toString('base64url')
+    const signingKey = randomBytes(32).toString('base64url')
     const child = spawn('bun', ['src/main.ts'], {
       cwd: backend,
       env: {
         ...process.env,
         PORT: String(port),
-        RELAY_HOSTS: JSON.stringify([{ id: 'mac-1', key: hostKey }]),
-        RELAY_INVITES: JSON.stringify([{ code: invite, hostId: 'mac-1' }])
+        ADMIN_TOKEN: adminToken,
+        INVITATION_SIGNING_KEY: signingKey
       },
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -74,10 +74,24 @@ test(
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
       assert.equal((await fetch(`${origin}/health`)).status, 200, 'real Bun relay started')
+      const minted = await fetch(`${origin}/v1/admin/invitations`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiresInDays: 1 })
+      })
+      assert.equal(
+        minted.status,
+        200,
+        'administrator can mint an invitation without a device registry'
+      )
+      const invitation = (await minted.json()) as { code: string; expiresAt: string }
       const activation = new RelayActivation(join(dir, 'remote'), plaintextSecretBox, localFetch)
-      assert.deepEqual(await activation.redeem(server, invite), { hostId: 'mac-1' })
+      const redeemed = await activation.redeem(server, invitation.code)
       const credential = await activation.load()
-      assert.equal(credential?.key, hostKey)
+      assert.equal(credential?.hostId, redeemed.hostId)
+      assert.match(redeemed.hostId, /^[A-Za-z0-9_-]{22}$/)
+      assert.ok(credential?.key.includes('.'), 'redeemed host credential is signed and expiring')
+      assert.deepEqual(await activation.redeem(server, invitation.code), redeemed)
       fake = await createFakeDesktopServer({ chunkDelayMs: 0 })
       const ports = createInProcessRemotePorts(fake.server)
       let lanEndpoint = ''
