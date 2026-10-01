@@ -64,7 +64,7 @@ const service = new RemoteService({
   server: observeRequests(ports.server, ['sendChat'], Number(values['send-delay-ms'])),
   host: observeRequests(
     ports.host,
-    ['host.remote.listThreadSummaries', 'host.remote.loadThread'],
+    ['host.remote.listThreadSummaries', 'host.remote.loadThreadMeasured'],
     Number(values['snapshot-delay-ms'])
   ),
   subscribe: (listener) => fake.server.subscribe(listener),
