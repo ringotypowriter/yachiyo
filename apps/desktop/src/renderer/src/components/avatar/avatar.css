@@ -30,6 +30,13 @@
 .yachiyo-avatar[data-phase='loading'] .yachiyo-avatar__pose {
   animation: none;
 }
+.yachiyo-avatar__loading-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.yachiyo-avatar[data-phase='loading'] .yachiyo-avatar__loading-dot {
+  animation: avatar-loading-dot 1.25s ease-in-out infinite;
+}
 .yachiyo-avatar[data-phase='thinking'] .yachiyo-avatar__gaze {
   animation: avatar-think 7.4s ease-in-out infinite;
 }
@@ -74,6 +81,18 @@
   animation-play-state: paused !important;
 }
 
+@keyframes avatar-loading-dot {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  30% {
+    transform: translateY(-5px) scale(0.94, 1.1);
+  }
+  60% {
+    transform: translateY(0) scale(1.12, 0.88);
+  }
+}
 @keyframes avatar-breathe {
   0%,
   100% {
@@ -84,12 +103,29 @@
   }
 }
 @keyframes avatar-thought-dot {
-  0%, 10%, 72%, 100% { opacity: 0; transform: translateY(1px) scale(0.5); }
-  24%, 56% { opacity: 1; transform: translateY(0) scale(1); }
+  0%,
+  10%,
+  72%,
+  100% {
+    opacity: 0;
+    transform: translateY(1px) scale(0.5);
+  }
+  24%,
+  56% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 @keyframes avatar-waiting-dot {
-  0%, 100% { opacity: 0.5; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1.05); }
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
 }
 @keyframes avatar-blink {
   0%,

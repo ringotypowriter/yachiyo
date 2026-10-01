@@ -209,26 +209,10 @@ export function YachiyoAvatar({
             <g className="yachiyo-avatar__pose">
               <g filter={reducedMotion ? undefined : `url(#${id})`} fill="var(--avatar-body)">
                 {[0, 1, 2].map((index) => (
-                  <motion.g
+                  <g
                     key={index}
-                    initial={false}
-                    style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-                    animate={{
-                      y: moving && dots ? [0, -5, 0, 0] : 0,
-                      scaleX: moving && dots ? [1, 0.94, 1.12, 1] : 1,
-                      scaleY: moving && dots ? [1, 1.1, 0.88, 1] : 1
-                    }}
-                    transition={
-                      moving && dots
-                        ? {
-                            duration: 1.25,
-                            repeat: Infinity,
-                            delay: index * 0.13,
-                            times: [0, 0.3, 0.6, 1],
-                            ease: 'easeInOut'
-                          }
-                        : { duration: 0.15 }
-                    }
+                    className="yachiyo-avatar__loading-dot"
+                    style={{ animationDelay: `${index * 0.13}s` }}
                   >
                     <motion.circle
                       cy="32"
@@ -236,7 +220,7 @@ export function YachiyoAvatar({
                       animate={{ cx: dots ? 22 + index * 28 : 50, r: dots ? 8 : 22 }}
                       transition={moving ? spring : { duration: 0 }}
                     />
-                  </motion.g>
+                  </g>
                 ))}
                 <motion.circle
                   className="yachiyo-avatar__hand"

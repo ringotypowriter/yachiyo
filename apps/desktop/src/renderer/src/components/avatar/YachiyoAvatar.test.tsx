@@ -43,3 +43,21 @@ test('export avatar stops motion without changing the canonical idle artwork or 
     'Static rendering must retain the body-shaping filter'
   )
 })
+
+test('loading exposes three staggered native animation targets, including in static exports', () => {
+  for (const staticAvatar of [false, true]) {
+    const { document } = parseHTML(
+      renderToStaticMarkup(<YachiyoAvatar phase="loading" static={staticAvatar} />)
+    )
+    const dots = document.querySelectorAll('.yachiyo-avatar__loading-dot')
+    assert.equal(dots.length, 3)
+    assert.deepEqual(
+      [...dots].map((dot) => (dot as HTMLElement).style.getPropertyValue('animation-delay')),
+      ['0s', '0.13s', '0.26s']
+    )
+    assert.equal(
+      document.querySelector('.yachiyo-avatar')?.getAttribute('data-moving'),
+      String(!staticAvatar)
+    )
+  }
+})
