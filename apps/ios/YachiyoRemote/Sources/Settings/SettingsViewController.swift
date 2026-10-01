@@ -99,15 +99,15 @@ final class SettingsViewController: UITableViewController {
             case 0:
                 content.text = String(localized: "Theme")
                 content.secondaryText = ThemeController.shared.themeOverride?.displayName ?? String(localized: "Follow \(primaryName)")
-                cell.accessoryView = menuButton(themeMenu())
+                cell.accessoryView = menuButton(themeMenu(), title: content.secondaryText!)
             case 1:
                 content.text = String(localized: "Light or dark")
                 content.secondaryText = ThemeController.shared.appearancePreference.displayName
-                cell.accessoryView = menuButton(appearanceMenu())
+                cell.accessoryView = menuButton(appearanceMenu(), title: content.secondaryText!)
             default:
                 content.text = String(localized: "Primary device")
                 content.secondaryText = primaryName
-                cell.accessoryView = menuButton(primaryMenu())
+                cell.accessoryView = menuButton(primaryMenu(), title: content.secondaryText!)
             }
         case .recovery:
             content.text = String(localized: "Yachiyo recovery folder")
@@ -133,6 +133,7 @@ final class SettingsViewController: UITableViewController {
             cell.selectionStyle = .none
             cell.accessoryView?.accessibilityLabel = content.text
             cell.accessoryView?.accessibilityValue = content.secondaryText
+            content.secondaryText = nil
         } else if Section(rawValue: indexPath.section) == .about, indexPath.row < 2 {
             cell.selectionStyle = .none
         } else {
@@ -236,12 +237,22 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
-    private func menuButton(_ menu: UIMenu) -> UIButton {
+    private func menuButton(_ menu: UIMenu, title: String) -> UIButton {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "chevron.up.chevron.down"), for: .normal)
+        var configuration = UIButton.Configuration.plain()
+        configuration.attributedTitle = AttributedString(title, attributes: AttributeContainer([
+            .foregroundColor: UIColor.secondaryLabel,
+            .font: UIFont.preferredFont(forTextStyle: .body),
+        ]))
+        configuration.image = UIImage(systemName: "chevron.up.chevron.down")
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = 12
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 12)
+        button.configuration = configuration
         button.menu = menu
         button.showsMenuAsPrimaryAction = true
-        button.frame.size = CGSize(width: 44, height: 44)
+        button.sizeToFit()
+        button.frame.size.height = max(44, button.frame.height)
         return button
     }
 

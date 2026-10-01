@@ -76,6 +76,30 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(element("thread.timeline").waitForExistence(timeout: 10))
     }
 
+    func testSettingsValueTextOpensMenus() {
+        continueAfterPairing()
+        let settings = app.buttons["inbox.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 30))
+        settings.tap()
+
+        let theme = app.cells.containing(.staticText, identifier: "Theme").firstMatch
+        XCTAssertTrue(theme.waitForExistence(timeout: 10))
+        theme.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
+        let fuji = app.buttons["Fuji"]
+        XCTAssertTrue(fuji.waitForExistence(timeout: 5), "Tapping the theme value opens its menu")
+        fuji.tap()
+
+        let appearance = app.cells.containing(.staticText, identifier: "Light or dark").firstMatch
+        appearance.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
+        let dark = app.buttons["Dark"]
+        XCTAssertTrue(dark.waitForExistence(timeout: 5), "Tapping the appearance value opens its menu")
+        dark.tap()
+        appearance.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
+        let system = app.buttons["System"]
+        XCTAssertTrue(system.waitForExistence(timeout: 5))
+        system.tap()
+    }
+
     func testInboxHeadersScrollWithContent() {
         continueAfterPairing()
         let list = app.collectionViews["inbox.list"]
