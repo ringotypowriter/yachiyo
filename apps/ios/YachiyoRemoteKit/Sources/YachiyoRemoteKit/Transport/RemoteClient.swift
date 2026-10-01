@@ -19,6 +19,7 @@ public struct RemoteCallError: Error, Equatable, Sendable {
 public struct PairingGrant: Equatable, Sendable {
     public let pairingId: String
     public let mailboxSecret: Data
+    public let relayEndpoint: StoredEndpoint?
 }
 
 public enum RemoteHandshakeMode: UInt8, Sendable {
@@ -522,7 +523,7 @@ private enum InboundMessage: Decodable {
     private enum CodingKeys: String, CodingKey { case kind, id, ok, error, payload }
     private struct ErrorBody: Decodable { let name: String?; let message: String? }
     private struct PayloadType: Decodable { let type: String? }
-    private struct GrantPayload: Decodable { let pairingId: String; let mailboxSecret: String }
+    private struct GrantPayload: Decodable { let pairingId: String; let mailboxSecret: String; let relayEndpoint: StoredEndpoint? }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -543,7 +544,7 @@ private enum InboundMessage: Decodable {
                 guard let payload = try? container.decode(GrantPayload.self, forKey: .payload),
                       let secret = Base64URL.decode(payload.mailboxSecret)
                 else { self = .ignored; return }
-                self = .grant(PairingGrant(pairingId: payload.pairingId, mailboxSecret: secret))
+                self = .grant(PairingGrant(pairingId: payload.pairingId, mailboxSecret: secret, relayEndpoint: payload.relayEndpoint))
             } else if let push = try? container.decode(RemotePush.self, forKey: .payload) {
                 self = .push(push)
             } else if let push = (try? container.decode(SalvagedPush.self, forKey: .payload))?.push {

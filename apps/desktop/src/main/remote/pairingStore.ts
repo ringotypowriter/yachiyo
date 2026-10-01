@@ -25,6 +25,8 @@ export interface PairingRecord {
 interface StoredPairing extends PairingRecord {
   /** `SecretBox`-encrypted mailbox secret, base64. */
   mailboxSecret: string
+  /** SecretBox-encrypted relay bearer, created once per pairing. */
+  relayKey?: string
 }
 
 interface PairingsFile {
@@ -71,6 +73,7 @@ export class PairingStore {
   private pairings: StoredPairing[] | null = null
   private offer: PairingOffer | null = null
   private writeQueue: Promise<void> = Promise.resolve()
+  private relayIds: string[] | null = null
 
   constructor(options: { directory: string; secretBox: SecretBox; now?: () => number }) {
     this.directory = options.directory
@@ -130,7 +133,7 @@ export class PairingStore {
     token: Buffer
     phoneKey: Buffer
     deviceName: string
-  }): Promise<{ record: PairingRecord; mailboxSecret: Buffer }> {
+  }): Promise<{ record: PairingRecord; mailboxSecret: Buffer; replacedPairingIds: string[] }> {
     const active = this.activeToken()
     if (!active || active.length !== input.token.length || !timingSafeEqual(active, input.token)) {
       throw new Error('Pairing token is no longer valid.')
@@ -143,15 +146,18 @@ export class PairingStore {
       deviceName: input.deviceName.slice(0, 200),
       phoneKey,
       mailboxSecret: this.secretBox.encrypt(mailboxSecret).toString('base64'),
+      relayKey: this.secretBox.encrypt(randomBytes(32)).toString('base64'),
       mailboxCounter: 0,
       createdAt: new Date(this.now()).toISOString()
     }
-    await this.mutate((pairings) => [
-      // Re-pairing the same phone key replaces the old record.
-      ...pairings.filter((pairing) => pairing.phoneKey !== phoneKey),
-      record
-    ])
-    return { record: toPublicRecord(record), mailboxSecret }
+    const replacedPairingIds: string[] = []
+    await this.mutate((pairings) => {
+      for (const pairing of pairings) {
+        if (pairing.phoneKey === phoneKey) replacedPairingIds.push(pairing.pairingId)
+      }
+      return [...pairings.filter((pairing) => pairing.phoneKey !== phoneKey), record]
+    })
+    return { record: toPublicRecord(record), mailboxSecret, replacedPairingIds }
   }
 
   async revoke(pairingId: string): Promise<boolean> {
@@ -164,6 +170,57 @@ export class PairingStore {
       })
     )
     return removed
+  }
+
+  async relayKey(pairingId: string): Promise<string> {
+    const current = (await this.load()).find((entry) => entry.pairingId === pairingId)
+    if (!current) throw new Error('Unknown pairing.')
+    if (!current.relayKey) {
+      await this.mutate((pairings) =>
+        pairings.map((entry) =>
+          entry.pairingId === pairingId
+            ? { ...entry, relayKey: this.secretBox.encrypt(randomBytes(32)).toString('base64') }
+            : entry
+        )
+      )
+    }
+    const stored = (await this.load()).find((entry) => entry.pairingId === pairingId)!
+    return this.secretBox.decrypt(Buffer.from(stored.relayKey!, 'base64')).toString('base64url')
+  }
+
+  /** Tracks every relay grant, including temporary QR bearers, to clean up after crashes. */
+  async relayGrantIds(): Promise<string[]> {
+    if (this.relayIds) return [...this.relayIds]
+    const raw = await readFile(join(this.directory, 'relay-grants.bin')).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      }
+    )
+    this.relayIds = raw
+      ? (JSON.parse(this.secretBox.decrypt(raw).toString('utf8')) as string[])
+      : []
+    return [...this.relayIds]
+  }
+
+  async trackRelayGrant(phone: string, granted: boolean): Promise<void> {
+    const run = async (): Promise<void> => {
+      const previous = await this.relayGrantIds()
+      const next = granted
+        ? [...new Set([...previous, phone])]
+        : previous.filter((id) => id !== phone)
+      const path = join(this.directory, 'relay-grants.bin')
+      await mkdir(this.directory, { recursive: true, mode: 0o700 })
+      await writeFile(
+        `${path}.${process.pid}.tmp`,
+        this.secretBox.encrypt(Buffer.from(JSON.stringify(next))),
+        { mode: 0o600 }
+      )
+      await rename(`${path}.${process.pid}.tmp`, path)
+      this.relayIds = next
+    }
+    this.writeQueue = this.writeQueue.then(run, run)
+    return this.writeQueue
   }
 
   async touch(pairingId: string): Promise<void> {

@@ -28,11 +28,14 @@ export interface RemoteCommandDeps {
     port: number | null
     connections: number
     endpoints: RemoteEndpoint[]
+    relayConnected?: boolean
   } | null
   listPairings(): Promise<PairingRecord[]>
   revokePairing(pairingId: string): Promise<boolean>
   createPairingQr?(): Promise<{ imagePath: string; expiresAt: string }>
   icloudDrive(): Promise<ICloudDriveState>
+  relayActivation?(): Promise<{ server: string } | null>
+  activateRelay?(server: string, code: string): Promise<void>
 }
 
 function remoteConfigOf(config: SettingsConfig): RemoteConfig {
@@ -41,10 +44,11 @@ function remoteConfigOf(config: SettingsConfig): RemoteConfig {
 
 async function status(deps: RemoteCommandDeps): Promise<RemoteStatusResult> {
   const remote = remoteConfigOf(await deps.getConfig())
-  const [tunnel, pairings, icloudDrive] = await Promise.all([
+  const [tunnel, pairings, icloudDrive, activation] = await Promise.all([
     deps.tunnel.status(remote),
     deps.listPairings(),
-    deps.icloudDrive()
+    deps.icloudDrive(),
+    deps.relayActivation?.() ?? Promise.resolve(null)
   ])
   const service = deps.service()
   return {
@@ -62,7 +66,12 @@ async function status(deps: RemoteCommandDeps): Promise<RemoteStatusResult> {
     },
     icloudDrive,
     pairings: pairings.length,
-    connections: service?.connections ?? 0
+    connections: service?.connections ?? 0,
+    relay: {
+      activated: activation !== null,
+      connected: service?.relayConnected ?? false,
+      server: activation?.server ?? null
+    }
   }
 }
 
@@ -77,6 +86,11 @@ export async function handleRemoteCommand(
   | { imagePath: string; expiresAt: string }
 > {
   switch (request.action) {
+    case 'relay-activate': {
+      if (!deps.activateRelay) throw new Error('Relay activation is unavailable.')
+      await deps.activateRelay(request.server, request.code)
+      return status(deps)
+    }
     case 'status':
       return status(deps)
     case 'tunnel-install': {

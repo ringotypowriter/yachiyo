@@ -15,6 +15,7 @@ export function withRemote(config: SettingsConfig, patch: Partial<RemoteConfig>)
 
 /** Preserve the complete endpoint when displaying or copying the server address. */
 export function remoteAddressLabel(status: RemoteStatusResult | null): string | null {
+  if (status?.tunnel === 'relay') return status.relay.server
   const endpoint =
     status?.endpoints.find((entry) => entry.kind === 'tunnel') ?? status?.endpoints[0]
   return endpoint?.url ?? null
@@ -32,7 +33,8 @@ export function remoteStatusHint(
   platform = 'darwin'
 ): RemoteStatusHint {
   if (!status?.running) return null
-  if (status.tunnel !== 'none' && !status.cloudflared.agentRunning) return 'cloudflared-stopped'
+  if (status.tunnel !== 'none' && status.tunnel !== 'relay' && !status.cloudflared.agentRunning)
+    return 'cloudflared-stopped'
   if (platform === 'win32' && status.tunnel === 'quick') return 'quick-address-changes'
   if (platform === 'darwin' && status.icloudDrive === 'unavailable') return 'icloud-unavailable'
   return null

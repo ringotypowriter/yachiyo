@@ -149,6 +149,8 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
   const [pairings, setPairings] = useState<RemotePairingInfo[]>([])
   const [qr, setQr] = useState<PairingQr | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [invite, setInvite] = useState('')
+  const [activating, setActivating] = useState(false)
 
   const reload = useCallback((): Promise<void> => {
     return Promise.all([
@@ -201,13 +203,38 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
   }
 
   const tunnelOptions: Array<{ value: RemoteTunnelMode; label: string }> = [
+    { value: 'relay', label: t('settings.remote.tunnelRelay') },
     { value: 'quick', label: t('settings.remote.tunnelQuick') },
     { value: 'named', label: t('settings.remote.tunnelNamed') },
     { value: 'none', label: t('settings.remote.tunnelNone') }
   ]
+  const relayActivated = Boolean(
+    status?.relay.activated && status.relay.server === remote.relayServer
+  )
+  const activate = async (): Promise<void> => {
+    setActivating(true)
+    setError(null)
+    try {
+      const activated = await window.api.yachiyo.activateRemoteRelay(
+        remote.relayServer ?? '',
+        invite.trim()
+      )
+      if (activated.relay.server)
+        onChange(withRemote(draft, { relayServer: activated.relay.server }))
+      setInvite('')
+      await reload()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setActivating(false)
+    }
+  }
   const address = remoteAddressLabel(status)
   const hint = remoteStatusHint(status, window.api.process.platform)
-  const canPair = Boolean(status?.running && status.endpoints.length > 0)
+  const canPair = Boolean(
+    status?.running &&
+    (status.tunnel === 'relay' ? status.relay.connected : status.endpoints.length > 0)
+  )
 
   return (
     <div className="flex-1 overflow-y-auto pb-8">
@@ -231,8 +258,62 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
             <SimpleSelect
               value={remote.tunnel}
               options={tunnelOptions}
-              onChange={(tunnel) => onChange(withRemote(draft, { tunnel }))}
+              onChange={(tunnel) => {
+                if (tunnel === 'relay' && !relayActivated) {
+                  setError(t('settings.remote.relayNeedActivation'))
+                  return
+                }
+                onChange(withRemote(draft, { tunnel }))
+              }}
             />
+          }
+        />
+        <SettingItem
+          label={t('settings.remote.relayServer')}
+          description={t('settings.remote.relayServerDescription')}
+          control={
+            <input
+              value={remote.relayServer ?? ''}
+              placeholder="https://relay.example.com"
+              spellCheck={false}
+              className="h-8 w-56 rounded-lg px-3 text-sm outline-none"
+              style={inputStyle()}
+              onChange={(event) =>
+                onChange(withRemote(draft, { relayServer: event.target.value.trim() }))
+              }
+            />
+          }
+        />
+        <SettingItem
+          label={t('settings.remote.relayInvite')}
+          description={
+            relayActivated
+              ? status?.relay.connected
+                ? t('settings.remote.relayConnected')
+                : t('settings.remote.relayActivated')
+              : t('settings.remote.relayInviteDescription')
+          }
+          control={
+            <div className="flex flex-wrap justify-end gap-2">
+              <input
+                value={invite}
+                type="password"
+                autoComplete="off"
+                placeholder="Invitation code"
+                spellCheck={false}
+                className="h-8 w-44 rounded-lg px-3 text-sm outline-none"
+                style={inputStyle()}
+                onChange={(event) => setInvite(event.target.value)}
+              />
+              <button
+                type="button"
+                style={buttonStyle(activating || !invite || !remote.relayServer)}
+                disabled={activating || !invite || !remote.relayServer}
+                onClick={() => void activate()}
+              >
+                {t('settings.remote.relayActivate')}
+              </button>
+            </div>
           }
         />
         {remote.tunnel === 'named' ? (

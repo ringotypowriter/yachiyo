@@ -622,6 +622,31 @@
             "url"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "relay"
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "token": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9_-]*$"
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "token"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -1653,6 +1678,31 @@
           "minLength": 43,
           "maxLength": 43,
           "pattern": "^[A-Za-z0-9_-]*$"
+        },
+        "relayEndpoint": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "relay"
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "token": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9_-]*$"
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "token"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

@@ -25,6 +25,7 @@ function status(overrides: Partial<RemoteStatusResult> = {}): RemoteStatusResult
     icloudDrive: 'available',
     pairings: 1,
     connections: 0,
+    relay: { activated: false, connected: false, server: null },
     ...overrides
   }
 }
@@ -77,4 +78,19 @@ test('withRemote patches only the remote section', () => {
   const next = withRemote({ providers: [] }, { enabled: true })
   assert.equal(next.remote?.enabled, true)
   assert.equal(next.remote?.tunnel, 'quick')
+})
+
+test('relay address shows only its origin and never a bearer; no cloudflared warning', () => {
+  const relay = status({
+    tunnel: 'relay',
+    endpoints: [],
+    relay: {
+      activated: true,
+      connected: true,
+      server: 'https://relay.example'
+    },
+    cloudflared: { ...status().cloudflared, agentRunning: false }
+  })
+  assert.equal(remoteAddressLabel(relay), 'https://relay.example')
+  assert.notEqual(remoteStatusHint(relay), 'cloudflared-stopped')
 })

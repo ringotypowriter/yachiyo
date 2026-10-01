@@ -14,14 +14,30 @@ public struct ResumeCursor: Codable, Equatable, Sendable {
 public struct StoredEndpoint: Codable, Equatable, Sendable {
     public var kind: String
     public var url: String
+    /// Relay phone bearer credential, stored with the pairing in the non-backed-up Keychain.
+    public var token: String?
 
-    public init(kind: String, url: String) {
+    public init(kind: String, url: String, token: String? = nil) {
         self.kind = kind
         self.url = url
+        self.token = token
     }
 
     init(_ endpoint: RemoteEndpoint) {
-        self.init(kind: endpoint.kind.rawValue, url: endpoint.url)
+        self.init(kind: endpoint.kind.rawValue, url: endpoint.url, token: endpoint.token)
+    }
+
+    /// A relay session URL is never persisted; a new UUID path is made for each dial.
+    var dialURL: URL? {
+        guard kind == "relay" else { return URL(string: url) }
+        guard let token, token.count == 43, Base64URL.decode(token)?.count == 32,
+              var components = URLComponents(string: url), components.scheme == "wss",
+              components.host != nil, components.user == nil, components.password == nil,
+              components.query == nil, components.fragment == nil,
+              components.percentEncodedPath.hasPrefix("/v1/phones/"), components.percentEncodedPath.hasSuffix("/ws")
+        else { return nil }
+        components.percentEncodedPath.insert(contentsOf: UUID().uuidString.lowercased() + "/", at: components.percentEncodedPath.index(components.percentEncodedPath.endIndex, offsetBy: -2))
+        return components.url
     }
 }
 

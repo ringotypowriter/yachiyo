@@ -976,6 +976,7 @@ test('remote settings round-trip through parse → normalize → stringify → p
     metricsPort: 48002,
     namedHostname: 'yachiyo.example.com',
     publicEndpoint: 'https://vm.example.com',
+    relayServer: '',
     lanEndpoint: true,
     keepAwakeOnPower: false
   }
@@ -984,6 +985,36 @@ test('remote settings round-trip through parse → normalize → stringify → p
 
   assert.deepEqual(reparsed.remote, remote)
   assert.deepEqual(normalizeSettingsConfig(parseSettingsToml('')).remote, DEFAULT_REMOTE_CONFIG)
+})
+
+test('relay settings survive normalization and TOML persistence without storing activation secrets', () => {
+  const remote = {
+    ...DEFAULT_REMOTE_CONFIG,
+    enabled: true,
+    tunnel: 'relay' as const,
+    relayServer: 'https://relay.example.com',
+    invitationCode: 'not-a-persisted-setting',
+    hostKey: 'not-a-persisted-setting'
+  }
+  const normalized = normalizeSettingsConfig({ remote })
+  assert.equal(normalized.remote?.tunnel, 'relay')
+  assert.equal(normalized.remote?.relayServer, remote.relayServer)
+  const serialized = stringifySettingsToml(normalized)
+  const restored = normalizeSettingsConfig(parseSettingsToml(serialized))
+  assert.deepEqual(restored.remote, {
+    ...DEFAULT_REMOTE_CONFIG,
+    enabled: true,
+    tunnel: 'relay',
+    relayServer: remote.relayServer
+  })
+  assert.equal(serialized.includes('not-a-persisted-setting'), false)
+})
+
+test('invalid relay server values normalize to an empty address without changing existing modes', () => {
+  const remote = normalizeSettingsConfig({ remote: { tunnel: 'named', relayServer: 123 } }).remote
+  assert.equal(remote?.relayServer, '')
+  assert.equal(remote?.tunnel, 'named')
+  assert.equal(normalizeSettingsConfig({ remote: {} }).remote?.tunnel, 'quick')
 })
 
 test('invalid remote values fall back to defaults field by field', () => {

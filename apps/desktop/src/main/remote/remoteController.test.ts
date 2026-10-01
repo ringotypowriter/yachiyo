@@ -30,7 +30,11 @@ class FakeService {
   }
 }
 
-function createController(): {
+function createController(
+  relayCredential?: (
+    server: string
+  ) => Promise<{ server: string; hostId: string; key: string } | null>
+): {
   controller: RemoteController<FakeService>
   created: FakeService[]
   wanted: boolean[]
@@ -40,6 +44,7 @@ function createController(): {
   const wanted: boolean[] = []
   const monitors: Array<(endpoint: RemoteEndpoint | null) => void> = []
   const controller = new RemoteController<FakeService>({
+    relayCredential,
     createService: (params) => {
       const service = new FakeService(params)
       created.push(service)
@@ -77,6 +82,26 @@ test('a disabled remote constructs nothing and holds no power blocker', async ()
   assert.equal(created.length, 0)
   assert.equal(controller.service, null)
   assert.deepEqual(wanted, [false])
+})
+
+test('relay bearer is loaded only for selected enabled relay; switching away stops it without touching cloudflared', async () => {
+  let reads = 0
+  const { controller, created } = createController(async (server) => {
+    reads++
+    return { server, hostId: 'mac-1', key: 'A'.repeat(43) }
+  })
+  const relay = enabled({ tunnel: 'relay', relayServer: 'https://relay.example' })
+  await controller.apply({ ...relay, enabled: false })
+  await controller.apply(enabled({ relayServer: relay.relayServer }))
+  assert.equal(reads, 0)
+  assert.equal(created[0]?.params.relayCredential, null)
+  await controller.apply(relay)
+  assert.equal(reads, 1)
+  assert.equal(created[1]?.params.relayCredential?.hostId, 'mac-1')
+  assert.deepEqual(created[1]?.params.endpoints(), [])
+  await controller.apply(enabled({ relayServer: relay.relayServer }))
+  assert.equal(created[1]?.running, false)
+  assert.equal(created[2]?.params.relayCredential, null)
 })
 
 test('enabling starts on loopback; disabling stops the service and releases the blocker', async () => {

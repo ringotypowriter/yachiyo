@@ -83,7 +83,12 @@ async function connect(
     store: {
       findByPhoneKey: async () => pairing,
       activeToken: () => token,
-      completePairing: async () => ({ record: pairing, mailboxSecret: Buffer.alloc(32, 9) }),
+      completePairing: async () => ({
+        record: pairing,
+        mailboxSecret: Buffer.alloc(32, 9),
+        replacedPairingIds: []
+      }),
+      list: async () => [pairing],
       touch: async () => {}
     },
     facade: {

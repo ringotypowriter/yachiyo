@@ -5,6 +5,8 @@ import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 import { REMOTE_WS_PATH } from '@yachiyo/shared/remote/wire'
 
 import type { RemoteKeepAwake } from './keepAwake.ts'
+import type { RelayCredential } from './relayActivation.ts'
+import { relayServerOrigin } from './relayHost.ts'
 
 export interface ManagedRemoteService {
   readonly port: number | null
@@ -23,10 +25,12 @@ export interface TunnelMonitor {
 export interface RemoteServiceParams {
   listen: { host: string; port: number }
   endpoints: () => RemoteEndpoint[]
+  relayCredential?: RelayCredential | null
 }
 
 export interface RemoteControllerDeps<TService extends ManagedRemoteService> {
   createService(params: RemoteServiceParams): TService
+  relayCredential?(server: string): Promise<RelayCredential | null>
   keepAwake: RemoteKeepAwake
   tunnel: TunnelMonitor
   /** First non-internal IPv4 address; injectable for tests. */
@@ -102,9 +106,11 @@ export class RemoteController<TService extends ManagedRemoteService> {
   endpoints(config: RemoteConfig, port: number | null): RemoteEndpoint[] {
     const endpoints: RemoteEndpoint[] = []
     const tunnel =
-      config.tunnel === 'none'
-        ? externalEndpoint(config.publicEndpoint)
-        : this.deps.tunnel.endpoint(config)
+      config.tunnel === 'relay'
+        ? null
+        : config.tunnel === 'none'
+          ? externalEndpoint(config.publicEndpoint)
+          : this.deps.tunnel.endpoint(config)
     if (tunnel) endpoints.push(tunnel)
     if (config.lanEndpoint && port !== null) {
       const address = (this.deps.lanAddress ?? firstLanAddress)()
@@ -114,7 +120,7 @@ export class RemoteController<TService extends ManagedRemoteService> {
   }
 
   private async reconcile(config: RemoteConfig): Promise<void> {
-    const key = `${config.port}|${config.lanEndpoint}`
+    const key = `${config.port}|${config.lanEndpoint}|${config.tunnel === 'relay' ? config.relayServer : ''}|${config.tunnel === 'relay'}`
     if (!config.enabled) {
       this.deps.keepAwake.setWanted(false)
       this.deps.tunnel.stopMonitoring()
@@ -131,9 +137,17 @@ export class RemoteController<TService extends ManagedRemoteService> {
       this.current = null
     }
     if (!this.current) {
+      let relayCredential: RelayCredential | null = null
+      if (config.tunnel === 'relay') {
+        const origin = relayServerOrigin(config.relayServer ?? '')
+        relayCredential = (await this.deps.relayCredential?.(origin)) ?? null
+      }
+      if (config.tunnel === 'relay' && !relayCredential)
+        throw new Error('Activate this relay server with an invitation before enabling Remote.')
       const service = this.deps.createService({
         listen: { host: config.lanEndpoint ? '0.0.0.0' : '127.0.0.1', port: config.port },
-        endpoints: () => this.endpoints(this.current?.config ?? config, service.port)
+        endpoints: () => this.endpoints(this.current?.config ?? config, service.port),
+        relayCredential
       })
       await service.start()
       this.current = { service, key, config }
@@ -150,6 +164,7 @@ export class RemoteController<TService extends ManagedRemoteService> {
     }
     this.deps.keepAwake.setWanted(config.keepAwakeOnPower)
     // A new quick-tunnel hostname reaches phones through the mailbox.
-    this.deps.tunnel.monitor(config, () => void this.current?.service.publishEndpoints())
+    if (config.tunnel === 'relay') this.deps.tunnel.stopMonitoring()
+    else this.deps.tunnel.monitor(config, () => void this.current?.service.publishEndpoints())
   }
 }

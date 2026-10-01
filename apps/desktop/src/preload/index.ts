@@ -355,6 +355,8 @@ const api = {
     resolveSyncConflict: (input: ResolveSyncConflictInput) =>
       ipcRenderer.invoke('yachiyo:resolve-sync-conflict', input),
     getRemoteStatus: () => ipcRenderer.invoke('yachiyo:remote-status'),
+    activateRemoteRelay: (server: string, code: string) =>
+      ipcRenderer.invoke('yachiyo:remote-activate-relay', { server, code }),
     createRemotePairing: () => ipcRenderer.invoke('yachiyo:remote-create-pairing'),
     listRemotePairings: () => ipcRenderer.invoke('yachiyo:remote-list-pairings'),
     revokeRemotePairing: (pairingId: string) =>

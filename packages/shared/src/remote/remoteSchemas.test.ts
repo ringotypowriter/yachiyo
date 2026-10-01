@@ -4,6 +4,7 @@ import test from 'node:test'
 import type { MessageRecord } from '../protocol.ts'
 
 import { remoteEventSchema, remotePushSchema } from './events.ts'
+import { remoteEndpointSchema } from './common.ts'
 import { buildRemoteProtocolJsonSchema } from './jsonSchema.ts'
 import { projectMessage, projectToolCall } from './project.ts'
 import { mailboxPlaintextSchema } from './mailbox.ts'
@@ -13,6 +14,7 @@ import {
   encodePairingUrl,
   handshakeClientPayloadSchema,
   pairingPayloadSchema,
+  pairingGrantSchema,
   type PairingPayload
 } from './pairing.ts'
 import {
@@ -23,6 +25,42 @@ import {
 } from './projections.ts'
 
 const KEY = 'A'.repeat(43)
+
+test('relay bearer is separate from a WSS phone base URL and can accompany an encrypted grant', () => {
+  const relayEndpoint = {
+    kind: 'relay' as const,
+    url: 'wss://relay.example/v1/phones/mac-1/phone-1/ws',
+    token: KEY
+  }
+  assert.deepEqual(remoteEndpointSchema.parse(relayEndpoint), relayEndpoint)
+  assert.deepEqual(
+    pairingPayloadSchema.parse(pairingPayload({ endpoints: [relayEndpoint] })).endpoints,
+    [relayEndpoint]
+  )
+  assert.deepEqual(
+    pairingGrantSchema.parse({
+      type: 'pairing.granted',
+      pairingId: 'phone-1',
+      mailboxSecret: KEY,
+      relayEndpoint
+    }).relayEndpoint,
+    relayEndpoint
+  )
+  assert.equal(
+    remoteEndpointSchema.safeParse({
+      ...relayEndpoint,
+      url: 'ws://relay.example/v1/phones/mac-1/phone-1/ws'
+    }).success,
+    false
+  )
+  assert.equal(
+    remoteEndpointSchema.safeParse({
+      ...relayEndpoint,
+      url: `wss://relay.example/v1/phones/mac-1/phone-1/ws?token=${KEY}`
+    }).success,
+    false
+  )
+})
 
 function pairingPayload(overrides: Partial<PairingPayload> = {}): PairingPayload {
   return {

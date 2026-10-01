@@ -58,6 +58,8 @@ export interface RemoteConnectionDeps {
   hub: () => RemoteEventHub
   onReady(connection: RemoteConnection): void
   onPaired?(record: PairingRecord): void
+  relayEndpoint?(record: PairingRecord): Promise<PairingGrant['relayEndpoint']>
+  onReplaced?(pairingId: string): Promise<void>
   onClosed(connection: RemoteConnection): void
   log(line: string): void
 }
@@ -297,6 +299,7 @@ function toWireError(error: unknown): { name: string; message: string } {
  */
 export class RemoteConnection {
   private state: State = { kind: 'handshake' }
+  private pendingPairingId: string | null = null
   private queue: Promise<void> = Promise.resolve()
   private queuedInboundBytes = 0
   private readonly inbound = new Set<{ frame: Buffer | null }>()
@@ -344,7 +347,7 @@ export class RemoteConnection {
   }
 
   get pairingId(): string | null {
-    return this.state.kind === 'ready' ? this.state.pairing.pairingId : null
+    return this.state.kind === 'ready' ? this.state.pairing.pairingId : this.pendingPairingId
   }
 
   private isClosed(): boolean {
@@ -370,6 +373,7 @@ export class RemoteConnection {
       this.state.transport.emitClose()
     }
     this.state = { kind: 'closed' }
+    this.pendingPairingId = null
     this.deps.onClosed(this)
   }
 
@@ -492,17 +496,27 @@ export class RemoteConnection {
     const firstMessage = await transport.decode(frame)
     if (firstMessage.kind !== 'rpc:request') throw new Error('Expected a pairing RPC request.')
     if (this.state.kind !== 'pairing') return
-    const { record, mailboxSecret } = await this.deps.store.completePairing({
+    const { record, mailboxSecret, replacedPairingIds } = await this.deps.store.completePairing({
       token,
       phoneKey,
       deviceName
     })
+    this.pendingPairingId = record.pairingId
+    if (this.state.kind !== 'pairing') return
+    const relayEndpoint = await this.deps.relayEndpoint?.(record)
+    for (const pairingId of replacedPairingIds) await this.deps.onReplaced?.(pairingId)
+    if (this.state.kind !== 'pairing') return
+    if (!(await this.deps.store.list()).some((pairing) => pairing.pairingId === record.pairingId)) {
+      this.close(REMOTE_CLOSE_CODES.revoked, 'revoked')
+      return
+    }
     if (this.state.kind !== 'pairing') return
     this.deps.onPaired?.(record)
     await this.becomeReady(transport, record, features, {
       type: 'pairing.granted',
       pairingId: record.pairingId,
-      mailboxSecret: mailboxSecret.toString('base64url')
+      mailboxSecret: mailboxSecret.toString('base64url'),
+      ...(relayEndpoint ? { relayEndpoint } : {})
     })
     transport.deliver(firstMessage)
   }

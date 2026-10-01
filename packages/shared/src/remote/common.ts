@@ -40,11 +40,36 @@ export const activeRunEnterBehaviorSchema = z
   .meta({ id: 'RemoteActiveRunEnterBehavior' })
 
 const wsUrlSchema = z.url({ protocol: /^wss?$/ }).max(2048)
+const relayUrlSchema = z
+  .string()
+  .max(2048)
+  .refine((value) => {
+    try {
+      const url = new URL(value)
+      return (
+        url.protocol === 'wss:' &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash &&
+        /^\/v1\/phones\/[^/]+\/[^/]+\/ws$/.test(url.pathname)
+      )
+    } catch {
+      return false
+    }
+  }, 'Expected a credential-free relay WSS phone base URL')
+
+export const relayEndpointSchema = z.object({
+  kind: z.literal('relay'),
+  url: relayUrlSchema,
+  token: key32Schema
+})
 
 export const remoteEndpointSchema = z
   .discriminatedUnion('kind', [
     z.object({ kind: z.literal('tunnel'), url: wsUrlSchema }),
-    z.object({ kind: z.literal('lan'), url: wsUrlSchema })
+    z.object({ kind: z.literal('lan'), url: wsUrlSchema }),
+    relayEndpointSchema
   ])
   .meta({ id: 'RemoteEndpoint' })
 

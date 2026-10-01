@@ -1,11 +1,7 @@
 import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage } from 'electron'
 import { hostname } from 'node:os'
 
-import {
-  DEFAULT_REMOTE_CONFIG,
-  type RemoteConfig,
-  type SettingsConfig
-} from '@yachiyo/shared/protocol'
+import { DEFAULT_REMOTE_CONFIG, type RemoteConfig } from '@yachiyo/shared/protocol'
 import type { RemoteCommandRequest } from '@yachiyo/shared/remote/command'
 import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
 import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
@@ -20,10 +16,12 @@ import { createRemoteKeepAwake } from './keepAwake.ts'
 import { defaultICloudDriveRoot, detectICloudDrive, MailboxWriter } from './mailboxWriter.ts'
 import { PairingStore, type PairingRecord } from './pairingStore.ts'
 import { prunePairingQrImagesOnStartup, storePairingQrImage } from './pairingQrImage.ts'
-import { handleRemoteCommand } from './remoteCommands.ts'
+import { handleRemoteCommand, type RemoteCommandDeps } from './remoteCommands.ts'
 import { RemoteController } from './remoteController.ts'
 import type { RemoteHostPort, RemoteServerPort } from './remoteFacade.ts'
 import { defaultRemoteDirectories, RemoteService } from './remoteService.ts'
+import { RelayActivation } from './relayActivation.ts'
+import { RelayAccess } from './relayAccess.ts'
 import {
   createRemoteCredentialSecretBox,
   createUnavailableRemoteBinding
@@ -48,6 +46,7 @@ export interface GatewayRemoteBinding {
   listPairings(): Promise<PairingRecord[]>
   revokePairing(pairingId: string): Promise<boolean>
   stop(): Promise<void>
+  activateRelay(server: string, code: string): Promise<unknown>
 }
 
 export interface RemotePairingQr {
@@ -60,6 +59,9 @@ export interface RemotePairingQr {
 /** IPC for Settings > Remote. The pairing URL never leaves the settings window. */
 export function registerRemoteIpc(binding: GatewayRemoteBinding): void {
   handleYachiyoIpc(IPC_CHANNELS.remoteStatus, () => binding.handleCommand({ action: 'status' }))
+  handleYachiyoIpc(IPC_CHANNELS.remoteActivateRelay, (input: { server: string; code: string }) =>
+    binding.activateRelay(input.server, input.code)
+  )
   handleYachiyoIpc(IPC_CHANNELS.remoteCreatePairing, async (): Promise<RemotePairingQr> => {
     const pairing = await binding.createPairingUrl()
     const svg = await QRCode.toString(pairing.url, {
@@ -105,7 +107,8 @@ export function createGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Gate
     stop: async () => {
       await encryptedBinding?.stop()
       encryptedBinding = null
-    }
+    },
+    activateRelay: (server, code) => binding().activateRelay(server, code)
   }
 }
 
@@ -130,6 +133,7 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
     }
   )
   const directories = defaultRemoteDirectories(yachiyoHome)
+  const activation = new RelayActivation(directories.directory, safeStorageSecretBox)
   const icloudRoot = process.platform === 'darwin' ? defaultICloudDriveRoot() : null
   let tunnel: RemoteTunnelSupervisor | null = null
   let controller: RemoteController<RemoteService> | null = null
@@ -144,7 +148,7 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
 
   const getController = (): RemoteController<RemoteService> =>
     (controller ??= new RemoteController<RemoteService>({
-      createService: ({ listen, endpoints }) =>
+      createService: ({ listen, endpoints, relayCredential }) =>
         new RemoteService({
           ...directories,
           secretBox: safeStorageSecretBox,
@@ -155,6 +159,7 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
           deviceName,
           appVersion: app.getVersion(),
           endpoints,
+          relayCredential,
           mailboxRoot: icloudRoot,
           onPaired: (record) => {
             if (!Notification.isSupported()) return
@@ -179,6 +184,8 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
         }
       }),
       tunnel: getTunnel(),
+      relayCredential: (server) =>
+        activation.load().then((saved) => (saved?.server === server ? saved : null)),
       log: (line) => console.log(line)
     }))
 
@@ -196,58 +203,76 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
     const store = pairingStore()
     const known = (await store.list()).some((pairing) => pairing.pairingId === pairingId)
     if (!known) return false
+    const secret = icloudRoot ? await store.mailboxSecret(pairingId) : null
+    const removed = await store.revoke(pairingId)
     if (icloudRoot) {
-      const secret = await store.mailboxSecret(pairingId)
-      const identity = await store.loadIdentity()
-      await new MailboxWriter({
-        root: icloudRoot,
-        store,
-        remoteDeviceId: identity.remoteDeviceId
-      }).remove(secret, pairingId)
+      try {
+        const identity = await store.loadIdentity()
+        await new MailboxWriter({
+          root: icloudRoot,
+          store,
+          remoteDeviceId: identity.remoteDeviceId
+        }).remove(secret!, pairingId)
+      } catch {
+        console.warn('[remote] mailbox cleanup unavailable; local pairing removed')
+      }
     }
-    return store.revoke(pairingId)
+    try {
+      const credential = await activation.load()
+      if (credential) await new RelayAccess(credential, store).revoke(pairingId)
+    } catch {
+      console.warn('[remote] relay revoke unavailable; local pairing removed')
+    }
+    return removed
   }
 
-  return {
-    apply: (config) => {
-      if (!config.enabled && !controller) return
-      void getController().apply(config)
-    },
-    handleCommand: (request) =>
-      handleRemoteCommand(request, {
-        getConfig: () => deps.server().getConfig(),
-        saveConfig: (config: SettingsConfig) => deps.server().saveConfig(config),
-        tunnel: getTunnel(),
-        service: () => {
-          const service = controller?.service
-          if (!service) return null
-          return {
+  const commandDeps = (): RemoteCommandDeps => ({
+    getConfig: () => deps.server().getConfig(),
+    saveConfig: (config) => deps.server().saveConfig(config),
+    tunnel: getTunnel(),
+    service: () => {
+      const service = controller?.service
+      return service
+        ? {
             port: service.port,
             connections: service.status()?.connections ?? 0,
+            relayConnected: service.relayConnected,
             endpoints: controller!.endpoints(
               controller!.config ?? DEFAULT_REMOTE_CONFIG,
               service.port
             )
           }
-        },
-        listPairings: () => pairingStore().list(),
-        revokePairing,
-        createPairingQr: async () => {
-          const cleanupError = await pairingQrCleanup
-          if (cleanupError) throw cleanupError
-          const service = controller?.service
-          if (!service) throw new Error('Enable remote access first.')
-          const pairing = await service.createPairingUrl()
-          const png = await QRCode.toBuffer(pairing.url, {
-            errorCorrectionLevel: 'M',
-            margin: 2
-          })
-          const imagePath = await storePairingQrImage({ png, expiresAt: pairing.expiresAt })
-          return { imagePath, expiresAt: pairing.expiresAt }
-        },
-        icloudDrive: () =>
-          icloudRoot ? detectICloudDrive(icloudRoot) : Promise.resolve('unavailable')
-      }),
+        : null
+    },
+    listPairings: () => pairingStore().list(),
+    revokePairing,
+    createPairingQr: async () => {
+      const cleanupError = await pairingQrCleanup
+      if (cleanupError) throw cleanupError
+      const service = controller?.service
+      if (!service) throw new Error('Enable remote access first.')
+      const pairing = await service.createPairingUrl()
+      const png = await QRCode.toBuffer(pairing.url, { errorCorrectionLevel: 'M', margin: 2 })
+      const imagePath = await storePairingQrImage({ png, expiresAt: pairing.expiresAt })
+      return { imagePath, expiresAt: pairing.expiresAt }
+    },
+    icloudDrive: () =>
+      icloudRoot ? detectICloudDrive(icloudRoot) : Promise.resolve('unavailable'),
+    relayActivation: () => activation.load(),
+    activateRelay: async (server, code) => {
+      await activation.redeem(server, code)
+    }
+  })
+
+  return {
+    apply: (config) => {
+      if (!config.enabled && !controller) return
+      // An offline reader created before the service started holds a snapshot of pairings.
+      // Recreate it after mode changes so an offline revoke never uses stale relay grants.
+      offlineStore = null
+      void getController().apply(config)
+    },
+    handleCommand: (request) => handleRemoteCommand(request, commandDeps()),
     createPairingUrl: () => {
       const service = controller?.service
       if (!service) return Promise.reject(new Error('Enable remote access first.'))
@@ -255,6 +280,8 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
     },
     listPairings: () => pairingStore().list(),
     revokePairing,
+    activateRelay: (server, code) =>
+      handleRemoteCommand({ action: 'relay-activate', server, code }, commandDeps()),
     stop: async () => {
       await controller?.stop()
       controller = null

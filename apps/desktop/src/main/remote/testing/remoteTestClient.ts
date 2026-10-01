@@ -39,6 +39,8 @@ interface ClientOptions {
   compression?: boolean
   /** Offered protocol features; omitted means the legacy handshake payload. */
   features?: readonly string[]
+  endpointHeaders?: Record<string, string>
+  waitForRelayOpen?: boolean
 }
 
 /**
@@ -114,7 +116,9 @@ export class RemoteTestClient {
       psk: Buffer.from(payload.token, 'base64url'),
       deviceName: options.deviceName ?? 'Node test phone',
       compression: options.compression ?? true,
-      ...(options.features ? { features: options.features } : {})
+      ...(options.features ? { features: options.features } : {}),
+      endpointHeaders: options.endpointHeaders,
+      waitForRelayOpen: options.waitForRelayOpen
     })
     return { client, phoneKeyPair, desktopKey, endpoint }
   }
@@ -129,7 +133,9 @@ export class RemoteTestClient {
       desktopKey: input.desktopKey,
       deviceName: input.deviceName ?? 'Node test phone',
       compression: input.compression ?? true,
-      ...(input.features ? { features: input.features } : {})
+      ...(input.features ? { features: input.features } : {}),
+      endpointHeaders: input.endpointHeaders,
+      waitForRelayOpen: input.waitForRelayOpen
     })
   }
 
@@ -143,17 +149,35 @@ export class RemoteTestClient {
       deviceName: string
       compression: boolean
       features?: readonly string[]
+      endpointHeaders?: Record<string, string>
+      waitForRelayOpen?: boolean
     }
   ): Promise<RemoteTestClient> {
-    const socket = new WebSocket(endpoint)
+    const socket = new WebSocket(endpoint, { headers: input.endpointHeaders })
     socket.binaryType = 'nodebuffer'
-    await new Promise<void>((resolve, reject) => {
+    // The relay can send `open` in the same event-loop turn as the WebSocket upgrade.
+    // Attach this listener before awaiting the transport's open event.
+    const relayOpen = input.waitForRelayOpen
+      ? new Promise<[Buffer, boolean]>((resolve, reject) => {
+          socket.once('message', (data: Buffer, isBinary: boolean) => resolve([data, isBinary]))
+          socket.once('close', () =>
+            reject(new Error('Relay closed before opening the phone stream.'))
+          )
+        })
+      : null
+    const transportOpen = new Promise<void>((resolve, reject) => {
       socket.once('open', () => resolve())
       socket.once('error', reject)
       socket.once('unexpected-response', (_request, response) =>
         reject(new Error(`Unexpected HTTP ${response.statusCode}`))
       )
     })
+    await Promise.all([transportOpen, relayOpen ?? Promise.resolve()])
+    if (input.waitForRelayOpen) {
+      const [data, binary] = await relayOpen!
+      if (binary || (JSON.parse(data.toString()) as { type?: string }).type !== 'open')
+        throw new Error('Relay did not open the phone stream.')
+    }
     const handshake = HandshakeState.initiator({
       pattern: input.mode === 'pair' ? 'IKpsk2' : 'IK',
       prologue: Buffer.from(REMOTE_NOISE_PROLOGUE, 'utf8'),

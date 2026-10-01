@@ -50,6 +50,7 @@ export const IPC_CHANNELS = {
   listSyncConflicts: 'yachiyo:list-sync-conflicts',
   resolveSyncConflict: 'yachiyo:resolve-sync-conflict',
   remoteStatus: 'yachiyo:remote-status',
+  remoteActivateRelay: 'yachiyo:remote-activate-relay',
   remoteCreatePairing: 'yachiyo:remote-create-pairing',
   remoteListPairings: 'yachiyo:remote-list-pairings',
   remoteRevokePairing: 'yachiyo:remote-revoke-pairing',

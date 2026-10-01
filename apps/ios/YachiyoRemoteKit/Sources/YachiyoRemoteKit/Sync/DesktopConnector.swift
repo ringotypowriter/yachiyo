@@ -12,6 +12,7 @@ public struct DesktopUnreachable: Error, Sendable {
 public struct DesktopConnector: Sendable {
     public let identityProvider: RemoteIdentityProvider
     public let channelFactory: WebSocketChannelFactory
+    public let relayChannelFactory: @Sendable (URL, String) -> any WebSocketChannel
     public let mailbox: MailboxSource?
     public let attemptTimeout: Duration
     /// How long an attempt runs alone before the next endpoint is dialed too.
@@ -20,11 +21,12 @@ public struct DesktopConnector: Sendable {
     public init(
         identity: RemoteClientIdentity,
         channelFactory: @escaping WebSocketChannelFactory = { URLSessionWebSocketChannel(url: $0) },
+        relayChannelFactory: @escaping @Sendable (URL, String) -> any WebSocketChannel = { RelayWebSocketChannel(url: $0, token: $1) },
         mailbox: MailboxSource? = nil,
         attemptTimeout: Duration = .seconds(8),
         staggerDelay: Duration = .milliseconds(250)
     ) {
-        self.init(identityProvider: RemoteIdentityProvider(identity), channelFactory: channelFactory, mailbox: mailbox,
+        self.init(identityProvider: RemoteIdentityProvider(identity), channelFactory: channelFactory, relayChannelFactory: relayChannelFactory, mailbox: mailbox,
                   attemptTimeout: attemptTimeout, staggerDelay: staggerDelay)
     }
 
@@ -33,12 +35,14 @@ public struct DesktopConnector: Sendable {
     public init(
         identityProvider: RemoteIdentityProvider,
         channelFactory: @escaping WebSocketChannelFactory = { URLSessionWebSocketChannel(url: $0) },
+        relayChannelFactory: @escaping @Sendable (URL, String) -> any WebSocketChannel = { RelayWebSocketChannel(url: $0, token: $1) },
         mailbox: MailboxSource? = nil,
         attemptTimeout: Duration = .seconds(8),
         staggerDelay: Duration = .milliseconds(250)
     ) {
         self.identityProvider = identityProvider
         self.channelFactory = channelFactory
+        self.relayChannelFactory = relayChannelFactory
         self.mailbox = mailbox
         self.attemptTimeout = attemptTimeout
         self.staggerDelay = staggerDelay
@@ -63,7 +67,12 @@ public struct DesktopConnector: Sendable {
             guard plaintext.remoteDeviceId == desktop.remoteDeviceId else { return (desktop, status(.failed, "Mailbox device identity does not match this pairing.")) }
             var updated = desktop
             updated.mailboxCounter = plaintext.counter
-            updated.endpoints = plaintext.endpoints.map(StoredEndpoint.init)
+            // Older mailbox records only have direct addresses. A newer authenticated
+            // per-pair mailbox may rotate the permanent relay credential and must win.
+            let recovered = plaintext.endpoints.map(StoredEndpoint.init)
+            let relay = recovered.filter { $0.kind == "relay" && $0.dialURL != nil }
+            let retainedRelay = desktop.endpoints.filter { $0.kind == "relay" && $0.token != nil }
+            updated.endpoints = (relay.isEmpty ? retainedRelay : relay) + recovered.filter { $0.kind != "relay" }
             let changed = updated.endpoints != desktop.endpoints
             if changed {
                 updated.lastAddressUpdateAt = Date()
@@ -92,10 +101,10 @@ public struct DesktopConnector: Sendable {
     }
 
     /// Endpoint order for a dial: the last endpoint that worked, then the desktop's order.
-    static func dialOrder(_ desktop: PairedDesktop) -> [String] {
-        let urls = desktop.endpoints.map(\.url)
-        guard let preferred = desktop.lastSuccessfulURL, urls.contains(preferred) else { return urls }
-        return [preferred] + urls.filter { $0 != preferred }
+    static func dialOrder(_ desktop: PairedDesktop) -> [StoredEndpoint] {
+        guard let preferred = desktop.lastSuccessfulURL,
+              let index = desktop.endpoints.firstIndex(where: { $0.url == preferred }) else { return desktop.endpoints }
+        return [desktop.endpoints[index]] + desktop.endpoints.enumerated().filter { $0.offset != index }.map(\.element)
     }
 
     /// Races the endpoints and keeps the first whose Noise handshake completes; the others are
@@ -108,6 +117,7 @@ public struct DesktopConnector: Sendable {
         let recover: @Sendable (PairedDesktop) async -> (PairedDesktop, AddressRecoveryStatus) = recoverUsing ?? { await self.recover($0) }
         let desktopKey = desktop.desktopKey
         let channelFactory = channelFactory
+        let relayChannelFactory = relayChannelFactory
         let staggerDelay = staggerDelay
 
         enum Outcome: Sendable {
@@ -122,7 +132,7 @@ public struct DesktopConnector: Sendable {
         return try await withThrowingTaskGroup(of: Outcome.self) { group in
             var current = desktop
             var queue = Self.dialOrder(desktop)
-            var attempted = Set<String>()
+            var attempted = [StoredEndpoint]()
             var inFlight = 0
             var staggerId = 0
             var recoveryStarted = false
@@ -145,15 +155,18 @@ public struct DesktopConnector: Sendable {
             func startNext() async -> Bool {
                 while !queue.isEmpty {
                     let candidate = queue.removeFirst()
-                    guard attempted.insert(candidate).inserted, let url = URL(string: candidate) else { continue }
-                    await observe?(.attempting(url.absoluteString))
+                    guard !attempted.contains(candidate) else { continue }
+                    attempted.append(candidate)
+                    guard let url = candidate.dialURL else { continue }
+                    await observe?(.attempting(candidate.url))
                     inFlight += 1
                     group.addTask {
                         do {
                             let client = try await withTimeout {
-                                try await RemoteClient.connect(endpoint: url, desktopKey: desktopKey, identity: identity, channelFactory: channelFactory)
+                                try await RemoteClient.connect(endpoint: url, desktopKey: desktopKey, identity: identity,
+                                    channelFactory: candidate.kind == "relay" ? { _ in relayChannelFactory(url, candidate.token!) } : channelFactory)
                             }
-                            return .connected(client, url.absoluteString)
+                            return .connected(client, candidate.url)
                         } catch {
                             return .failed(error)
                         }
@@ -208,7 +221,7 @@ public struct DesktopConnector: Sendable {
                         // Publish and persist before the new endpoints are dialed.
                         recoveryReported = true
                         await observe?(.recovery(status, updated))
-                        let fresh = updated.endpoints.map(\.url).filter { !attempted.contains($0) }
+                        let fresh = updated.endpoints.filter { !attempted.contains($0) }
                         queue = fresh + queue.filter { !fresh.contains($0) }
                         if !fresh.isEmpty { _ = await startNext() }
                     }
@@ -262,14 +275,16 @@ public struct DesktopConnector: Sendable {
         var lastError: Error?
         for endpoint in payload.endpoints {
             try Task.checkCancellation()
-            guard let url = URL(string: endpoint.url) else { continue }
+            guard let url = StoredEndpoint(endpoint).dialURL else { continue }
             var pairedClient: RemoteClient?
             do {
                 let client = try await withTimeout {
-                    try await RemoteClient.pair(endpoint: url, desktopKey: desktopKey, token: token, identity: identity, channelFactory: channelFactory)
+                    try await RemoteClient.pair(endpoint: url, desktopKey: desktopKey, token: token, identity: identity,
+                        channelFactory: endpoint.kind == .relay ? { _ in relayChannelFactory(url, endpoint.token!) } : channelFactory)
                 }
                 pairedClient = client
                 let (hello, grant) = try await pairingGreeting(client: client)
+                if endpoint.kind == .relay && grant.relayEndpoint == nil { throw PairingURLError.malformedPayload }
                 try Task.checkCancellation()
                 var desktop = PairedDesktop(
                     remoteDeviceId: payload.remoteDeviceId,
@@ -277,11 +292,11 @@ public struct DesktopConnector: Sendable {
                     deviceName: hello.deviceName,
                     desktopKey: desktopKey,
                     mailboxSecret: grant.mailboxSecret,
-                    endpoints: payload.endpoints.map(StoredEndpoint.init),
+                    endpoints: payload.endpoints.filter { $0.kind != .relay }.map(StoredEndpoint.init) + (grant.relayEndpoint.map { [$0] } ?? []),
                     syncDeviceId: hello.syncDeviceId,
                     cursor: nil
                 )
-                desktop.lastSuccessfulURL = url.absoluteString
+                desktop.lastSuccessfulURL = endpoint.kind == .relay ? grant.relayEndpoint?.url : endpoint.url
                 return (client, desktop, hello)
             } catch {
                 pairedClient?.close()

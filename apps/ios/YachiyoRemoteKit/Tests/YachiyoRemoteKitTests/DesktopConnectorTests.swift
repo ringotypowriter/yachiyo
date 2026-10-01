@@ -22,6 +22,47 @@ private struct FixtureMailbox: MailboxSource {
 }
 
 final class DesktopConnectorTests: XCTestCase {
+    func testRelayCredentialSurvivesStorageAndLegacyEndpointsDecode() throws {
+        let endpoint = StoredEndpoint(kind: "relay", url: "wss://relay.example/v1/phones/host/phone/ws", token: String(repeating: "A", count: 43))
+        XCTAssertEqual(try JSONDecoder().decode(StoredEndpoint.self, from: JSONEncoder().encode(endpoint)), endpoint)
+        XCTAssertNil(try JSONDecoder().decode(StoredEndpoint.self, from: Data(#"{"kind":"lan","url":"ws://mac/remote/v1"}"#.utf8)).token)
+    }
+
+    func testRecoveryDoesNotOverwritePermanentRelayCredentialWithOlderMailboxAddresses() async throws {
+        let fixture = try Fixtures.json("mailbox.json") as! [String: Any]
+        let desktop = PairedDesktop(remoteDeviceId: (fixture["plaintext"] as! [String: Any])["remoteDeviceId"] as! String,
+                                    pairingId: "p1", deviceName: "Mac", desktopKey: Data(repeating: 9, count: 32),
+                                    mailboxSecret: Data(hex: fixture["mailboxSecret"] as! String), mailboxCounter: 2,
+                                    endpoints: [StoredEndpoint(kind: "relay", url: "wss://relay.example/v1/phones/host/phone/ws", token: String(repeating: "A", count: 43))])
+        let connector = DesktopConnector(identity: RemoteClientIdentity(staticPrivateKey: NoiseKeyPair.generatePrivateKey(), deviceName: "Test", appVersion: "1"),
+                                         mailbox: FixtureMailbox(id: fixture["mailboxId"] as! String, box: Data(hex: fixture["box"] as! String)))
+        let (updated, _) = await connector.recover(desktop)
+        XCTAssertEqual(updated.endpoints.first, desktop.endpoints.first)
+        XCTAssertEqual(updated.mailboxCounter, 5)
+    }
+
+    func testAuthenticatedNewMailboxRelayReplacesStoredCredential() async throws {
+        let fixture = try Fixtures.json("mailbox.json") as! [String: Any]
+        let secret = Data(hex: fixture["mailboxSecret"] as! String)
+        let keys = try Mailbox.deriveKeys(secret: secret)
+        let id = (fixture["plaintext"] as! [String: Any])["remoteDeviceId"] as! String
+        let old = StoredEndpoint(kind: "relay", url: "wss://old.example/v1/phones/host/phone/ws", token: String(repeating: "A", count: 43))
+        let new = StoredEndpoint(kind: "relay", url: "wss://new.example/v1/phones/host/phone/ws", token: String(repeating: "B", count: 43))
+        var body = fixture["plaintext"] as! [String: Any]
+        body["counter"] = 6
+        body["endpoints"] = [["kind": "relay", "url": new.url, "token": new.token!]]
+        let nonce = Data(repeating: 1, count: 12)
+        let box = Data([Mailbox.version]) + nonce + (try NoisePrimitives.seal(key: keys.mailboxKey, nonce: nonce,
+                                                                                  ad: Data([Mailbox.version]), plaintext: JSONSerialization.data(withJSONObject: body)))
+        let connector = DesktopConnector(identity: RemoteClientIdentity(staticPrivateKey: NoiseKeyPair.generatePrivateKey(), deviceName: "Test", appVersion: "1"),
+                                         mailbox: FixtureMailbox(id: keys.mailboxId, box: box))
+        let desktop = PairedDesktop(remoteDeviceId: id, pairingId: "p1", deviceName: "Mac", desktopKey: Data(repeating: 9, count: 32),
+                                    mailboxSecret: secret, mailboxCounter: 5, endpoints: [old])
+        let (updated, status) = await connector.recover(desktop)
+        XCTAssertEqual(status.outcome, .updated)
+        XCTAssertEqual(updated.endpoints, [new])
+    }
+
     func testFallsBackToMailboxEndpointsAfterEveryKnownEndpointFails() async throws {
         let fixture = try Fixtures.json("mailbox.json") as! [String: Any]
         let secret = Data(hex: fixture["mailboxSecret"] as! String)

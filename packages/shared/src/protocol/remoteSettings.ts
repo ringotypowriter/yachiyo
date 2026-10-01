@@ -1,5 +1,5 @@
 /** How the remote service is reached from outside the desktop. */
-export type RemoteTunnelMode = 'quick' | 'named' | 'none'
+export type RemoteTunnelMode = 'quick' | 'named' | 'none' | 'relay'
 
 export interface RemoteConfig {
   enabled: boolean
@@ -12,6 +12,8 @@ export interface RemoteConfig {
   namedHostname: string
   /** HTTPS or WSS ingress managed outside the app; used when tunnel is none. */
   publicEndpoint: string
+  /** HTTPS/WSS relay origin; host credentials are stored separately, encrypted on disk. */
+  relayServer?: string
   /** Also listen on the LAN and advertise a `lan` endpoint. */
   lanEndpoint: boolean
   /** Hold a power-save blocker while remote is enabled and on AC power. */
@@ -25,6 +27,7 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
   metricsPort: 47832,
   namedHostname: '',
   publicEndpoint: '',
+  relayServer: '',
   lanEndpoint: false,
   keepAwakeOnPower: true
 }

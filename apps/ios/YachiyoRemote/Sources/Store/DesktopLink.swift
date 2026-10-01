@@ -264,6 +264,9 @@ final class DesktopLink {
                 let underlying = (error as? DesktopUnreachable)?.lastError ?? error
                 if callTimedOut {
                     lastConnectionError = "\(connectionPhase) timed out. The desktop did not respond."
+                } else if let socketError = underlying as? WebSocketChannelError,
+                          socketError == .relayUnauthorized || socketError == .closed(code: 4404) {
+                    lastConnectionError = "Relay access expired or unavailable. Reconnect or scan a new pairing code."
                 } else if let urlError = underlying as? URLError {
                     switch urlError.code {
                     case .timedOut: lastConnectionError = "Connection timed out. Check the address and desktop service."

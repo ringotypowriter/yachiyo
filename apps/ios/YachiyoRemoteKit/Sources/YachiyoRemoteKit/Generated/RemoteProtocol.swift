@@ -926,15 +926,18 @@ public struct RemoteChatWithdrawSteerInput: Codable, Equatable, Sendable {
 public struct RemoteEndpoint: Codable, Equatable, Sendable {
     public let kind: RemoteEndpointKind
     public let url: String
+    public let token: String?
 
-    public init(kind: RemoteEndpointKind, url: String) {
+    public init(kind: RemoteEndpointKind, url: String, token: String?) {
         self.kind = kind
         self.url = url
+        self.token = token
     }
 }
 
 public enum RemoteEndpointKind: String, Codable, Equatable, Sendable {
     case lan = "lan"
+    case relay = "relay"
     case tunnel = "tunnel"
 }
 
@@ -1513,13 +1516,38 @@ public struct RemoteOk: Codable, Equatable, Sendable {
 public struct RemotePairingGrant: Codable, Equatable, Sendable {
     public let mailboxSecret: String
     public let pairingId: String
+    public let relayEndpoint: RelayEndpoint?
     public let type: RemotePairingGrantType
 
-    public init(mailboxSecret: String, pairingId: String, type: RemotePairingGrantType) {
+    public init(mailboxSecret: String, pairingId: String, relayEndpoint: RelayEndpoint?, type: RemotePairingGrantType) {
         self.mailboxSecret = mailboxSecret
         self.pairingId = pairingId
+        self.relayEndpoint = relayEndpoint
         self.type = type
     }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - RelayEndpoint
+public struct RelayEndpoint: Codable, Equatable, Sendable {
+    public let kind: RelayEndpointKind
+    public let token: String
+    public let url: String
+
+    public init(kind: RelayEndpointKind, token: String, url: String) {
+        self.kind = kind
+        self.token = token
+        self.url = url
+    }
+}
+
+public enum RelayEndpointKind: String, Codable, Equatable, Sendable {
+    case relay = "relay"
 }
 
 public enum RemotePairingGrantType: String, Codable, Equatable, Sendable {

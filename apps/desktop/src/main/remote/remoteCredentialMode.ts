@@ -38,6 +38,7 @@ export function createUnavailableRemoteBinding(): GatewayRemoteBinding {
     createPairingUrl: unavailable,
     listPairings: unavailable,
     revokePairing: unavailable,
+    activateRelay: unavailable,
     stop: async () => {}
   }
 }

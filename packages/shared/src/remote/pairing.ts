@@ -6,6 +6,7 @@ import {
   idSchema,
   isoDateTimeSchema,
   key32Schema,
+  relayEndpointSchema,
   remoteEndpointListSchema
 } from './common.ts'
 
@@ -45,7 +46,8 @@ export const pairingGrantSchema = z
   .object({
     type: z.literal('pairing.granted'),
     pairingId: idSchema,
-    mailboxSecret: key32Schema
+    mailboxSecret: key32Schema,
+    relayEndpoint: relayEndpointSchema.optional()
   })
   .meta({ id: 'RemotePairingGrant' })
 

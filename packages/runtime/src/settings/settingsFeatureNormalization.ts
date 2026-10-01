@@ -298,7 +298,7 @@ export function normalizeWebSearchConfig(
   }
 }
 
-const REMOTE_TUNNEL_MODES: readonly RemoteTunnelMode[] = ['quick', 'named', 'none']
+const REMOTE_TUNNEL_MODES: readonly RemoteTunnelMode[] = ['quick', 'named', 'none', 'relay']
 
 function normalizePort(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 && value < 65536
@@ -321,6 +321,7 @@ export function normalizeRemoteConfig(
     metricsPort: normalizePort(input['metricsPort'], fallback.metricsPort),
     namedHostname: normalizeString(input['namedHostname'], fallback.namedHostname),
     publicEndpoint: normalizeString(input['publicEndpoint'], fallback.publicEndpoint),
+    relayServer: normalizeString(input['relayServer'], fallback.relayServer ?? ''),
     lanEndpoint:
       typeof input['lanEndpoint'] === 'boolean' ? input['lanEndpoint'] : fallback.lanEndpoint,
     keepAwakeOnPower:

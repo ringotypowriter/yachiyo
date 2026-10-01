@@ -112,7 +112,7 @@ final class DeviceViewController: UITableViewController {
             return rows
         case .addresses:
             var rows = desktop.endpoints.enumerated().map { index, endpoint in
-                Row(title: index == 0 ? String(localized: "Saved target") : String(localized: "Alternate saved target"), detail: endpoint.url, copyValue: endpoint.url, identifier: "device.savedURL.\(index)")
+                Row(title: endpoint.kind == "relay" ? String(localized: "Relay target") : (index == 0 ? String(localized: "Saved target") : String(localized: "Alternate saved target")), detail: endpoint.url, copyValue: endpoint.url, identifier: "device.savedURL.\(index)")
             }
             if rows.isEmpty { rows.append(Row(title: String(localized: "Saved target"), detail: String(localized: "No saved address"))) }
             if let updatedAt = desktop.lastAddressUpdateAt {
@@ -216,7 +216,7 @@ final class DeviceViewController: UITableViewController {
         case .reconnect:
             store.retryConnection(desktopId: desktop.id)
         case .edit:
-            let editor = ServerAddressViewController(desktopId: desktop.id, address: desktop.endpoints.first?.url ?? "")
+            let editor = ServerAddressViewController(desktopId: desktop.id, address: desktop.endpoints.first(where: { $0.kind != "relay" })?.url ?? "")
             let navigation = UINavigationController(rootViewController: editor)
             navigation.modalPresentationStyle = .formSheet
             present(navigation, animated: true)

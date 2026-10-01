@@ -15,6 +15,11 @@ const hostnameSchema = z
 // A plain union: `tunnel-install` appears twice (quick and named), which a discriminated union forbids.
 export const remoteCommandRequestSchema = z.union([
   z.object({ action: z.literal('status') }),
+  z.object({
+    action: z.literal('relay-activate'),
+    server: z.string().min(1).max(2048),
+    code: z.string().min(1).max(200)
+  }),
   z.object({ action: z.literal('tunnel-install'), mode: z.literal('quick') }),
   z.object({
     action: z.literal('tunnel-install'),
@@ -51,6 +56,7 @@ export interface RemoteStatusResult {
   icloudDrive: 'available' | 'unavailable'
   pairings: number
   connections: number
+  relay: { activated: boolean; connected: boolean; server: string | null }
 }
 
 export interface RemotePairingInfo {

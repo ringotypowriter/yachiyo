@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import type { WebSocket } from 'ws'
 
 import type { YachiyoServerEvent } from '@yachiyo/shared/protocol'
 import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
@@ -17,6 +18,9 @@ import {
 } from './remoteFacade.ts'
 import { startRemoteHttpServer, type RemoteHttpServer } from './remoteHttpServer.ts'
 import { MailboxWriter } from './mailboxWriter.ts'
+import type { RelayCredential } from './relayActivation.ts'
+import { RelayAccess } from './relayAccess.ts'
+import { RelayHost } from './relayHost.ts'
 import {
   PairingStore,
   type DesktopIdentity,
@@ -41,6 +45,12 @@ export interface RemoteServiceOptions {
   endpoints: () => RemoteEndpoint[]
   /** iCloud Drive root for address-recovery mailboxes; null disables mailboxes. */
   mailboxRoot: string | null
+  relayCredential?: RelayCredential | null
+  /** Transport override for isolated local relay acceptance (URLs remain validated as HTTPS/WSS). */
+  relayTestTransport?: {
+    fetch: typeof fetch
+    connect(url: string, headers: { Authorization: string }): WebSocket
+  }
   onPaired?(record: PairingRecord): void
   onPairingsChanged?(): void
   log(line: string): void
@@ -70,6 +80,14 @@ export class RemoteService {
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private mailbox: MailboxWriter | null = null
   private readonly connections = new Set<RemoteConnection>()
+  private relay: RelayHost | null = null
+  private access: RelayAccess | null = null
+  private bootstrap: {
+    endpoint: Extract<RemoteEndpoint, { kind: 'relay' }>
+    phone: string
+    timer: ReturnType<typeof setTimeout>
+  } | null = null
+  private readonly bootstrapGrants = new Map<string, { active: number; expired: boolean }>()
 
   constructor(options: RemoteServiceOptions) {
     this.options = options
@@ -86,6 +104,10 @@ export class RemoteService {
 
   get eventHub(): RemoteEventHub | null {
     return this.hub
+  }
+
+  get relayConnected(): boolean {
+    return this.relay?.connected ?? false
   }
 
   async start(): Promise<void> {
@@ -119,6 +141,33 @@ export class RemoteService {
       port: this.options.listen.port,
       onConnection: (socket) => this.accept(socket)
     })
+    if (this.options.relayCredential) {
+      this.access = new RelayAccess(
+        this.options.relayCredential,
+        this.store,
+        this.options.relayTestTransport?.fetch
+      )
+      this.relay = new RelayHost({
+        server: this.options.relayCredential.server,
+        hostId: this.options.relayCredential.hostId,
+        key: this.options.relayCredential.key,
+        connect: this.options.relayTestTransport?.connect,
+        accept: (socket, phone) => this.accept(socket, phone),
+        authorizePhone: (phone) =>
+          !/^[0-9a-f]{32}$/.test(phone) ||
+          Boolean(
+            this.bootstrapGrants.get(phone) &&
+            !this.bootstrapGrants.get(phone)!.expired &&
+            this.store.activeToken()
+          ),
+        log: this.options.log
+      })
+      await this.relay.start(() =>
+        this.access!.restore(
+          this.bootstrap && this.store.activeToken() ? this.bootstrap.endpoint : undefined
+        )
+      )
+    }
     this.sweepTimer = setInterval(() => void this.attachments?.sweep(), UPLOAD_SWEEP_INTERVAL_MS)
     this.sweepTimer.unref()
     await this.publishEndpoints()
@@ -128,16 +177,43 @@ export class RemoteService {
   async publishEndpoints(pairingIds?: readonly string[]): Promise<void> {
     if (!this.mailbox) return
     try {
-      await this.mailbox.publish(this.options.endpoints(), pairingIds)
+      const endpoints = this.options.endpoints()
+      if (this.access) {
+        for (const pairing of (await this.store.list()).filter(
+          (entry) => !pairingIds || pairingIds.includes(entry.pairingId)
+        )) {
+          const key = await this.store.relayKey(pairing.pairingId)
+          await this.mailbox.publish(
+            [...endpoints, this.access.endpoint(pairing.pairingId, key)],
+            [pairing.pairingId]
+          )
+        }
+      } else await this.mailbox.publish(endpoints, pairingIds)
     } catch (error) {
       this.options.log(`[remote] mailbox write failed: ${String(error)}`)
     }
   }
 
   async stop(): Promise<void> {
+    if (this.bootstrap) clearTimeout(this.bootstrap.timer)
+    this.bootstrap = null
+    const temporaryPhones = [...this.bootstrapGrants.keys()]
+    this.bootstrapGrants.clear()
     for (const connection of [...this.connections]) {
       connection.close(REMOTE_CLOSE_CODES.shuttingDown, 'shutting down')
     }
+    await this.relay?.stop()
+    this.relay = null
+    await Promise.all(
+      temporaryPhones.map(async (phone) => {
+        try {
+          await this.access?.revoke(phone)
+        } catch {
+          this.options.log('[remote] relay bootstrap cleanup unavailable')
+        }
+      })
+    )
+    this.access = null
     if (this.sweepTimer) clearInterval(this.sweepTimer)
     this.sweepTimer = null
     await this.http?.close()
@@ -164,6 +240,24 @@ export class RemoteService {
   async createPairingUrl(): Promise<{ url: string; expiresAt: string }> {
     const identity = this.identity ?? (await this.store.loadIdentity())
     const endpoints = this.options.endpoints()
+    if (this.access && this.relay?.connected) {
+      // A new QR replaces the previous bootstrap grant. Never place its bearer in shared mailboxes.
+      const old = this.bootstrap
+      const endpoint = await this.access.bootstrap()
+      if (old) {
+        clearTimeout(old.timer)
+        this.expireBootstrap(old.phone)
+      }
+      const phoneId = new URL(endpoint.url).pathname.split('/')[4]
+      this.bootstrapGrants.set(phoneId, { active: 0, expired: false })
+      const timer = setTimeout(() => {
+        if (this.bootstrap?.endpoint === endpoint) this.bootstrap = null
+        this.expireBootstrap(phoneId)
+      }, 5 * 60_000)
+      timer.unref()
+      this.bootstrap = { endpoint, phone: phoneId, timer }
+      endpoints.unshift(endpoint)
+    }
     if (endpoints.length === 0) {
       throw new Error('Remote has no reachable endpoint yet; start the tunnel or enable LAN.')
     }
@@ -187,10 +281,16 @@ export class RemoteService {
     const known = (await this.store.list()).some((pairing) => pairing.pairingId === pairingId)
     const mailboxSecret = known ? await this.store.mailboxSecret(pairingId) : null
     const removed = await this.store.revoke(pairingId)
-    if (mailboxSecret) await this.mailbox?.remove(mailboxSecret, pairingId)
     for (const connection of [...this.connections]) {
       if (connection.pairingId === pairingId) {
         connection.close(REMOTE_CLOSE_CODES.revoked, 'revoked')
+      }
+    }
+    if (mailboxSecret) {
+      try {
+        await this.mailbox?.remove(mailboxSecret, pairingId)
+      } catch {
+        this.options.log('[remote] mailbox removal unavailable; local pairing removed')
       }
     }
     if ((await this.store.list()).length === 0) {
@@ -198,6 +298,13 @@ export class RemoteService {
       this.hub = null
     }
     if (removed) this.options.onPairingsChanged?.()
+    if (removed && this.access) {
+      try {
+        await this.access.revoke(pairingId)
+      } catch {
+        this.options.log('[remote] relay revoke unavailable; local pairing removed')
+      }
+    }
     return removed
   }
 
@@ -220,11 +327,23 @@ export class RemoteService {
     return this.hub
   }
 
-  private accept(socket: ConstructorParameters<typeof RemoteConnection>[0]): void {
+  private expireBootstrap(phone: string): void {
+    const grant = this.bootstrapGrants.get(phone)
+    if (!grant) return
+    grant.expired = true
+    if (grant.active === 0) {
+      this.bootstrapGrants.delete(phone)
+      void this.access?.revoke(phone).catch(() => undefined)
+    }
+  }
+
+  private accept(socket: ConstructorParameters<typeof RemoteConnection>[0], phone?: string): void {
     if (!this.identity || !this.facade) {
       socket.close(REMOTE_CLOSE_CODES.shuttingDown, 'not ready')
       return
     }
+    const bootstrap = phone ? this.bootstrapGrants.get(phone) : undefined
+    if (bootstrap) bootstrap.active++
     const connection = new RemoteConnection(socket, {
       identity: this.identity,
       store: this.store,
@@ -237,7 +356,42 @@ export class RemoteService {
         this.options.onPairingsChanged?.()
         void this.publishEndpoints([record.pairingId])
       },
-      onClosed: (closed) => this.connections.delete(closed),
+      relayEndpoint: this.access
+        ? async (record) => {
+            try {
+              const endpoint = await this.access!.paired(record.pairingId)
+              if (
+                !(await this.store.list()).some((pairing) => pairing.pairingId === record.pairingId)
+              ) {
+                await this.access!.revoke(record.pairingId)
+                return undefined
+              }
+              return endpoint
+            } catch {
+              this.options.log('[remote] relay phone registration unavailable')
+              return undefined
+            }
+          }
+        : undefined,
+      onReplaced: async (pairingId) => {
+        for (const prior of [...this.connections]) {
+          if (prior.pairingId === pairingId) prior.close(REMOTE_CLOSE_CODES.revoked, 'replaced')
+        }
+        if (this.access) {
+          try {
+            await this.access.revoke(pairingId)
+          } catch {
+            this.options.log('[remote] replaced relay grant cleanup unavailable')
+          }
+        }
+      },
+      onClosed: (closed) => {
+        this.connections.delete(closed)
+        if (bootstrap && phone) {
+          bootstrap.active--
+          if (bootstrap.expired) this.expireBootstrap(phone)
+        }
+      },
       log: this.options.log
     })
     this.connections.add(connection)

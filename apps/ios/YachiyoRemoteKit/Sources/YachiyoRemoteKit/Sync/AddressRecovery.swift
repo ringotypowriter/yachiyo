@@ -50,7 +50,9 @@ public enum DesktopAddress {
         let url = try normalize(address)
         if desktop.endpoints.first?.url == url { return desktop }
         var updated = desktop
-        updated.endpoints = [StoredEndpoint(kind: "manual", url: url)] + desktop.endpoints.dropFirst().filter { $0.kind == "lan" && $0.url != url }
+        updated.endpoints = [StoredEndpoint(kind: "manual", url: url)] + desktop.endpoints.filter {
+            ($0.kind == "lan" || $0.kind == "relay") && $0.url != url
+        }
         if updated.endpoints != desktop.endpoints {
             updated.lastAddressUpdateAt = date
             updated.lastAddressUpdateURL = url
