@@ -219,6 +219,7 @@ extension MessageListView: ListViewAdapter {
             return
         }
         if let messageRow = rowView as? MessageListRowView {
+            messageRow.readerDidReleaseRow = { [weak self] in self?.resumeFollowingIfReleased() }
             messageRow.contextMenuProvider = nil
             let menuTarget: (id: String, role: MessageRole)? = switch entry {
             case let .userContent(_, message): (message.id, message.role)

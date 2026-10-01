@@ -619,6 +619,28 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(app.collectionViews["inbox.list"].waitForExistence(timeout: 10), "the edge swipe still goes back")
     }
 
+    /// A message's menu lifts the row, and closing it leaves the timeline where it was.
+    func testMessageMenuOpensAndClosesInPlace() {
+        continueAfterPairing()
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "thread:demo-thread-long-history"]
+        app.launch()
+        let question = app.staticTexts["History question 159"]
+        XCTAssertTrue(question.waitForExistence(timeout: 30))
+        let before = question.frame
+        for _ in 0 ..< 2 {
+            question.press(forDuration: 1.2)
+            let copy = app.buttons["Copy"]
+            XCTAssertTrue(copy.waitForExistence(timeout: 10))
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: copy)
+            waitForExpectations(timeout: 10)
+            expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: question)
+            waitForExpectations(timeout: 10)
+            XCTAssertEqual(question.frame.minY, before.minY, accuracy: 2)
+        }
+    }
+
     /// The keyboard and a growing composer take space from the timeline in one step: a reader at
     /// the newest message keeps it just above the composer, and a reader in history keeps the
     /// message they were looking at where it was.

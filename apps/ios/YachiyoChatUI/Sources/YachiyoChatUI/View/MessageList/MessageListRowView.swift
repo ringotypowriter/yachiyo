@@ -113,13 +113,27 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
         setNeedsContentLayout()
     }
 
-    /// Called before each configure. Moving the row to a different entry clears text selection;
-    /// updating the same entry keeps it.
+    /// Called before each configure. Moving the row to a different entry ends what the reader was
+    /// doing with the old one (text selection, an open menu); updating the same entry keeps it.
     func represent(entryID: String) {
         guard representedEntryID != entryID else { return }
         representedEntryID = entryID
         clearTextSelection()
+        if isMenuPresented {
+            contentView.interactions.compactMap { $0 as? UIContextMenuInteraction }.forEach { $0.dismissMenu() }
+        }
     }
+
+    /// True while the reader is working with this row: its menu is up or its text is selected.
+    /// The timeline keeps a held row in place instead of following newer content.
+    var isHeldByReader: Bool {
+        isMenuPresented || textLabels().contains { $0.selectionRange != nil }
+    }
+
+    /// Called when the row's menu has gone; a selection ends without notice.
+    var readerDidReleaseRow: (() -> Void)?
+
+    private(set) var isMenuPresented = false
 
     /// Replaces this row's text. Litext keeps a selection's range across text replacement, so a
     /// selection survives only while every character up to its end is unchanged, as when a reply
@@ -183,6 +197,28 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
         } actionProvider: { _ in
             menu
         }
+    }
+
+    func contextMenuInteraction(
+        _: UIContextMenuInteraction,
+        willDisplayMenuFor _: UIContextMenuConfiguration,
+        animator _: (any UIContextMenuInteractionAnimating)?
+    ) {
+        isMenuPresented = true
+    }
+
+    func contextMenuInteraction(
+        _: UIContextMenuInteraction,
+        willEndFor _: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        let release = { [weak self] in
+            guard let self, isMenuPresented else { return }
+            isMenuPresented = false
+            readerDidReleaseRow?()
+        }
+        // The row stays held until the preview has settled back onto it.
+        if let animator { animator.addCompletion(release) } else { release() }
     }
 }
 

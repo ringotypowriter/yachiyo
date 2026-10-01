@@ -58,6 +58,9 @@ public final class MessageListView: UIView {
     /// While a spring scroll started by a structural change is settling, later deltas retarget
     /// it; afterwards following the bottom snaps, so content-only updates never start a spring.
     private var followSpringDeadline: CFTimeInterval = 0
+    /// Following stopped for a row the reader holds and resumes when they let go; their own
+    /// scrolling cancels it.
+    private var followWaitsForRelease = false
     private static let followSpringDuration: CFTimeInterval = 1
 
     public var session: (any ChatMessageSource)? {
@@ -72,6 +75,7 @@ public final class MessageListView: UIView {
             rowHeightCache.removeAll()
             isFirstLoad = true
             isAutoScrollingToBottom = true
+            followWaitsForRelease = false
             alpha = 0
             sessionScopedCancellables.forEach { $0.cancel() }
             sessionScopedCancellables.removeAll()
@@ -220,12 +224,41 @@ public final class MessageListView: UIView {
             listView.contentInset = contentSafeAreaInsets
         }
 
+        resumeFollowingIfReleased()
         if !listView.isTracking && !listView.isDecelerating && (isAutoScrollingToBottom || wasNearBottom) {
+            guard heldRowID() == nil else { return deferFollowing() }
             followBottom(animated: true)
             if wasNearBottom {
                 isAutoScrollingToBottom = true
             }
         }
+    }
+
+    /// The visible row the reader is working with (open menu, selected text), if any. It keeps
+    /// its place: content still updates, but following the newest content waits for the release.
+    private func heldRowID() -> String? {
+        for case let row as MessageListRowView in listView.visibleRowViews
+            where row.frame.intersects(listView.bounds) && row.isHeldByReader
+        {
+            if let id = row.representedEntryID, appliedEntryIDs.contains(id) { return id }
+        }
+        return nil
+    }
+
+    /// Stops following for a held row, as if the reader had scrolled away, and remembers to
+    /// return to the newest content once the row is released.
+    private func deferFollowing() {
+        guard !isContentOffsetNearBottom() else { return }
+        listView.cancelCurrentScrolling()
+        followSpringDeadline = 0
+        isAutoScrollingToBottom = false
+        followWaitsForRelease = true
+    }
+
+    func resumeFollowingIfReleased() {
+        guard followWaitsForRelease, heldRowID() == nil else { return }
+        followWaitsForRelease = false
+        scrollToBottom(animated: true)
     }
 
     /// The one follow-the-bottom path: a spring for structural changes and inset changes, a snap
@@ -328,6 +361,8 @@ public final class MessageListView: UIView {
         appliedEntryOrder = order
         pruneCaches(keeping: ids)
 
+        resumeFollowingIfReleased()
+        let heldRow = heldRowID()
         let shouldScrolling = scrolling && isAutoScrollingToBottom
 
         entryCount = entries.count
@@ -344,7 +379,9 @@ public final class MessageListView: UIView {
             // into) applies in place, so streaming never stacks list springs.
             let isStructural = !ids.subtracting(previousIDs).subtracting(continuationIDs).isEmpty
                 || !previousIDs.subtracting(ids).subtracting(previousContinuationIDs).isEmpty
-            let anchor = readingAnchor(in: previousOrder, surviving: ids)
+            // A held row is the anchor even when rows above it are visible too.
+            let anchor = heldRow.flatMap { id in ids.contains(id) ? readingAnchor(at: id, in: previousOrder) : nil }
+                ?? readingAnchor(in: previousOrder, surviving: ids)
             // Rows inserted or removed above the anchor shift it; animating their layout would
             // show that shift before the offset correction lands.
             let shiftsAnchor = isStructural && anchor.map { anchor in
@@ -354,7 +391,7 @@ public final class MessageListView: UIView {
             dataSource.applySnapshot(using: entries, animatingDifferences: isStructural && !shiftsAnchor)
             if let anchor { restore(anchor) }
             if shouldScrolling {
-                followBottom(animated: isStructural)
+                if heldRow == nil { followBottom(animated: isStructural) } else { deferFollowing() }
             }
         }
     }
@@ -384,6 +421,11 @@ public final class MessageListView: UIView {
             ?? (0 ..< firstVisible).last(where: holds)
         else { return nil }
         return ReadingAnchor(id: order[index], offsetInViewport: listView.rectForRow(at: index).minY - listView.contentOffset.y)
+    }
+
+    private func readingAnchor(at id: String, in order: [String]) -> ReadingAnchor? {
+        guard let index = order.firstIndex(of: id) else { return nil }
+        return ReadingAnchor(id: id, offsetInViewport: listView.rectForRow(at: index).minY - listView.contentOffset.y)
     }
 
     private func restore(_ anchor: ReadingAnchor) {
@@ -419,6 +461,7 @@ public final class MessageListView: UIView {
 extension MessageListView: UIScrollViewDelegate {
     public func scrollViewWillBeginDragging(_: UIScrollView) {
         isAutoScrollingToBottom = false
+        followWaitsForRelease = false
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {

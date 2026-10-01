@@ -1,5 +1,6 @@
 import Combine
 import ListViewKit
+import Litext
 import UIKit
 import XCTest
 @testable import YachiyoChatUI
@@ -112,7 +113,87 @@ final class ReadingAnchorTests: XCTestCase {
         XCTAssertEqual(delegate.requests, 2)
     }
 
+    func testSelectedTextHoldsItsRowWhileTheReplyGrowsThenFollowingResumes() async throws {
+        let source = HistorySource(messages: (141 ... 150).map(Self.message))
+        let list = await makeList(source)
+        let row = try XCTUnwrap(selectableRow(in: list))
+        let held = try XCTUnwrap(row.representedEntryID)
+        let label = try XCTUnwrap(labels(in: row).first)
+        label.selectionRange = NSRange(location: 0, length: 4)
+        let before = screenY(of: held, in: list)
+
+        await grow(source, in: list)
+        XCTAssertEqual(screenY(of: held, in: list), before, accuracy: 1, "the selected text stays under the reader's finger")
+        XCTAssertLessThan(list.scrollView.contentOffset.y, listView(list).maximumContentOffset.y - 50)
+        XCTAssertEqual(label.selectionRange, NSRange(location: 0, length: 4))
+
+        label.clearSelection()
+        await grow(source, in: list)
+        await waitUntilAtBottom(list)
+    }
+
+    func testOpenMenuHoldsItsRowAndClosingItReturnsToTheNewestContent() async throws {
+        let source = HistorySource(messages: (141 ... 150).map(Self.message))
+        let list = await makeList(source)
+        let row = try XCTUnwrap(selectableRow(in: list))
+        let held = try XCTUnwrap(row.representedEntryID)
+        let interaction = try XCTUnwrap(row.contentView.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let configuration = UIContextMenuConfiguration()
+        row.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: nil)
+        let before = screenY(of: held, in: list)
+
+        // Several updates arrive while the menu is up; only the newest state is shown afterwards.
+        for _ in 0 ..< 3 { await grow(source, in: list) }
+        XCTAssertEqual(screenY(of: held, in: list), before, accuracy: 1)
+        XCTAssertLessThan(list.scrollView.contentOffset.y, listView(list).maximumContentOffset.y - 50)
+
+        row.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        await waitUntilAtBottom(list)
+        XCTAssertFalse(row.isHeldByReader)
+    }
+
+    func testTheReadersOwnScrollingCancelsTheWaitingFollow() async throws {
+        let source = HistorySource(messages: (101 ... 150).map(Self.message))
+        let list = await makeList(source)
+        let label = try XCTUnwrap(labels(in: try XCTUnwrap(selectableRow(in: list))).first)
+        label.selectionRange = NSRange(location: 0, length: 4)
+        await grow(source, in: list)
+        // The reader drags into the history; the selected row leaves the screen behind them.
+        readHistory(in: list, at: 0.3)
+        let parked = list.scrollView.contentOffset.y
+        await grow(source, in: list)
+        XCTAssertEqual(list.scrollView.contentOffset.y, parked, accuracy: 1, "the reader stays where they scrolled to")
+    }
+
     // MARK: Helpers
+
+    /// The topmost row on screen whose text can be selected.
+    private func selectableRow(in list: MessageListView) -> MessageListRowView? {
+        list.scrollView.layoutIfNeeded()
+        return listView(list).visibleRowViews.compactMap { $0 as? MessageListRowView }
+            .filter { $0.frame.intersects(list.scrollView.bounds) && !labels(in: $0).isEmpty && $0.representedEntryID != nil }
+            .min { $0.frame.minY < $1.frame.minY }
+    }
+
+    private func labels(in view: UIView) -> [LTXLabel] {
+        view.subviews.flatMap { ($0 as? LTXLabel).map { [$0] } ?? labels(in: $0) }
+    }
+
+    /// The newest reply gains a paragraph, published the way a streaming run does.
+    private func grow(_ source: HistorySource, in list: MessageListView) async {
+        let before = listView(list).maximumContentOffset.y
+        source.messages.last?.textContent += "\n\n" + Self.paragraph(Int.random(in: 0 ... 3)) + Self.paragraph(1)
+        source.publish(scrolling: true)
+        let grown = expectation(for: NSPredicate { _, _ in self.listView(list).maximumContentOffset.y > before + 20 }, evaluatedWith: nil)
+        await fulfillment(of: [grown], timeout: 5)
+    }
+
+    private func waitUntilAtBottom(_ list: MessageListView) async {
+        let followed = expectation(for: NSPredicate { _, _ in
+            abs(list.scrollView.contentOffset.y - self.listView(list).maximumContentOffset.y) <= 2
+        }, evaluatedWith: nil)
+        await fulfillment(of: [followed], timeout: 5)
+    }
 
     private typealias Entry = MessageListView.Entry
 
