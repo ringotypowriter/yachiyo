@@ -14,6 +14,7 @@ export default defineConfig(
       '**/out',
       'tmp/**',
       '**/.astro',
+      '**/.build/**',
       'packages/runtime/src/services/processBroker/processHostProtocol.generated.ts'
     ]
   },
