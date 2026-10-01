@@ -619,6 +619,70 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(app.collectionViews["inbox.list"].waitForExistence(timeout: 10), "the edge swipe still goes back")
     }
 
+    /// The keyboard and a growing composer take space from the timeline in one step: a reader at
+    /// the newest message keeps it just above the composer, and a reader in history keeps the
+    /// message they were looking at where it was.
+    func testKeyboardAndComposerGrowthKeepTheTimelineViewport() {
+        continueAfterPairing()
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "thread:demo-thread-long-history"]
+        app.launch()
+        let reply = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'widerThanThePhone'")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 30))
+        let field = app.textViews["composer.text"]
+        func capture(_ name: String) {
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "viewport-\(name)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+        func settled(_ value: @escaping () -> CGFloat) -> CGFloat {
+            var last = value()
+            for _ in 0 ..< 20 {
+                Thread.sleep(forTimeInterval: 0.25)
+                let next = value()
+                if abs(next - last) < 0.5 { return next }
+                last = next
+            }
+            return last
+        }
+        let longDraft = String(repeating: "several lines of draft ", count: 6)
+
+        // Following the newest message.
+        let composer = element("thread.composer")
+        let gap = { composer.frame.minY - reply.frame.maxY }
+        let restingGap = settled(gap)
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertEqual(settled(gap), restingGap, accuracy: 2, "the keyboard lifts the newest message with the composer")
+        capture("bottom-keyboard")
+        let oneLine = field.frame.height
+        field.typeText(longDraft)
+        XCTAssertGreaterThan(field.frame.height, oneLine + 10, "the draft wraps onto several lines")
+        XCTAssertEqual(settled(gap), restingGap, accuracy: 2, "a taller composer lifts the newest message")
+        capture("bottom-multiline")
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: longDraft.count))
+        XCTAssertEqual(settled(gap), restingGap, accuracy: 2, "a shorter composer lets it back down")
+
+        // Reading history: scrolling away hides the keyboard.
+        let timeline = element("thread.timeline")
+        timeline.swipeDown(velocity: .fast)
+        timeline.swipeDown(velocity: .fast)
+        let questions = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'History question '"))
+        let anchor = questions.allElementsBoundByIndex.first { $0.isHittable }
+        guard let anchor else { return XCTFail("no visible question while reading history") }
+        let top = { anchor.frame.minY }
+        let restingTop = settled(top)
+        XCTAssertFalse(reply.isHittable, "the reader left the newest message")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertEqual(settled(top), restingTop, accuracy: 2, "the keyboard does not move what the reader is looking at")
+        capture("history-keyboard")
+        field.typeText(longDraft)
+        XCTAssertEqual(settled(top), restingTop, accuracy: 2, "a taller composer does not move it either")
+        capture("history-multiline")
+    }
+
     /// The fake desktop's long thread arrives in pages of 50. Scrolling up pages older history in
     /// above the reader until the first message, without the timeline jumping to a new page.
     func testEarlierHistoryPagesInAboveTheReader() {

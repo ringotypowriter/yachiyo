@@ -168,6 +168,7 @@ final class ThreadViewController: UIViewController {
         composer.placeholder = String(localized: "Message Yachiyo…")
         composer.bind(conversationID: "\(thread.desktopId)/\(thread.threadId)")
         composer.translatesAutoresizingMaskIntoConstraints = false
+        composer.accessibilityIdentifier = "thread.composer"
         view.addSubview(composer)
         NSLayoutConstraint.activate([
             composer.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 2),
