@@ -43,7 +43,14 @@ function seedLongHistoryThread(storage: YachiyoStorage): void {
       role: isUser ? 'user' : 'assistant',
       content: isUser
         ? `History question ${index}`
-        : `History answer ${index}\n\nThis reply fills a few lines so that one page of history is taller than the screen and paging has to keep the reading position.`,
+        : `History answer ${index}\n\nThis reply fills a few lines so that one page of history is taller than the screen and paging has to keep the reading position.${
+            // The newest reply ends in a code block wider than a phone, for horizontal scrolling.
+            index === LONG_HISTORY_MESSAGE_COUNT
+              ? '\n\n```ts\nconst widerThanThePhone = [' +
+                Array.from({ length: 24 }, (_, column) => `'column-${column}'`).join(', ') +
+                ']\n```'
+              : ''
+          }`,
       status: 'completed',
       createdAt: new Date(startedAt + index * 60_000).toISOString(),
       ...(isUser ? {} : { providerName: 'scripted', modelId: 'scripted-model' })

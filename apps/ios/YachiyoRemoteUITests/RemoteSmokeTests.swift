@@ -575,6 +575,50 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["thread.title"].waitForExistence(timeout: 15), "tapping the preview opens the thread")
     }
 
+    /// Going back is the navigation's gesture only where nothing else scrolls sideways: a wide code
+    /// block keeps its horizontal drags, and a back swipe that is let go early leaves the thread,
+    /// its draft and the keyboard as they were.
+    func testBackSwipeLeavesCodeScrollingAndCancelledSwipesAlone() {
+        continueAfterPairing()
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "thread:demo-thread-long-history"]
+        app.launch()
+        let title = app.staticTexts["thread.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 30))
+        let reply = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'widerThanThePhone'")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 30))
+        func capture(_ name: String) {
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "back-\(name)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+
+        // The code block closes the reply. Scroll it sideways, then drag it back twice: the second
+        // drag starts with the code at its leading edge.
+        let codeLeft = reply.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.88))
+        let codeRight = reply.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.88))
+        codeRight.press(forDuration: 0.05, thenDragTo: codeLeft)
+        capture("code-scrolled")
+        codeLeft.press(forDuration: 0.05, thenDragTo: codeRight)
+        codeLeft.press(forDuration: 0.05, thenDragTo: codeRight)
+        capture("code-dragged-back")
+        XCTAssertTrue(title.exists && title.isHittable, "dragging a code block does not leave the thread")
+
+        let field = app.textViews["composer.text"]
+        field.tap()
+        field.typeText("draft stays")
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.4))
+        edge.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4)), withVelocity: .slow, thenHoldForDuration: 0.6)
+        capture("cancelled")
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "a back swipe released early stays in the thread")
+        XCTAssertEqual(field.value as? String, "draft stays")
+        XCTAssertTrue(reply.exists)
+
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.4)))
+        XCTAssertTrue(app.collectionViews["inbox.list"].waitForExistence(timeout: 10), "the edge swipe still goes back")
+    }
+
     /// The fake desktop's long thread arrives in pages of 50. Scrolling up pages older history in
     /// above the reader until the first message, without the timeline jumping to a new page.
     func testEarlierHistoryPagesInAboveTheReader() {
