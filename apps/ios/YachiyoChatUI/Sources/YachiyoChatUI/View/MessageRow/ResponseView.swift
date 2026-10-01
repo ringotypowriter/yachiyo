@@ -32,8 +32,17 @@ final class ResponseView: MessageListRowView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// What VoiceOver reads for this chunk. MarkdownView draws its text without exposing it, so
+    /// the row carries the Markdown source, which loses nothing the rendered text shows.
+    var accessibilityText: String? {
+        get { contentView.accessibilityLabel }
+        set { contentView.accessibilityLabel = newValue }
+    }
+
     private func configureSubviews() {
         contentView.addSubview(markdownView)
+        contentView.isAccessibilityElement = true
+        contentView.accessibilityTraits = .staticText
     }
 
     override func themeDidUpdate() {

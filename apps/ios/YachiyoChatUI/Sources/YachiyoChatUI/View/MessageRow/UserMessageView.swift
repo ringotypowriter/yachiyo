@@ -15,6 +15,7 @@ final class UserMessageView: MessageListRowView {
 
     var text: String? {
         didSet {
+            contentView.accessibilityLabel = text
             guard text != oldValue || attributedText == nil else { return }
             guard let text else {
                 attributedText = nil
@@ -54,6 +55,9 @@ final class UserMessageView: MessageListRowView {
 
         textView.backgroundColor = .clear
         contentView.addSubview(textView)
+        // Litext draws the text itself, so the bubble is what VoiceOver reads.
+        contentView.isAccessibilityElement = true
+        contentView.accessibilityTraits = .staticText
     }
 
     @available(*, unavailable)

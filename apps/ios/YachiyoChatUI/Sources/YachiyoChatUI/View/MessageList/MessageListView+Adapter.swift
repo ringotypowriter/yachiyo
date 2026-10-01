@@ -230,6 +230,7 @@ extension MessageListView: ListViewAdapter {
         } else if let responseView = rowView as? ResponseView {
             if case let .responseContent(_, chunk) = entry {
                 responseView.theme = theme
+                responseView.accessibilityText = chunk.content
                 let messageID = chunk.messageId
                 responseView.linkTapHandler = { [weak self] payload, _, _ in
                     guard let self else { return }
