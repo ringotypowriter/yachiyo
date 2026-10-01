@@ -13,6 +13,7 @@ export default defineConfig(
       '**/dist',
       '**/out',
       'tmp/**',
+      '.yachiyo/**',
       '**/.astro',
       '**/.build/**',
       'packages/runtime/src/services/processBroker/processHostProtocol.generated.ts'
