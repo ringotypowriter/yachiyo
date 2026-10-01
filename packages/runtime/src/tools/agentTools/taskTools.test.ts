@@ -22,6 +22,7 @@ const snapshot: SubagentSnapshot = {
 test('steerTask addresses tasks by taskId while preserving parent and peer routing', async () => {
   const dispatched: Array<{ to: string; message: string }> = []
   const tool = createSteerTaskTool({
+    eliminate: () => false,
     dispatch: (input) => {
       dispatched.push(input)
       return { messageId: 'message-1', delivery: 'queued', recipientState: 'running' }
@@ -65,4 +66,57 @@ test('getTask reports an unknown or inaccessible task without leaking it', async
   )) as GetTaskToolOutput
 
   assert.match(result.error ?? '', /not found/)
+})
+
+test('steerTask eliminate cancels directly without dispatching a message', async () => {
+  const cancelled: string[] = []
+  const tool = createSteerTaskTool({
+    dispatch: () => {
+      throw new Error('Must not queue elimination')
+    },
+    eliminate: (taskId) => {
+      cancelled.push(taskId)
+      return true
+    }
+  })
+  const result = (await tool.execute!(
+    { taskId: 'task-1', action: 'eliminate' },
+    { toolCallId: 'call-1', messages: [], context: undefined }
+  )) as SteerTaskToolOutput
+  assert.deepEqual(cancelled, ['task-1'])
+  assert.equal(result.error, undefined)
+  assert.match(
+    result.content.map((block) => ('text' in block ? block.text : '')).join(''),
+    /cancelled/
+  )
+})
+
+test('steerTask eliminate reports an inaccessible or terminal task', async () => {
+  const tool = createSteerTaskTool({
+    dispatch: () => {
+      throw new Error('Must not dispatch')
+    },
+    eliminate: () => false
+  })
+  const result = (await tool.execute!(
+    { taskId: 'other-task', action: 'eliminate' },
+    { toolCallId: 'call-1', messages: [], context: undefined }
+  )) as SteerTaskToolOutput
+  assert.match(result.error ?? '', /not found|accessible|terminal/)
+})
+
+test('steerTask keeps an object-root provider schema and validates action-specific messages', async () => {
+  const { asSchema } = await import('ai')
+  const tool = createSteerTaskTool({
+    dispatch: () => {
+      throw new Error('unused')
+    },
+    eliminate: () => false
+  })
+  const schema = asSchema(tool.inputSchema)
+  assert.equal((await schema.jsonSchema).type, 'object')
+  assert.equal((await schema.validate!({ taskId: 'task-1', action: 'eliminate' })).success, true)
+  assert.equal((await schema.validate!({ taskId: 'task-1', message: 'Continue' })).success, true)
+  assert.equal((await schema.validate!({ taskId: 'task-1', action: 'steer' })).success, false)
+  assert.equal((await schema.validate!({ taskId: 'task-1', action: 'unknown' })).success, false)
 })

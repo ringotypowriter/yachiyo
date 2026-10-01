@@ -29,7 +29,10 @@ worker starts. Use `getTask` when the main agent needs the current state, recent
 progress, output, or error. Use `steerTask` with that ID to add work or wake an
 idle task; workers use the same tool to message the parent or a peer task. Every
 completed turn, empty completion, and exhausted network interruption is reported
-back to the parent automatically.
+back to the parent automatically. Set `steerTask` action to `eliminate` with an
+exact Task ID to immediately cancel a stuck or unneeded same-team worker, without
+queueing a message. No message is required; eliminated tasks cannot be resumed.
+Omitting action preserves the usual message behavior.
 
 :::note[Subagents start blank]
 A worker subagent sees only its system prompt and the prompt it is handed — not

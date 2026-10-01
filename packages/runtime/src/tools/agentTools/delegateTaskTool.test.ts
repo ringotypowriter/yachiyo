@@ -288,6 +288,7 @@ for (const profileId of ['explore', 'plan', 'review'] as const) {
       signal: new AbortController().signal,
       sendMessage: () => ({ messageId: 'message', delivery: 'queued', recipientState: 'idle' }),
       getTask: () => undefined,
+      eliminateTask: () => false,
       hasPendingMessages: () => false,
       onProgress: () => {},
       onToolCall: () => {}
@@ -360,6 +361,7 @@ test('Worker runner preserves prompt/mailbox history and Agent-specific prompt c
       return receipt
     },
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -444,6 +446,7 @@ test('Worker runner retries transient interruptions with bounded exponential bac
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -505,6 +508,7 @@ test('Worker runner stops after the bounded transient retry budget is exhausted'
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -579,6 +583,7 @@ test('Worker runner does not automatically retry non-retryable errors or cancell
       signal: controller.signal,
       sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
       getTask: () => undefined,
+      eliminateTask: () => false,
       hasPendingMessages: () => false,
       onProgress: () => {},
       onToolCall: () => {}
@@ -664,6 +669,7 @@ test('Worker retry resumes after completed tools without executing them again', 
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -737,6 +743,7 @@ test('Worker preserves a synthetic interrupted result for a dangling tool call b
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -851,6 +858,7 @@ test('Worker runner preserves the host jsRepl worker bundle path', async () => {
       recipientState: 'idle'
     }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -972,6 +980,7 @@ test('Worker runner preserves the host pyRepl runner and runtime dependencies', 
       recipientState: 'idle'
     }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -1031,6 +1040,7 @@ test('Worker runner omits pyRepl when managed Python is not ready', async () => 
       recipientState: 'idle'
     }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -1121,6 +1131,7 @@ test('Worker runner compacts with its own model before a follow-up turn', async 
       recipientState: 'idle'
     }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}

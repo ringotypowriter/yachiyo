@@ -262,13 +262,21 @@ export interface SubagentToolCallDetails {
   snapshotId?: string
 }
 
-export interface SteerTaskToolCallDetails {
-  kind: 'steerTask'
-  messageId: string
-  taskId: string
-  delivery: 'queued'
-  recipientState: 'running' | 'idle'
-}
+export type SteerTaskToolCallDetails =
+  | {
+      kind: 'steerTask'
+      action?: 'steer'
+      messageId: string
+      taskId: string
+      delivery: 'queued'
+      recipientState: 'running' | 'idle'
+    }
+  | {
+      kind: 'steerTask'
+      action: 'eliminate'
+      taskId: string
+      cancelled: boolean
+    }
 
 export interface GetTaskToolCallDetails {
   kind: 'getTask'

@@ -555,3 +555,47 @@ test('closeThread cancels and waits for only that thread while preserving other 
   assert.equal(harness.manager.list('thread-2')[0]?.state, 'running')
   await harness.manager.close()
 })
+
+test('eliminate aborts a same-team running task without waiting for a turn', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+  assert.equal(harness.manager.eliminate({ kind: 'parent', threadId: 'thread-1' }, 'agent-1'), true)
+  assert.equal(runner.turns[0]?.signal.aborted, true)
+  assert.equal(harness.manager.list('thread-1')[0]?.state, 'cancelled')
+  await flush()
+  assert.equal(runner.closeCount, 1)
+})
+
+test('eliminate closes an idle runner and cannot wake it again', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+  runner.resolveTurn('Done')
+  await flush()
+  assert.equal(harness.manager.eliminate({ kind: 'parent', threadId: 'thread-1' }, 'agent-1'), true)
+  await flush()
+  assert.equal(runner.closeCount, 1)
+  assert.throws(() => sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Resume'), /Terminal/)
+  assert.equal(
+    harness.manager.eliminate({ kind: 'parent', threadId: 'thread-1' }, 'agent-1'),
+    false
+  )
+})
+
+test('eliminate rejects cross-team, parent, self and terminal Worker requesters', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  await harness.manager.launch(launchInput({ agentId: 'agent-2' }))
+  assert.equal(
+    harness.manager.eliminate({ kind: 'parent', threadId: 'other-thread' }, 'agent-1'),
+    false
+  )
+  assert.equal(harness.manager.eliminate({ kind: 'agent', agentId: 'agent-1' }, 'parent'), false)
+  assert.equal(harness.manager.eliminate({ kind: 'agent', agentId: 'agent-1' }, 'agent-1'), false)
+  assert.equal(harness.manager.eliminate({ kind: 'agent', agentId: 'missing' }, 'agent-2'), false)
+  assert.equal(harness.manager.eliminate({ kind: 'agent', agentId: 'agent-1' }, 'agent-2'), true)
+  assert.equal(harness.manager.eliminate({ kind: 'agent', agentId: 'agent-2' }, 'agent-1'), false)
+  harness.manager.cancel('agent-1')
+  await flush()
+})

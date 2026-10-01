@@ -181,7 +181,15 @@ function createWorkerRunner(
   input: WorkerRunnerFactoryInput,
   factoryInput: SubagentRunnerFactoryInput
 ): SubagentRunner {
-  const { launch, onProgress, onToolCall, sendMessage, getTask, hasPendingMessages } = factoryInput
+  const {
+    launch,
+    onProgress,
+    onToolCall,
+    sendMessage,
+    getTask,
+    eliminateTask,
+    hasPendingMessages
+  } = factoryInput
   const profile = input.profile
   const { settings, config, activeSkills, createModelRuntime } = input.dependencies
   const sleep = input.dependencies.sleep ?? sleepWithSignal
@@ -283,6 +291,7 @@ function createWorkerRunner(
   }
   const workerTaskContext = {
     dispatch: sendMessage,
+    eliminate: eliminateTask,
     getTask
   }
   const workerDependencies = {

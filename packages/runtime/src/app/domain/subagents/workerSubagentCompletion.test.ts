@@ -47,6 +47,7 @@ async function withRunner(
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message', delivery: 'queued', recipientState: 'idle' }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages,
     onProgress: () => {},
     onToolCall: () => {}
@@ -121,6 +122,7 @@ test('general worker in Code Mode exposes file tools only inside REPL', async ()
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message', delivery: 'queued', recipientState: 'idle' }),
     getTask: () => undefined,
+    eliminateTask: () => false,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}

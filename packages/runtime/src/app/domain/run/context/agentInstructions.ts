@@ -108,6 +108,7 @@ export function buildSubagentContextBlock(
         '- Use `getTask` with an exact Task ID when you need its current state, latest progress, output, or error. Do not busy-poll.',
         '- After a Worker finishes a turn, its Task becomes idle and remains addressable with its conversation history until it expires.',
         '- Continue related work or recover an interrupted idle Task with `steerTask`. A running Task reads the steer at a safe boundary; an idle Task wakes immediately.',
+        '- Use `steerTask` with action "eliminate" and an exact Task ID to immediately cancel a stuck or unneeded same-team Worker. This aborts execution without waiting for a message to be read; eliminated Tasks cannot be resumed.',
         '- Launch a new Worker when the work should be independent or no suitable live Worker exists. Code names are display labels, not routing addresses.'
       )
     if (activeSubagents.length > 0) {

@@ -143,6 +143,11 @@ export function buildRunExecutionDeps(
                 to: messageInput.to,
                 message: messageInput.message
               }),
+            eliminate: (taskId) =>
+              context.subagentManager!.eliminate(
+                { kind: 'parent', threadId: input.currentThread.id },
+                taskId
+              ),
             getTask: (taskId) =>
               context.subagentManager!.get(
                 { kind: 'parent', threadId: input.currentThread.id },

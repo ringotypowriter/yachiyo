@@ -92,6 +92,7 @@ export interface SubagentRunnerFactoryInput {
   signal: AbortSignal
   sendMessage: (input: SendAgentMessageInput) => AgentMessageReceipt
   getTask: (taskId: string) => SubagentSnapshot | undefined
+  eliminateTask: (taskId: string) => boolean
   hasPendingMessages: () => boolean
   onProgress: (input: { turnId: string; chunk: string }) => void
   onToolCall: (input: {
@@ -256,6 +257,7 @@ export class SubagentManager {
           ...messageInput
         }),
       getTask: (taskId) => this.get({ kind: 'agent', agentId: input.agentId }, taskId),
+      eliminateTask: (taskId) => this.eliminate({ kind: 'agent', agentId: input.agentId }, taskId),
       hasPendingMessages: () => this.hasPendingMessages(input.agentId),
       onProgress: ({ turnId, chunk }) => {
         this.appendProgress(input.agentId, chunk)
@@ -407,6 +409,16 @@ export class SubagentManager {
     return { messageId: envelope.id, delivery: 'queued', recipientState }
   }
 
+  eliminate(requester: AgentEndpoint, taskId: string): boolean {
+    if (requester.kind === 'agent') {
+      const sender = this.agents.get(requester.agentId)
+      if (!sender || isTerminalState(sender.snapshot.state) || requester.agentId === taskId)
+        return false
+    }
+    if (!this.get(requester, taskId)) return false
+    return this.cancel(taskId)
+  }
+
   cancel(agentId: string): boolean {
     const record = this.agents.get(agentId)
     if (!record || isTerminalState(record.snapshot.state)) return false
@@ -422,6 +434,7 @@ export class SubagentManager {
       this.deliver(record, undefined, kind, `Task ${record.launch.agentId} was cancelled.`)
     }
     record.controller.abort(new Error('Task cancelled.'))
+    if (!record.drainPromise) this.startRunnerClose(record)
     return true
   }
   cancelRunningByThread(threadId: string): number {
