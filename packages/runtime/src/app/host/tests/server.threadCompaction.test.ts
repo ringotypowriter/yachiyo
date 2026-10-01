@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { setImmediate as flushImmediate } from 'node:timers/promises'
@@ -812,8 +812,9 @@ for (const handoff of ['compact', 'create', 'compact-pending'] as const) {
             }
           ).runDomain.backgroundBashManager
           const terminal = Promise.withResolvers<ProcessJobResult>()
-          const logPath = join(workspacePathForThread(source.id), 'handoff-shell.log')
-          await mkdir(workspacePathForThread(source.id), { recursive: true })
+          // Exercise JSON escaping of Windows-style path separators on every platform.
+          const logPath = join(workspacePathForThread(source.id), 'handoff-shell\\output.log')
+          await mkdir(dirname(logPath), { recursive: true })
           await writeFile(logPath, 'still running\n')
           await manager.adoptTask({
             taskId: 'handoff-shell',
@@ -864,8 +865,19 @@ for (const handoff of ['compact', 'create', 'compact-pending'] as const) {
               const latestRequest = modelRequests
                 .filter((request) => request.purpose !== 'thread-handoff')
                 .at(-1)
-              assert.ok(JSON.stringify(latestRequest?.messages).includes('handoff-shell'))
-              assert.ok(JSON.stringify(latestRequest?.messages).includes(logPath))
+              const context = latestRequest?.messages
+                .flatMap((message) =>
+                  typeof message.content === 'string' ? [message.content] : []
+                )
+                .find((content) => content.includes('Current running background shells'))
+              const payload = context?.match(
+                /Current running background shells[^\n]*\n(\[[^\n]*\])/
+              )?.[1]
+              assert.ok(payload, 'the new run receives its running shell context')
+              const running = JSON.parse(payload) as Array<{ taskId: string; logPath: string }>
+              assert.ok(
+                running.some((task) => task.taskId === 'handoff-shell' && task.logPath === logPath)
+              )
             }
 
             const completion = new Promise<void>((resolve) => {
