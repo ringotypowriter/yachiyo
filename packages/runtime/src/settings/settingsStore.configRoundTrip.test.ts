@@ -1012,7 +1012,7 @@ test('relay settings survive normalization and TOML persistence without storing 
 
 test('missing relay addresses use the confirmed service while custom addresses and modes remain unchanged', () => {
   const defaulted = normalizeSettingsConfig({ remote: {} }).remote
-  assert.equal(defaulted?.relayServer, 'https://yachiyo-relay.onrender.com')
+  assert.equal(defaulted?.relayServer, 'https://yachiyo-relay-production.up.railway.app')
   assert.equal(defaulted?.enabled, false)
   assert.equal(defaulted?.tunnel, 'quick')
   const custom = normalizeSettingsConfig({
