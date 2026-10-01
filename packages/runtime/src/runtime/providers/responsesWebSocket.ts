@@ -137,6 +137,7 @@ function abortError(signal: AbortSignal): unknown {
 }
 
 interface StreamRequest {
+  sessionId: string
   payload: Record<string, unknown>
   codexSessionId?: string
   signal?: AbortSignal | null
@@ -300,10 +301,38 @@ class ResponsesWebSocketConnection {
       let streamStarted = false
       let finished = false
       let idleTimer: NodeJS.Timeout | undefined
+      let argumentTimer: NodeJS.Timeout | undefined
       let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+      const sentAt = Date.now()
+      let responseId = '-'
+      let itemId = '-'
+      let toolCallId = '-'
+      const toolCallIdsByItem = new Map<string, string>()
+      let lastEventType = '-'
+      let lastReceivedAt = sentAt
+      let messageCount = 0
+      let argumentChars = 0
+      let argumentDeltas = 0
+      let pendingArgument = ''
+      const diagnostic = (event: string, fields = ''): void => {
+        console.info(
+          `${LOG_TAG} event=${event} sessionId=${request.sessionId} key=${this.key} responseId=${responseId} itemId=${itemId} toolCallId=${toolCallId} at=${new Date().toISOString()} elapsedMs=${Date.now() - sentAt} messages=${messageCount} lastReceivedAt=${new Date(lastReceivedAt).toISOString()} lastEventType=${lastEventType} argumentChars=${argumentChars} argumentDeltas=${argumentDeltas}${fields}`
+        )
+      }
+      const flushArguments = (): void => {
+        if (argumentTimer) clearTimeout(argumentTimer)
+        argumentTimer = undefined
+        if (!pendingArgument) return
+        // JSON quoting keeps newlines and control characters on a single log line.
+        // Consecutive batches concatenate without losing any argument characters.
+        diagnostic('tool_arguments', ` delta=${JSON.stringify(pendingArgument)}`)
+        pendingArgument = ''
+      }
+      diagnostic('request_sent')
 
       const fail = (error: unknown): void => {
         if (finished) return
+        flushArguments()
         finished = true
         detach()
         if (streamStarted) {
@@ -314,6 +343,8 @@ class ResponsesWebSocketConnection {
       }
       const complete = (): void => {
         if (finished) return
+        flushArguments()
+        diagnostic('stream_complete')
         finished = true
         detach()
         controller?.close()
@@ -322,6 +353,8 @@ class ResponsesWebSocketConnection {
       const resetIdle = (): void => {
         if (idleTimer) clearTimeout(idleTimer)
         idleTimer = setTimeout(() => {
+          flushArguments()
+          diagnostic('stream_idle_timeout', ` idleTimeoutMs=${request.streamIdleTimeoutMs}`)
           fail(new ResponsesWebSocketStreamError('Responses websocket stream idle timeout'))
           this.terminate()
         }, request.streamIdleTimeoutMs)
@@ -343,7 +376,64 @@ class ResponsesWebSocketConnection {
         } catch {
           // Forward unparseable frames untouched; the SDK parser reports them.
         }
+        const eventItem = event.item as Record<string, unknown> | undefined
+        const nextItemId =
+          typeof event.item_id === 'string'
+            ? event.item_id
+            : event.type === 'response.output_item.added' && typeof eventItem?.id === 'string'
+              ? eventItem.id
+              : itemId
+        if (nextItemId !== itemId) flushArguments()
         const turnState = readEventTurnState(event)
+        lastReceivedAt = Date.now()
+        messageCount++
+        // Only known protocol fields are logged; never serialize arbitrary event objects.
+        lastEventType = typeof event.type === 'string' ? event.type : 'unparseable'
+        if (
+          event.type === 'response.created' &&
+          event.response &&
+          typeof event.response === 'object'
+        ) {
+          const id = (event.response as Record<string, unknown>).id
+          if (typeof id === 'string') responseId = id
+        }
+        if (typeof event.item_id === 'string') itemId = event.item_id
+        toolCallId = toolCallIdsByItem.get(itemId) ?? '-'
+        if (
+          event.type === 'response.output_item.added' &&
+          event.item &&
+          typeof event.item === 'object'
+        ) {
+          const item = event.item as Record<string, unknown>
+          if (typeof item.id === 'string') itemId = item.id
+          if (typeof item.call_id === 'string' && typeof item.id === 'string') {
+            toolCallIdsByItem.set(item.id, item.call_id)
+            toolCallId = item.call_id
+          }
+        }
+        if (
+          event.type === 'response.function_call_arguments.delta' &&
+          typeof event.delta === 'string'
+        ) {
+          pendingArgument += event.delta
+          argumentChars += event.delta.length
+          argumentDeltas++
+          if (!argumentTimer) argumentTimer = setTimeout(flushArguments, 1000)
+          if (pendingArgument.length >= 16_384) flushArguments()
+        } else if (event.type === 'response.function_call_arguments.done') {
+          flushArguments()
+          diagnostic(
+            'tool_arguments_done',
+            ` doneChars=${typeof event.arguments === 'string' ? event.arguments.length : 0}${typeof event.arguments === 'string' ? ` arguments=${JSON.stringify(event.arguments)}` : ''}`
+          )
+        } else if (
+          event.type === 'response.created' ||
+          event.type === 'response.output_item.added' ||
+          TERMINAL_EVENT_TYPES.has(lastEventType)
+        ) {
+          flushArguments()
+          diagnostic('ws_event')
+        }
         if (turnState) request.onTurnState(turnState)
         const sse = encoder.encode(`data: ${toSdkEvent(event, text)}\n\n`)
 
@@ -359,6 +449,8 @@ class ResponsesWebSocketConnection {
                 // Consumer went away (abort): the backend keeps streaming on
                 // this socket, so drop the connection instead of the frames.
                 if (!finished) {
+                  flushArguments()
+                  diagnostic('consumer_cancel')
                   finished = true
                   detach()
                   this.terminate()
@@ -376,22 +468,30 @@ class ResponsesWebSocketConnection {
           resetIdle()
         }
       }
-      const onClose = (): void => {
+      const onClose = (code: number): void => {
+        flushArguments()
+        diagnostic('socket_close', ` closeCode=${code}`)
         fail(
           new ResponsesWebSocketStreamError('Responses websocket closed before response.completed')
         )
       }
       const onSocketError = (error: Error): void => {
+        flushArguments()
+        diagnostic('socket_error', ` errorName=${error.name}`)
         fail(new ResponsesWebSocketStreamError(`Responses websocket error: ${error.message}`))
         this.terminate()
       }
       const onAbort = (): void => {
+        flushArguments()
+        diagnostic('abort')
         fail(abortError(request.signal as AbortSignal))
         this.terminate()
       }
       const detach = (): void => {
         release()
         if (idleTimer) clearTimeout(idleTimer)
+        if (diagnosticTimer) clearInterval(diagnosticTimer)
+        if (argumentTimer) clearTimeout(argumentTimer)
         socket.off('message', onMessage)
         socket.off('close', onClose)
         socket.off('error', onSocketError)
@@ -403,9 +503,15 @@ class ResponsesWebSocketConnection {
       socket.on('error', onSocketError)
       request.signal?.addEventListener('abort', onAbort, { once: true })
       resetIdle()
+      const diagnosticTimer = setInterval(() => {
+        flushArguments()
+        diagnostic('stream_progress', ` silenceMs=${Date.now() - lastReceivedAt}`)
+      }, 30_000)
+      diagnosticTimer.unref?.()
 
       socket.send(frame, (error) => {
         if (error) {
+          diagnostic('send_error', ` errorName=${error.name}`)
           fail(
             new ResponsesWebSocketStreamError(`Responses websocket send failed: ${error.message}`)
           )
@@ -613,6 +719,7 @@ export function createResponsesWebSocketFetch(
     const streamOnce = async (): Promise<ReadableStream<Uint8Array>> => {
       const connection = pool.get(key) ?? (await openConnection(key, url, headers, init.signal))
       return connection.request({
+        sessionId: options.sessionId,
         payload,
         codexSessionId: options.codex ? options.sessionId : undefined,
         signal: init.signal,

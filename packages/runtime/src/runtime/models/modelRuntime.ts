@@ -547,6 +547,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       }
 
       const finishedToolCallIds = new Set<string>()
+      const toolInputProgress = new Map<string, { chars: number; deltas: number }>()
       const toolCallContextById = new Map<string, { input: unknown; toolName: string }>()
       const toolCallFinishCallback = request.onToolCallFinish
       const emitToolCallFinish = toolCallFinishCallback
@@ -794,10 +795,28 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               ) {
                 reportFirstToken()
                 streamCommitted = true
+                console.info(
+                  `${llmTag} tool-input-start at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} toolName=${part.toolName} step=${nextStepNumber}`
+                )
                 request.onToolCallPreparing?.({
                   toolCallId: part.id,
                   toolName: part.toolName
                 })
+                continue
+              }
+
+              if (part.type === 'tool-input-delta' && typeof part.id === 'string') {
+                // Keep parser fragments even when the provider uses HTTP rather than WebSocket.
+                const previous = toolInputProgress.get(part.id)
+                const now = Date.now()
+                const progress = {
+                  chars: (previous?.chars ?? 0) + (part.inputTextDelta?.length ?? 0),
+                  deltas: (previous?.deltas ?? 0) + 1
+                }
+                console.info(
+                  `${llmTag} tool-input-progress at=${new Date(now).toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} chars=${progress.chars} deltas=${progress.deltas} step=${nextStepNumber} delta=${JSON.stringify(part.inputTextDelta ?? '')}`
+                )
+                toolInputProgress.set(part.id, progress)
                 continue
               }
 
@@ -808,6 +827,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               ) {
                 reportFirstToken()
                 streamCommitted = true
+                console.info(
+                  `${llmTag} tool-input-available at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.toolCallId} toolName=${part.toolName} inputChars=${JSON.stringify(part.input)?.length ?? 0} deltaChars=${toolInputProgress.get(part.toolCallId)?.chars ?? 0} deltas=${toolInputProgress.get(part.toolCallId)?.deltas ?? 0} step=${nextStepNumber} input=${JSON.stringify(part.input)}`
+                )
+                toolInputProgress.delete(part.toolCallId)
                 toolCallContextById.set(part.toolCallId, {
                   input: part.input,
                   toolName: part.toolName
@@ -816,6 +839,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               }
 
               if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
+                console.info(
+                  `${llmTag} tool-input-error at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.toolCallId} toolName=${part.toolName ?? '-'} step=${nextStepNumber}`
+                )
                 const toolCallContext =
                   (typeof part.toolName === 'string'
                     ? { input: part.input, toolName: part.toolName }

@@ -103,6 +103,201 @@ function post(body: Record<string, unknown>, signal?: AbortSignal): RequestInit 
   }
 }
 
+test('diagnostics retain tool argument fragments and distinguish a silent socket timeout', async () => {
+  const logs: string[] = []
+  const originalInfo = console.info
+  console.info = (...args) => logs.push(args.join(' '))
+  const server = await startServer((socket) => {
+    socket.send(event('response.created', { response: { id: 'resp_diag' } }))
+    socket.send(
+      event('response.output_item.added', {
+        item: { id: 'item_diag', call_id: 'call_diag', type: 'function_call' }
+      })
+    )
+    socket.send(
+      event('response.function_call_arguments.delta', {
+        item_id: 'item_diag',
+        delta: '{"command":"echo '
+      })
+    )
+    socket.send(
+      event('response.function_call_arguments.delta', { item_id: 'item_diag', delta: 'hello"}' })
+    )
+  })
+  const pool = new CodexWebSocketPool()
+  try {
+    const fetch = createCodexWebSocketFetch(unusedFetch(), {
+      sessionId: 'diag-session',
+      pool,
+      webSocketUrl: server.url,
+      streamIdleTimeoutMs: 1500
+    })
+    const response = await fetch(HTTP_URL, post({ model: 'gpt-test' }))
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    assert.ok(
+      logs.some(
+        (line) =>
+          line.includes('event=tool_arguments') &&
+          line.includes('delta="{\\"command\\":\\"echo hello\\"}"')
+      ),
+      'partial arguments are logged before timeout'
+    )
+    await assert.rejects(response.text(), /idle timeout/)
+    assert.ok(
+      logs.some(
+        (line) =>
+          line.includes('event=stream_idle_timeout') &&
+          line.includes('responseId=resp_diag') &&
+          line.includes('lastEventType=response.function_call_arguments.delta')
+      )
+    )
+    assert.ok(logs.every((line) => !line.includes('Bearer token-1')))
+  } finally {
+    console.info = originalInfo
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('diagnostics record the complete tool arguments on done even without deltas', async () => {
+  const logs: string[] = []
+  const originalInfo = console.info
+  console.info = (...args) => logs.push(args.join(' '))
+  const server = await startServer((socket) => {
+    socket.send(event('response.created', { response: { id: 'resp_done' } }))
+    socket.send(
+      event('response.output_item.added', { item: { id: 'item_done', call_id: 'call_done' } })
+    )
+    socket.send(
+      event('response.function_call_arguments.done', {
+        item_id: 'item_done',
+        arguments: '{"command":"pwd"}'
+      })
+    )
+    socket.send(event('response.completed', { response: { id: 'resp_done' } }))
+  })
+  const pool = new CodexWebSocketPool()
+  try {
+    const fetch = createCodexWebSocketFetch(unusedFetch(), {
+      sessionId: 'done-session',
+      pool,
+      webSocketUrl: server.url
+    })
+    await (await fetch(HTTP_URL, post({ model: 'gpt-test' }))).text()
+    assert.ok(
+      logs.some(
+        (line) =>
+          line.includes('event=tool_arguments_done') &&
+          line.includes('toolCallId=call_done') &&
+          line.includes('arguments="{\\"command\\":\\"pwd\\"}"')
+      )
+    )
+  } finally {
+    console.info = originalInfo
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('diagnostics keep interleaved tool argument fragments attached to their own call', async () => {
+  const logs: string[] = []
+  const originalInfo = console.info
+  console.info = (...args) => logs.push(args.join(' '))
+  const server = await startServer((socket) => {
+    for (const id of ['a', 'b']) {
+      socket.send(
+        event('response.output_item.added', {
+          item: { id: `item_${id}`, call_id: `call_${id}`, type: 'function_call' }
+        })
+      )
+    }
+    for (const [id, delta] of [
+      ['a', '{"command":"'],
+      ['b', '{"path":"'],
+      ['a', 'pwd"}'],
+      ['b', 'file"}']
+    ]) {
+      socket.send(event('response.function_call_arguments.delta', { item_id: `item_${id}`, delta }))
+    }
+    socket.send(event('response.completed'))
+  })
+  const pool = new CodexWebSocketPool()
+  try {
+    const fetch = createCodexWebSocketFetch(unusedFetch(), {
+      sessionId: 'interleaved-session',
+      pool,
+      webSocketUrl: server.url
+    })
+    await (await fetch(HTTP_URL, post({ model: 'gpt-test' }))).text()
+    for (const [id, expected] of [
+      ['a', '{"command":"pwd"}'],
+      ['b', '{"path":"file"}']
+    ]) {
+      const fragments = logs
+        .filter(
+          (line) =>
+            line.includes('event=tool_arguments ') && line.includes(`toolCallId=call_${id} `)
+        )
+        .map((line) => JSON.parse(line.slice(line.indexOf(' delta=') + 7)) as string)
+      assert.equal(fragments.join(''), expected)
+    }
+  } finally {
+    console.info = originalInfo
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('diagnostics keep interleaved argument fragments attached to their own tool calls', async () => {
+  const logs: string[] = []
+  const originalInfo = console.info
+  console.info = (...args) => logs.push(args.join(' '))
+  const server = await startServer((socket) => {
+    socket.send(event('response.created', { response: { id: 'resp_parallel' } }))
+    for (const id of ['a', 'b']) {
+      socket.send(
+        event('response.output_item.added', {
+          item: { id: `item_${id}`, call_id: `call_${id}`, type: 'function_call' }
+        })
+      )
+      socket.send(
+        event('response.function_call_arguments.delta', {
+          item_id: `item_${id}`,
+          delta: `${id}-first`
+        })
+      )
+    }
+    socket.send(
+      event('response.function_call_arguments.delta', {
+        item_id: 'item_a',
+        delta: 'a-second'
+      })
+    )
+    socket.send(event('response.completed', { response: { id: 'resp_parallel' } }))
+  })
+  const pool = new CodexWebSocketPool()
+  try {
+    const fetch = createCodexWebSocketFetch(unusedFetch(), {
+      sessionId: 'parallel-session',
+      pool,
+      webSocketUrl: server.url
+    })
+    await (await fetch(HTTP_URL, post({ model: 'gpt-test' }))).text()
+    const fragments = logs.filter((line) => line.includes('event=tool_arguments '))
+    const textFor = (id: string): string =>
+      fragments
+        .filter((line) => line.includes(`toolCallId=call_${id} `))
+        .map((line) => JSON.parse(line.slice(line.indexOf(' delta=') + 7)))
+        .join('')
+    assert.equal(textFor('a'), 'a-firsta-second')
+    assert.equal(textFor('b'), 'b-first')
+  } finally {
+    console.info = originalInfo
+    pool.closeAll()
+    await server.close()
+  }
+})
+
 test('tunnels /responses POSTs over one pooled websocket and replays events as SSE', async () => {
   const server = await startServer((socket, _frame, index) => {
     socket.send(event('response.created', { response: { id: `resp_${index}` } }))
