@@ -80,7 +80,7 @@ export function handleBackgroundBashCompleted(
     const completionError = getCompletedBackgroundBashError(result)
 
     if (result.toolCallId) {
-      const toolCalls = context.deps.loadThreadToolCalls(result.threadId)
+      const toolCalls = context.deps.loadThreadToolCalls(result.toolCallThreadId ?? result.threadId)
       const tc = toolCalls.find((t) => t.id === result.toolCallId)
       if (tc?.status === 'background') {
         const baseDetails =
@@ -102,7 +102,7 @@ export function handleBackgroundBashCompleted(
         context.deps.storage.updateToolCall(updated)
         context.deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
-          threadId: result.threadId,
+          threadId: tc.threadId,
           runId: tc.runId,
           toolCall: updated
         })

@@ -22,6 +22,8 @@ export interface BackgroundBashAdoptInput extends BackgroundBashTaskInput {
 }
 
 export interface BackgroundBashTaskResult {
+  /** Original conversation containing the launch tool call, retained across handoffs. */
+  toolCallThreadId?: string
   taskId: string
   command: string
   description?: string
@@ -65,6 +67,7 @@ export interface BackgroundBashLogTarget {
 }
 
 interface ActiveBackgroundTask {
+  toolCallThreadId?: string
   taskId: string
   command: string
   description?: string
@@ -222,6 +225,7 @@ export class BackgroundBashManager {
       ...(task.description ? { description: task.description } : {}),
       logPath: task.logPath,
       threadId: task.threadId,
+      ...(task.toolCallThreadId ? { toolCallThreadId: task.toolCallThreadId } : {}),
       ...(task.toolCallId ? { toolCallId: task.toolCallId } : {}),
       pid: task.job.pid,
       ...terminal
@@ -290,6 +294,21 @@ export class BackgroundBashManager {
     )
     evictTimer.unref?.()
     this.recentlyCompleted.set(task.taskId, { snapshot, result, evictTimer })
+  }
+
+  transferThreadTasks(
+    sourceThreadId: string,
+    destinationThreadId: string
+  ): BackgroundBashSnapshot[] {
+    if (sourceThreadId === destinationThreadId) return []
+    const transferredIds = new Set<string>()
+    for (const task of this.tasks.values()) {
+      if (task.threadId !== sourceThreadId) continue
+      task.toolCallThreadId ??= task.threadId
+      task.threadId = destinationThreadId
+      transferredIds.add(task.taskId)
+    }
+    return this.listSnapshots(destinationThreadId).filter((task) => transferredIds.has(task.taskId))
   }
 
   cancelTask(taskId: string): boolean {

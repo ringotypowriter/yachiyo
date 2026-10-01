@@ -525,6 +525,16 @@ export async function prepareServerRunContext(
     }
   }
 
+  const runningBackgroundTasks = (deps.listBackgroundTasks?.(input.thread.id) ?? [])
+    .filter((task) => task.status === 'running')
+    .map(({ taskId, command, description, logPath, startedAt }) => ({
+      taskId,
+      command,
+      description,
+      logPath,
+      startedAt
+    }))
+
   const messages =
     isExternalChannel && !isOwnerDm
       ? compileExternalContextLayers({
@@ -577,6 +587,12 @@ export async function prepareServerRunContext(
                 subagentContextBlock: subagentContextBlock || undefined,
                 isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
               }),
+              ...(runningBackgroundTasks.length > 0
+                ? [
+                    'Current running background shells (already executing; do not relaunch them). Completion notices arrive automatically; read logPath for progress:\n' +
+                      JSON.stringify(runningBackgroundTasks)
+                  ]
+                : []),
               ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
               ...(isLocalRunTrigger && !minimalPrompt
                 ? [

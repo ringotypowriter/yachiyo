@@ -133,6 +133,56 @@ function isProcessAlive(pid: number): boolean {
 }
 
 describe('BackgroundBashManager', () => {
+  it('hands running jobs to the next thread without restarting or losing their origin', async () => {
+    const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+    const job = new ControllableProcessJob('handoff-task', '/tmp/handoff-task.log')
+    const appends: BackgroundBashLogAppend[] = []
+    manager.setLogAppendHandler((append) => appends.push(append))
+    const completed = completionOf(manager)
+    try {
+      await manager.adoptTask({
+        taskId: job.id,
+        command: 'long-running command',
+        cwd: '/tmp',
+        logPath: job.logPath,
+        threadId: 'source',
+        toolCallId: 'launch-call',
+        job,
+        initialOutput: ''
+      })
+      job.emit('buffered before handoff\n')
+      assert.equal(manager.transferThreadTasks('unrelated', 'destination').length, 0)
+      const transferred = manager.transferThreadTasks('source', 'destination')
+      assert.equal(transferred.length, 1)
+      assert.equal(transferred[0].threadId, 'destination')
+      assert.deepEqual(manager.listSnapshots('source'), [])
+      assert.equal(manager.getLogTarget('destination', job.id)?.logPath, job.logPath)
+      assert.equal(manager.getLogTarget('source', job.id), undefined)
+      manager.transferThreadTasks('destination', 'next')
+      job.emit('output after handoff\n')
+      job.complete({
+        exitCode: 0,
+        timedOut: false,
+        cancelled: false,
+        spilled: false,
+        totalBytes: 0
+      })
+      const result = await completed
+      assert.equal(result.threadId, 'next')
+      assert.equal(result.toolCallThreadId, 'source')
+      assert.equal(result.toolCallId, 'launch-call')
+      assert.equal(result.pid, job.pid)
+      assert.deepEqual(
+        appends.map((append) => append.threadId),
+        ['next']
+      )
+      assert.deepEqual(appends[0].lines, ['buffered before handoff', 'output after handoff'])
+      assert.equal(manager.getCompletedTask(job.id)?.threadId, 'next')
+    } finally {
+      await manager.close()
+    }
+  })
+
   it('runs a command and calls completion handler with exit code', async () => {
     const tempDir = await createTempDir()
     try {

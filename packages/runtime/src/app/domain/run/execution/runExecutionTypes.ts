@@ -1,6 +1,7 @@
 import type { ToolSet } from 'ai'
 
 import type {
+  BackgroundTaskSnapshot,
   ChatAccepted,
   ComposerReasoningSelection,
   MessageRecord,
@@ -216,6 +217,7 @@ export interface RunExecutionDeps {
   onBackgroundBashAdopted?: (
     task: BackgroundBashAdoptionHandle & { threadId: string; ownerAgentId?: string }
   ) => Promise<void>
+  listBackgroundTasks?: (threadId: string) => BackgroundTaskSnapshot[]
   getCompletedBackgroundBashTask?: (taskId: string) => BackgroundBashTaskResult | undefined
   onSubagentProgress?: (event: DelegateTaskProgressEvent) => void
   onSubagentStarted?: (event: DelegateTaskStartedEvent) => void

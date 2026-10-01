@@ -129,6 +129,7 @@ export function buildRunExecutionDeps(
         }
       : deps.loadThreadMessages,
     loadThreadToolCalls: deps.loadThreadToolCalls,
+    listBackgroundTasks: (threadId) => context.backgroundBashManager.listSnapshots(threadId),
     listSkills: deps.listSkills,
     jotdownStore: deps.jotdownStore,
     imageToTextService: deps.imageToTextService,

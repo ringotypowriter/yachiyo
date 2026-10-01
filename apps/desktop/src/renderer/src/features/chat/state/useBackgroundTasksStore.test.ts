@@ -7,6 +7,28 @@ import {
 } from './useBackgroundTasksStore.ts'
 
 describe('useBackgroundTasksStore hydrate', () => {
+  it('moves handed-off tasks to their new thread while preserving live logs', () => {
+    useBackgroundTasksStore.setState({ tasksByThread: {} })
+    const store = useBackgroundTasksStore.getState()
+    const event = {
+      type: 'background-task.started' as const,
+      eventId: 'start',
+      timestamp: '2026-10-01T00:00:00.000Z',
+      threadId: 'source',
+      taskId: 'task',
+      command: 'long command',
+      startedAt: '2026-10-01T00:00:00.000Z'
+    }
+    store.onStarted(event)
+    store.onLogAppend({ ...event, type: 'background-task.log-append', lines: ['live output'] })
+    store.onStarted({ ...event, threadId: 'destination' })
+    const state = useBackgroundTasksStore.getState()
+    assert.equal(state.tasksByThread.source.task, undefined)
+    assert.equal(state.tasksByThread.destination.task.threadId, 'destination')
+    assert.deepEqual(state.tasksByThread.destination.task.logTail, ['live output'])
+    assert.deepEqual(selectRunningBackgroundTaskThreadIds(state), new Set(['destination']))
+  })
+
   beforeEach(() => {
     useBackgroundTasksStore.setState({ tasksByThread: {} })
   })

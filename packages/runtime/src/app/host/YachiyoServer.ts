@@ -586,7 +586,9 @@ export class YachiyoServer {
       auxiliaryGeneration,
       evictAcpIdleThread: (threadId) => acpProcessPool.evictThread(threadId),
       cancelMemoryDistillation: (threadId) => this.runDomain.cancelMemoryDistillation(threadId),
-      clearReadRecordCache: (threadId) => this.runDomain.clearReadRecordCache(threadId)
+      clearReadRecordCache: (threadId) => this.runDomain.clearReadRecordCache(threadId),
+      onThreadHandoff: (sourceThreadId, destinationThreadId) =>
+        this.runDomain.transferBackgroundTasks(sourceThreadId, destinationThreadId)
     })
 
     this.folderDomain = new FolderDomain({

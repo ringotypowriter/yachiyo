@@ -1,5 +1,6 @@
 import type {
   BackgroundTaskLogAppendEvent,
+  BackgroundTaskStartedEvent,
   BackgroundTaskSnapshot,
   BootstrapPayload,
   ChatAccepted,
@@ -219,6 +220,23 @@ export class YachiyoServerRunDomain {
         })
       }
     })
+  }
+
+  transferBackgroundTasks(sourceThreadId: string, destinationThreadId: string): void {
+    const tasks = this.backgroundBashManager.transferThreadTasks(
+      sourceThreadId,
+      destinationThreadId
+    )
+    for (const task of tasks) {
+      this.deps.emit<BackgroundTaskStartedEvent>({
+        type: 'background-task.started',
+        threadId: destinationThreadId,
+        taskId: task.taskId,
+        command: task.command,
+        ...(task.description ? { description: task.description } : {}),
+        startedAt: task.startedAt
+      })
+    }
   }
 
   listBackgroundTasks(threadId?: string): BackgroundTaskSnapshot[] {
@@ -545,7 +563,14 @@ export class YachiyoServerRunDomain {
       deps: this.deps,
       backgroundTaskRunContext: this.backgroundTaskRunContext,
       isClosing: () => this.isClosing,
-      sendChat: (input) => this.sendChat(input),
+      sendChat: async (input) => {
+        const runId = this.activeRunByThread.get(input.threadId)
+        if (runId && !this.activeRuns.get(runId)?.requestMessageId) {
+          // Assistant-only handoff runs cannot accept steers or follow-ups yet.
+          await this.activeRunTasks.get(runId)
+        }
+        return this.sendChat(input)
+      },
       deliverToAgent: ({ agentId, threadId, message }) => {
         this.subagentManager.send({
           from: { kind: 'parent', threadId },

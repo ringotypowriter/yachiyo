@@ -118,6 +118,15 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
     set((state) => {
       const threadTasks = state.tasksByThread[event.threadId] ?? {}
       if (threadTasks[event.taskId]) return state
+      const tasksByThread = { ...state.tasksByThread }
+      let prior: BackgroundTaskState | undefined
+      for (const [threadId, tasks] of Object.entries(tasksByThread)) {
+        if (threadId === event.threadId || !tasks[event.taskId]) continue
+        prior = tasks[event.taskId]
+        const remaining = { ...tasks }
+        delete remaining[event.taskId]
+        tasksByThread[threadId] = remaining
+      }
       const task: BackgroundTaskState = {
         taskId: event.taskId,
         threadId: event.threadId,
@@ -125,11 +134,11 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
         ...(event.description ? { description: event.description } : {}),
         startedAt: event.startedAt,
         status: 'running',
-        logTail: []
+        logTail: prior?.logTail ?? []
       }
       return {
         tasksByThread: {
-          ...state.tasksByThread,
+          ...tasksByThread,
           [event.threadId]: { ...threadTasks, [event.taskId]: task }
         }
       }

@@ -3,11 +3,14 @@ import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/pro
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
+import { setImmediate as flushImmediate } from 'node:timers/promises'
 import { YachiyoServer } from '../YachiyoServer.ts'
 import type { ModelStreamRequest } from '../../../runtime/models/types.ts'
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import { readUserDocument, writeUserDocument } from '../../../runtime/profiles/user.ts'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
+import type { BackgroundBashManager } from '../../domain/background/backgroundBashManager.ts'
+import type { ProcessJobResult } from '../../../services/processBroker/processBroker.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import type {
   ChatAccepted,
@@ -793,3 +796,126 @@ test('YachiyoServer.compactThreadToAnotherThread preserves default skill selecti
     }
   )
 })
+
+for (const handoff of ['compact', 'create', 'compact-pending'] as const) {
+  test(
+    `YachiyoServer ${handoff} handoff carries running shells into the new conversation`,
+    { timeout: 5000 },
+    async () => {
+      const handoffRelease = Promise.withResolvers<void>()
+      await withServer(
+        async ({ server, storage, completeRun, modelRequests, workspacePathForThread }) => {
+          const source = await server.createThread()
+          const manager = (
+            server as unknown as {
+              runDomain: { backgroundBashManager: BackgroundBashManager }
+            }
+          ).runDomain.backgroundBashManager
+          const terminal = Promise.withResolvers<ProcessJobResult>()
+          const logPath = join(workspacePathForThread(source.id), 'handoff-shell.log')
+          await mkdir(workspacePathForThread(source.id), { recursive: true })
+          await writeFile(logPath, 'still running\n')
+          await manager.adoptTask({
+            taskId: 'handoff-shell',
+            command: 'long-running command',
+            cwd: workspacePathForThread(source.id),
+            logPath,
+            threadId: source.id,
+            initialOutput: '',
+            job: {
+              id: 'handoff-shell',
+              pid: 4242,
+              logPath,
+              onOutput: () => () => {},
+              wait: () => terminal.promise,
+              waitForOutcome: async () => ({ kind: 'exited', result: await terminal.promise }),
+              cancel: () =>
+                terminal.resolve({
+                  exitCode: 130,
+                  timedOut: false,
+                  cancelled: true,
+                  spilled: false,
+                  totalBytes: 0
+                })
+            }
+          })
+          try {
+            let destination
+            let handoffRunId: string | undefined
+            if (handoff !== 'create') {
+              const accepted = await server.compactThreadToAnotherThread({ threadId: source.id })
+              destination = accepted.thread
+              handoffRunId = accepted.runId
+              if (handoff !== 'compact-pending') await completeRun(accepted.runId)
+            } else {
+              destination = await server.createThread({ handoffFromThreadId: source.id })
+            }
+            assert.deepEqual(await server.listBackgroundTasks({ threadId: source.id }), [])
+            const tasks = await server.listBackgroundTasks({ threadId: destination.id })
+            assert.equal(tasks[0]?.taskId, 'handoff-shell')
+            assert.equal(tasks[0]?.logPath, logPath)
+            assert.deepEqual(tasks[0]?.recentLogTail, ['still running'])
+            if (handoff !== 'compact-pending') {
+              const accepted = await server.sendChat({
+                threadId: destination.id,
+                content: 'Continue the work'
+              })
+              await completeRun(accepted.runId)
+              const latestRequest = modelRequests
+                .filter((request) => request.purpose !== 'thread-handoff')
+                .at(-1)
+              assert.ok(JSON.stringify(latestRequest?.messages).includes('handoff-shell'))
+              assert.ok(JSON.stringify(latestRequest?.messages).includes(logPath))
+            }
+
+            const completion = new Promise<void>((resolve) => {
+              const unsubscribe = server.subscribe((event) => {
+                if (
+                  event.type === 'message.completed' &&
+                  event.threadId === destination.id &&
+                  event.message.hidden
+                ) {
+                  unsubscribe()
+                  resolve()
+                }
+              })
+            })
+            terminal.resolve({
+              exitCode: 0,
+              timedOut: false,
+              cancelled: false,
+              spilled: false,
+              totalBytes: 0
+            })
+            if (handoff === 'compact-pending') {
+              await flushImmediate()
+              assert.equal(storage.listThreadMessages(destination.id).length, 0)
+              handoffRelease.resolve()
+              await completeRun(handoffRunId!)
+            }
+            await completion
+            assert.ok(
+              storage
+                .listThreadMessages(destination.id)
+                .some((message) => message.hidden && message.content.includes('handoff-shell'))
+            )
+            assert.equal(storage.listThreadMessages(source.id).length, 0)
+          } finally {
+            handoffRelease.resolve()
+            manager.cancelTask('handoff-shell')
+          }
+        },
+        handoff === 'compact-pending'
+          ? {
+              createModelRuntime: () => ({
+                async *streamReply(request: ModelStreamRequest) {
+                  if (request.purpose === 'thread-handoff') await handoffRelease.promise
+                  yield 'Handoff summary'
+                }
+              })
+            }
+          : {}
+      )
+    }
+  )
+}

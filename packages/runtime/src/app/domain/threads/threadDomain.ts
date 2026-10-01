@@ -81,6 +81,7 @@ interface ThreadDomainDeps {
   evictAcpIdleThread: (threadId: string) => Promise<void>
   cancelMemoryDistillation?: (threadId: string) => void
   clearReadRecordCache?: (threadId: string) => void
+  onThreadHandoff?: (sourceThreadId: string, destinationThreadId: string) => void
 }
 
 export interface RetryRequestResolution {
@@ -236,6 +237,9 @@ export class YachiyoServerThreadDomain {
     }
     // Temp workspace is created lazily — on first run, file attach, or workspace open
     this.deps.storage.createThread({ thread, createdAt: timestamp })
+    if (thread.handoffFromThreadId) {
+      this.deps.onThreadHandoff?.(thread.handoffFromThreadId, thread.id)
+    }
 
     this.deps.emit<ThreadCreatedEvent>({
       type: 'thread.created',
