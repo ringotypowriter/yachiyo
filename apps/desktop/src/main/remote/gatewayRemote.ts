@@ -160,6 +160,8 @@ function createEncryptedGatewayRemoteBinding(deps: GatewayRemoteBindingDeps): Ga
           appVersion: app.getVersion(),
           endpoints,
           relayCredential,
+          notificationsEnabled: async () =>
+            (await deps.server().getConfig()).general?.notifyRunCompleted !== false,
           mailboxRoot: icloudRoot,
           onPaired: (record) => {
             if (!Notification.isSupported()) return

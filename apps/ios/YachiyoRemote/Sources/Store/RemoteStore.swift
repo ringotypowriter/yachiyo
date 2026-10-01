@@ -4,6 +4,18 @@ import UIKit
 import YachiyoMaterial
 import YachiyoRemoteKit
 
+struct PushRegisterInput: Encodable {
+    let token: String?
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let token { try container.encode(token, forKey: .token) }
+        else { try container.encodeNil(forKey: .token) }
+    }
+
+    private enum CodingKeys: String, CodingKey { case token }
+}
+
 /// One thread in the unified inbox, tagged with the desktop that owns it. Derived values are
 /// computed once per summary change, not on every inbox pass.
 struct InboxItem: Hashable, Identifiable {
@@ -94,6 +106,10 @@ final class RemoteStore {
     private let credentials: RemoteCredentialStore
     private var persistedDesktops: [String: PairedDesktop] = [:]
     private var links: [String: DesktopLink] = [:]
+    private var pushToken: PushToken = .unknown
+    private var pushPlan = PushRegistrationPlan()
+    private var pushTasks: [String: Task<Void, Never>] = [:]
+    private var removingDesktops: Set<String> = []
     /// Per-Mac inbox; nil means that Mac's inbox has never loaded.
     private var items: [String: [String: InboxItem]] = [:]
     private var inboxPublishTask: Task<Void, Never>?
@@ -440,12 +456,30 @@ final class RemoteStore {
         link.start()
         publishDesktops()
         publishInboxNow()
+        PushNotifications.shared.refreshPermission(promptIfNeeded: true)
         return desktops.first { $0.id == id }!
     }
 
-    func remove(desktopId: String) {
+    func remove(desktopId: String) async {
+        // Clear this Mac's token before disconnecting when it is reachable. Local forgetting
+        // proceeds even if an older desktop rejects the optional method or the call times out.
+        guard let current = links[desktopId], removingDesktops.insert(desktopId).inserted else { return }
+        defer {
+            removingDesktops.remove(desktopId)
+            // If a different pairing replaced this one during the await, register its token.
+            if let replacement = links[desktopId], replacement.state == .online {
+                sendPushToken(to: replacement)
+            }
+        }
+        if current.state == .online, let client = current.client {
+            await pushTasks[desktopId]?.value
+            let _: RemoteOk? = try? await client.call("remote.push.register", PushRegisterInput(token: nil), timeout: .seconds(3))
+        }
+        // A new pairing may have replaced this one while the best-effort call was in flight.
+        guard links[desktopId] === current else { return }
         // Detach before stopping so the final disconnect cannot re-save the forgotten record.
         let link = links.removeValue(forKey: desktopId)
+        pushPlan.forget(desktopId: desktopId)
         link?.stop()
         inboxLoadTokens[desktopId] = nil
         if loadingInboxes.contains(desktopId) { loadingInboxes.remove(desktopId) }
@@ -464,6 +498,34 @@ final class RemoteStore {
     }
 
     // MARK: Calls
+
+    func updatePushToken(_ token: PushToken) {
+        guard pushToken != token else { return }
+        pushToken = token
+        for link in links.values where link.state == .online { sendPushToken(to: link) }
+    }
+
+    private func sendPushToken(to link: DesktopLink) {
+        let desktopId = link.id
+        guard !removingDesktops.contains(desktopId) else { return }
+        let previous = pushTasks[desktopId]
+        pushTasks[desktopId] = Task { [weak self, weak link] in
+            await previous?.value
+            guard let self, let link, !removingDesktops.contains(desktopId),
+                  links[desktopId] === link, link.state == .online else { return }
+            let connection = link.connectionID
+            let token = pushToken
+            guard pushPlan.begin(desktopId: desktopId, connection: connection, token: token) else { return }
+            do {
+                let _: RemoteOk = try await link.call("remote.push.register", PushRegisterInput(token: token.rpcToken))
+            } catch let error as RemoteCallError where error.name == "RemoteMethodNotFound" {
+                // Old desktops cannot handle this optional method; inbox/events stay connected.
+                pushPlan.unsupported(desktopId: desktopId, connection: connection)
+            } catch {
+                // A later token change or reconnect can retry; a heartbeat never does.
+            }
+        }
+    }
 
     func call<Output: Decodable>(_ desktopId: String, _ method: String, _ input: some Encodable) async throws -> Output {
         guard let link = links[desktopId] else { throw RemoteCallError(name: "RemoteOffline", message: "Unknown device.") }
@@ -629,6 +691,7 @@ final class RemoteStore {
         }
         if link.state == .online {
             scheduleCacheWrite()
+            sendPushToken(to: link)
             Task { await reloadSummaries(for: link) }
             if link.id == primaryDesktopId { refreshAppearance() }
         } else {

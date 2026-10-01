@@ -88,6 +88,15 @@ export type HandshakeServerPayload = z.infer<typeof handshakeServerPayloadSchema
  */
 export const remoteMethods = {
   'remote.hello': { input: helloInputSchema, output: helloOutputSchema },
+  'remote.push.register': {
+    input: z.object({
+      token: z
+        .string()
+        .regex(/^[0-9a-fA-F]{64}$/)
+        .nullable()
+    }),
+    output: okSchema
+  },
   'threads.list': {
     input: z.object({
       cursor: z.string().max(200).optional(),
@@ -308,6 +317,7 @@ export const REMOTE_METHOD_NAMES = Object.keys(remoteMethods) as RemoteMethodNam
 
 /** Methods that change desktop state; each call is written to the audit log. */
 export const REMOTE_MUTATING_METHODS: ReadonlySet<RemoteMethodName> = new Set<RemoteMethodName>([
+  'remote.push.register',
   'threads.create',
   'threads.star',
   'threads.archive',

@@ -18,6 +18,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
         self.coordinator = coordinator
         coordinator.start(initialURL: connectionOptions.urlContexts.first?.url)
+        if let response = connectionOptions.notificationResponse {
+            coordinator.handleNotification(response.notification.request.content.userInfo)
+        } else if let pending = PushNotifications.shared.takePendingTap() {
+            coordinator.handleNotification(pending)
+        }
     }
 
     func scene(_: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
@@ -27,6 +32,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneWillEnterForeground(_: UIScene) {
         RemoteStore.shared.resume()
+        PushNotifications.shared.refreshPermission(promptIfNeeded: false)
+    }
+
+    func handleNotification(_ userInfo: [AnyHashable: Any]) {
+        coordinator?.handleNotification(userInfo)
     }
 
     func sceneDidEnterBackground(_: UIScene) {
@@ -54,6 +64,7 @@ final class AppCoordinator {
     private let inbox: InboxViewController
     private var isBootstrapping = false
     private var pendingURL: URL?
+    private var pendingNotification: [AnyHashable: Any]?
 
     init(window: UIWindow) {
         self.window = window
@@ -75,6 +86,12 @@ final class AppCoordinator {
 
     private func finishStart(initialURL: URL?) {
         isBootstrapping = false
+        PushNotifications.shared.refreshPermission(promptIfNeeded: true)
+        if let pendingNotification {
+            self.pendingNotification = nil
+            // Validation happens only after the Keychain has loaded the paired identities.
+            if routeNotification(pendingNotification) { return }
+        }
         let initialURL = pendingURL ?? initialURL
         pendingURL = nil
         if let initialURL, initialURL.scheme == PairingURL.scheme {
@@ -103,6 +120,37 @@ final class AppCoordinator {
             return
         }
         presentPairing(url: url)
+    }
+
+    func handleNotification(_ userInfo: [AnyHashable: Any]) {
+        if isBootstrapping {
+            pendingNotification = userInfo
+            return
+        }
+        _ = routeNotification(userInfo)
+    }
+
+    @discardableResult
+    private func routeNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
+        guard let route = NotificationThreadRoute(
+            userInfo: userInfo,
+            pairedDesktopIds: Set(RemoteStore.shared.desktops.map(\.id))
+        ) else { return false }
+        if let thread = navigation.topViewController as? ThreadViewController,
+           thread.notificationRoute == route { return true }
+        let show = {
+            self.navigation.popToRootViewController(animated: false)
+            self.navigation.pushViewController(
+                ThreadViewController(desktopId: route.desktopId, threadId: route.threadId),
+                animated: true
+            )
+        }
+        if navigation.presentedViewController != nil {
+            navigation.dismiss(animated: false, completion: show)
+        } else {
+            show()
+        }
+        return true
     }
 
     func presentPairing(url: URL?) {

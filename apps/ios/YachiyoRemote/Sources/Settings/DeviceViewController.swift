@@ -257,7 +257,7 @@ final class DeviceViewController: UITableViewController {
         alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "Forget device"), style: .destructive) { [weak self] _ in
             guard let self else { return }
-            store.remove(desktopId: desktop.id)
+            Task { await self.store.remove(desktopId: self.desktop.id) }
         })
         present(alert, animated: true)
     }

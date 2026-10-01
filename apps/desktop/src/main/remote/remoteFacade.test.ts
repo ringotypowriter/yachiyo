@@ -30,6 +30,7 @@ interface Harness {
   waitForEvent: (predicate: (event: RemoteEvent) => boolean) => Promise<RemoteEvent>
   host: RemoteHostPort
   hub: RemoteEventHub
+  registrations: Array<{ pairingId: string; token: string | null }>
   emit: (event: Record<string, unknown>) => void
 }
 
@@ -58,6 +59,7 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
   })
   hub.start()
   const audit: string[] = []
+  const registrations: Array<{ pairingId: string; token: string | null }> = []
   const facade = createRemoteFacade({
     server: ports.server,
     host: ports.host,
@@ -69,7 +71,10 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
     }),
     epoch: () => hub.epoch,
     hub: () => hub,
-    audit: (line) => audit.push(line)
+    audit: (line) => audit.push(line),
+    registerPush: async (pairingId, token) => {
+      registrations.push({ pairingId, token })
+    }
   })
 
   const events: RemotePush[] = []
@@ -99,6 +104,7 @@ async function withFacade(fn: (harness: Harness) => Promise<void>): Promise<void
       },
       createFixtureThread: () => fake.server.createThread(),
       events,
+      registrations,
       audit,
       host: ports.host,
       hub,
@@ -418,5 +424,24 @@ test('hello answers from cached host info until settings change', async () => {
     emit({ type: 'settings.updated', config: { general: {} } })
     await hello()
     assert.equal(calls, 2)
+  })
+})
+
+test('push registration uses authenticated pairing identity and never audits token', async () => {
+  await withFacade(async ({ call, registrations, audit }) => {
+    const token = 'a'.repeat(64)
+    assert.deepEqual(await call('remote.push.register', { token }), { ok: true })
+    assert.deepEqual(await call('remote.push.register', { token: null }), { ok: true })
+    assert.deepEqual(registrations, [
+      { pairingId: 'pairing-1', token },
+      { pairingId: 'pairing-1', token: null }
+    ])
+    assert.equal(
+      audit.some((line) => line.includes(token)),
+      false
+    )
+    await assert.rejects(call('remote.push.register', { token: 'bad' }), {
+      name: 'RemoteValidationError'
+    })
   })
 })

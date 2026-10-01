@@ -8,6 +8,9 @@ import YachiyoRemoteKit
 /// back to bottom), and the floating composer — or a read-only banner for a genuinely read-only source.
 final class ThreadViewController: UIViewController {
     private let thread: ThreadStore
+    var notificationRoute: NotificationThreadRoute {
+        NotificationThreadRoute(desktopId: thread.desktopId, threadId: thread.threadId)
+    }
     private let store = RemoteStore.shared
     private let messageList = MessageListView()
     private let composer = ChatInputView()

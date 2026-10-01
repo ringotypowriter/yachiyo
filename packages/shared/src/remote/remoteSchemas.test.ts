@@ -335,3 +335,11 @@ test('generated JSON Schema lists every facade method and matches the committed 
   // Compared as parsed JSON: Windows checkouts may rewrite line endings.
   assert.deepEqual(JSON.parse(committed), document)
 })
+
+test('push registration validates device tokens and explicit opt-out', () => {
+  const schema = remoteMethods['remote.push.register'].input
+  assert.deepEqual(schema.parse({ token: 'a'.repeat(64) }), { token: 'a'.repeat(64) })
+  assert.deepEqual(schema.parse({ token: null }), { token: null })
+  assert.equal(schema.safeParse({ token: 'wrong' }).success, false)
+  assert.equal(schema.safeParse({}).success, false)
+})

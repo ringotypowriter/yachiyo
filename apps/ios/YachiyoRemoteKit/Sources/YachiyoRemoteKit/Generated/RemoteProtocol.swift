@@ -70,6 +70,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
     public let remotePush: RemotePush?
     public let remotePushBatchItem: RemotePushBatchItem?
     public let remoteReasoningSelection: RemoteReasoningSelection?
+    public let remoteRemotePushRegisterInput: RemoteRemotePushRegisterInput?
     public let remoteRunAnswerToolQuestionInput: RemoteRunAnswerToolQuestionInput?
     public let remoteRunCancelInput: RemoteRunCancelInput?
     public let remoteRunMode: RemoteRunMode?
@@ -157,6 +158,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         case remotePush = "RemotePush"
         case remotePushBatchItem = "RemotePushBatchItem"
         case remoteReasoningSelection = "RemoteReasoningSelection"
+        case remoteRemotePushRegisterInput = "RemoteRemotePushRegisterInput"
         case remoteRunAnswerToolQuestionInput = "RemoteRunAnswerToolQuestionInput"
         case remoteRunCancelInput = "RemoteRunCancelInput"
         case remoteRunMode = "RemoteRunMode"
@@ -190,7 +192,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         case remoteWorkspacesListRecentOutput = "RemoteWorkspacesListRecentOutput"
     }
 
-    public init(remoteActiveRunEnterBehavior: RemoteActiveRunEnterBehavior?, remoteAppearance: RemoteAppearance?, remoteAppearanceGetInput: RemoteAppearanceGetInput?, remoteAttachmentsBeginInput: RemoteAttachmentsBeginInput?, remoteAttachmentsBeginOutput: RemoteAttachmentsBeginOutput?, remoteAttachmentsChunkInput: RemoteAttachmentsChunkInput?, remoteAttachmentsChunkOutput: RemoteAttachmentsChunkOutput?, remoteAttachmentsCommitInput: RemoteAttachmentsCommitInput?, remoteAttachmentsCommitOutput: RemoteAttachmentsCommitOutput?, remoteBranchCreateInput: RemoteBranchCreateInput?, remoteBranchCreateOutput: RemoteBranchCreateOutput?, remoteBranchSelectInput: RemoteBranchSelectInput?, remoteChatAccepted: RemoteChatAccepted?, remoteChatEditInput: RemoteChatEditInput?, remoteChatRemoveFollowUpInput: RemoteChatRemoveFollowUpInput?, remoteChatRetryInput: RemoteChatRetryInput?, remoteChatRetryOutput: RemoteChatRetryOutput?, remoteChatSendInput: RemoteChatSendInput?, remoteChatStartThreadInput: RemoteChatStartThreadInput?, remoteChatStartThreadOutput: RemoteChatStartThreadOutput?, remoteChatWithdrawSteerInput: RemoteChatWithdrawSteerInput?, remoteEndpoint: RemoteEndpoint?, remoteEssential: RemoteEssential?, remoteEssentialsGetIconInput: RemoteEssentialsGetIconInput?, remoteEssentialsGetIconOutput: RemoteEssentialsGetIconOutput?, remoteEssentialsListInput: RemoteEssentialsListInput?, remoteEssentialsListOutput: RemoteEssentialsListOutput?, remoteEvent: RemoteEvent?, remoteEventsSubscribeInput: RemoteEventsSubscribeInput?, remoteEventsSubscribeOutput: RemoteEventsSubscribeOutput?, remoteFileRef: RemoteFileRef?, remoteFilesGetInput: RemoteFilesGetInput?, remoteFilesGetOutput: RemoteFilesGetOutput?, remoteHandshakeClientPayload: RemoteHandshakeClientPayload?, remoteHandshakeServerPayload: RemoteHandshakeServerPayload?, remoteHelloInput: RemoteHelloInput?, remoteHelloOutput: RemoteHelloOutput?, remoteImageRef: RemoteImageRef?, remoteImagesGetInput: RemoteImagesGetInput?, remoteImagesGetOutput: RemoteImagesGetOutput?, remoteMailboxPlaintext: RemoteMailboxPlaintext?, remoteMessage: RemoteMessage?, remoteModelOverride: RemoteModelOverride?, remoteModelsListSelectableInput: RemoteModelsListSelectableInput?, remoteModelsListSelectableOutput: RemoteModelsListSelectableOutput?, remoteOk: RemoteOk?, remotePairingGrant: RemotePairingGrant?, remotePairingPayload: RemotePairingPayload?, remotePlanAcceptInput: RemotePlanAcceptInput?, remotePlanReadInput: RemotePlanReadInput?, remotePlanReadOutput: RemotePlanReadOutput?, remotePush: RemotePush?, remotePushBatchItem: RemotePushBatchItem?, remoteReasoningSelection: RemoteReasoningSelection?, remoteRunAnswerToolQuestionInput: RemoteRunAnswerToolQuestionInput?, remoteRunCancelInput: RemoteRunCancelInput?, remoteRunMode: RemoteRunMode?, remoteRunStatus: RemoteRunStatus?, remoteSearchResult: RemoteSearchResult?, remoteSelectableModel: RemoteSelectableModel?, remoteTask: RemoteTask?, remoteTasksListInput: RemoteTasksListInput?, remoteTasksListOutput: RemoteTasksListOutput?, remoteThemeAppearance: RemoteThemeAppearance?, remoteThemeId: RemoteThemeId?, remoteThreadCapabilities: RemoteThreadCapabilities?, remoteThreadDetail: RemoteThreadDetail?, remoteThreadsArchiveInput: RemoteThreadsArchiveInput?, remoteThreadsCreateInput: RemoteThreadsCreateInput?, remoteThreadsCreateOutput: RemoteThreadsCreateOutput?, remoteThreadsListInput: RemoteThreadsListInput?, remoteThreadsListOutput: RemoteThreadsListOutput?, remoteThreadsLoadInput: RemoteThreadsLoadInput?, remoteThreadsSearchInput: RemoteThreadsSearchInput?, remoteThreadsSearchOutput: RemoteThreadsSearchOutput?, remoteThreadsStarInput: RemoteThreadsStarInput?, remoteThreadSummary: RemoteThreadSummary?, remoteTodoItem: RemoteTodoItem?, remoteToolCall: RemoteToolCall?, remoteToolQuestion: RemoteToolQuestion?, remoteToolsGetPreviewInput: RemoteToolsGetPreviewInput?, remoteToolsGetPreviewOutput: RemoteToolsGetPreviewOutput?, remoteWorkspace: RemoteWorkspace?, remoteWorkspacesListRecentInput: RemoteWorkspacesListRecentInput?, remoteWorkspacesListRecentOutput: RemoteWorkspacesListRecentOutput?) {
+    public init(remoteActiveRunEnterBehavior: RemoteActiveRunEnterBehavior?, remoteAppearance: RemoteAppearance?, remoteAppearanceGetInput: RemoteAppearanceGetInput?, remoteAttachmentsBeginInput: RemoteAttachmentsBeginInput?, remoteAttachmentsBeginOutput: RemoteAttachmentsBeginOutput?, remoteAttachmentsChunkInput: RemoteAttachmentsChunkInput?, remoteAttachmentsChunkOutput: RemoteAttachmentsChunkOutput?, remoteAttachmentsCommitInput: RemoteAttachmentsCommitInput?, remoteAttachmentsCommitOutput: RemoteAttachmentsCommitOutput?, remoteBranchCreateInput: RemoteBranchCreateInput?, remoteBranchCreateOutput: RemoteBranchCreateOutput?, remoteBranchSelectInput: RemoteBranchSelectInput?, remoteChatAccepted: RemoteChatAccepted?, remoteChatEditInput: RemoteChatEditInput?, remoteChatRemoveFollowUpInput: RemoteChatRemoveFollowUpInput?, remoteChatRetryInput: RemoteChatRetryInput?, remoteChatRetryOutput: RemoteChatRetryOutput?, remoteChatSendInput: RemoteChatSendInput?, remoteChatStartThreadInput: RemoteChatStartThreadInput?, remoteChatStartThreadOutput: RemoteChatStartThreadOutput?, remoteChatWithdrawSteerInput: RemoteChatWithdrawSteerInput?, remoteEndpoint: RemoteEndpoint?, remoteEssential: RemoteEssential?, remoteEssentialsGetIconInput: RemoteEssentialsGetIconInput?, remoteEssentialsGetIconOutput: RemoteEssentialsGetIconOutput?, remoteEssentialsListInput: RemoteEssentialsListInput?, remoteEssentialsListOutput: RemoteEssentialsListOutput?, remoteEvent: RemoteEvent?, remoteEventsSubscribeInput: RemoteEventsSubscribeInput?, remoteEventsSubscribeOutput: RemoteEventsSubscribeOutput?, remoteFileRef: RemoteFileRef?, remoteFilesGetInput: RemoteFilesGetInput?, remoteFilesGetOutput: RemoteFilesGetOutput?, remoteHandshakeClientPayload: RemoteHandshakeClientPayload?, remoteHandshakeServerPayload: RemoteHandshakeServerPayload?, remoteHelloInput: RemoteHelloInput?, remoteHelloOutput: RemoteHelloOutput?, remoteImageRef: RemoteImageRef?, remoteImagesGetInput: RemoteImagesGetInput?, remoteImagesGetOutput: RemoteImagesGetOutput?, remoteMailboxPlaintext: RemoteMailboxPlaintext?, remoteMessage: RemoteMessage?, remoteModelOverride: RemoteModelOverride?, remoteModelsListSelectableInput: RemoteModelsListSelectableInput?, remoteModelsListSelectableOutput: RemoteModelsListSelectableOutput?, remoteOk: RemoteOk?, remotePairingGrant: RemotePairingGrant?, remotePairingPayload: RemotePairingPayload?, remotePlanAcceptInput: RemotePlanAcceptInput?, remotePlanReadInput: RemotePlanReadInput?, remotePlanReadOutput: RemotePlanReadOutput?, remotePush: RemotePush?, remotePushBatchItem: RemotePushBatchItem?, remoteReasoningSelection: RemoteReasoningSelection?, remoteRemotePushRegisterInput: RemoteRemotePushRegisterInput?, remoteRunAnswerToolQuestionInput: RemoteRunAnswerToolQuestionInput?, remoteRunCancelInput: RemoteRunCancelInput?, remoteRunMode: RemoteRunMode?, remoteRunStatus: RemoteRunStatus?, remoteSearchResult: RemoteSearchResult?, remoteSelectableModel: RemoteSelectableModel?, remoteTask: RemoteTask?, remoteTasksListInput: RemoteTasksListInput?, remoteTasksListOutput: RemoteTasksListOutput?, remoteThemeAppearance: RemoteThemeAppearance?, remoteThemeId: RemoteThemeId?, remoteThreadCapabilities: RemoteThreadCapabilities?, remoteThreadDetail: RemoteThreadDetail?, remoteThreadsArchiveInput: RemoteThreadsArchiveInput?, remoteThreadsCreateInput: RemoteThreadsCreateInput?, remoteThreadsCreateOutput: RemoteThreadsCreateOutput?, remoteThreadsListInput: RemoteThreadsListInput?, remoteThreadsListOutput: RemoteThreadsListOutput?, remoteThreadsLoadInput: RemoteThreadsLoadInput?, remoteThreadsSearchInput: RemoteThreadsSearchInput?, remoteThreadsSearchOutput: RemoteThreadsSearchOutput?, remoteThreadsStarInput: RemoteThreadsStarInput?, remoteThreadSummary: RemoteThreadSummary?, remoteTodoItem: RemoteTodoItem?, remoteToolCall: RemoteToolCall?, remoteToolQuestion: RemoteToolQuestion?, remoteToolsGetPreviewInput: RemoteToolsGetPreviewInput?, remoteToolsGetPreviewOutput: RemoteToolsGetPreviewOutput?, remoteWorkspace: RemoteWorkspace?, remoteWorkspacesListRecentInput: RemoteWorkspacesListRecentInput?, remoteWorkspacesListRecentOutput: RemoteWorkspacesListRecentOutput?) {
         self.remoteActiveRunEnterBehavior = remoteActiveRunEnterBehavior
         self.remoteAppearance = remoteAppearance
         self.remoteAppearanceGetInput = remoteAppearanceGetInput
@@ -245,6 +247,7 @@ public struct RemoteProtocolTypes: Codable, Equatable, Sendable {
         self.remotePush = remotePush
         self.remotePushBatchItem = remotePushBatchItem
         self.remoteReasoningSelection = remoteReasoningSelection
+        self.remoteRemotePushRegisterInput = remoteRemotePushRegisterInput
         self.remoteRunAnswerToolQuestionInput = remoteRunAnswerToolQuestionInput
         self.remoteRunCancelInput = remoteRunCancelInput
         self.remoteRunMode = remoteRunMode
@@ -1697,6 +1700,21 @@ public enum RemotePushType: String, Codable, Equatable, Sendable {
     case batch = "batch"
     case event = "event"
     case resync = "resync"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - RemoteRemotePushRegisterInput
+public struct RemoteRemotePushRegisterInput: Codable, Equatable, Sendable {
+    public let token: String?
+
+    public init(token: String?) {
+        self.token = token
+    }
 }
 
 //

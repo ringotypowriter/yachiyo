@@ -67,6 +67,7 @@ export interface RemoteFacadeOptions {
   epoch: () => string
   hub: () => RemoteEventHub
   audit: (line: string) => void
+  registerPush?: (pairingId: string, token: string | null) => Promise<void>
   now?: () => number
 }
 
@@ -177,6 +178,12 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
 
   const handlers: HandlerTable = {
     'remote.hello': () => hello(),
+    'remote.push.register': async (input, context) => {
+      if (!options.registerPush)
+        throw new RemoteError('RemoteMethodNotFound', 'Push registration is unavailable.')
+      await options.registerPush(context.pairingId, input.token)
+      return OK
+    },
     'threads.list': (input) => host['host.remote.listThreadSummaries'](input),
     'threads.load': async (input) => {
       // Snapshot before the host RPC awaits: events emitted while it is in flight must be

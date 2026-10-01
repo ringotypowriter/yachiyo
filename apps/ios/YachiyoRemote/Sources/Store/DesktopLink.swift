@@ -37,6 +37,7 @@ final class DesktopLink {
     private var threadIds: [String] = []
     private var runTask: Task<Void, Never>?
     private var generation = UUID()
+    private(set) var connectionID = UUID()
     private let connector: DesktopConnector
     private let onChange: @MainActor (DesktopLink) -> Void
     private let onEvent: @MainActor (DesktopLink, RemoteEvent, Int) -> Void
@@ -354,6 +355,9 @@ final class DesktopLink {
         desktop.lastSuccessfulURL = activeURL ?? desktop.lastSuccessfulURL
         lastConnectionError = nil
         persistIfChanged()
+        // The run generation survives automatic reconnects; registration belongs to the
+        // encrypted socket, not the lifetime of the run loop.
+        connectionID = UUID()
         setState(.online)
         if subscribedThreads != threadIds { watch(threadIds: threadIds) }
     }

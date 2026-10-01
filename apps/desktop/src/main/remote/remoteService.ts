@@ -21,6 +21,7 @@ import { MailboxWriter } from './mailboxWriter.ts'
 import type { RelayCredential } from './relayActivation.ts'
 import { RelayAccess } from './relayAccess.ts'
 import { RelayHost } from './relayHost.ts'
+import { RemoteNotifications } from './remoteNotifications.ts'
 import {
   PairingStore,
   type DesktopIdentity,
@@ -46,6 +47,7 @@ export interface RemoteServiceOptions {
   /** iCloud Drive root for address-recovery mailboxes; null disables mailboxes. */
   mailboxRoot: string | null
   relayCredential?: RelayCredential | null
+  notificationsEnabled?: () => Promise<boolean>
   /** Transport override for isolated local relay acceptance (URLs remain validated as HTTPS/WSS). */
   relayTestTransport?: {
     fetch: typeof fetch
@@ -81,6 +83,8 @@ export class RemoteService {
   private mailbox: MailboxWriter | null = null
   private readonly connections = new Set<RemoteConnection>()
   private relay: RelayHost | null = null
+  private notifications: RemoteNotifications | null = null
+  private unsubscribeNotifications: (() => void) | null = null
   private access: RelayAccess | null = null
   private bootstrap: {
     endpoint: Extract<RemoteEndpoint, { kind: 'relay' }>
@@ -133,7 +137,8 @@ export class RemoteService {
       }),
       epoch: () => this.ensureHub().epoch,
       hub: () => this.ensureHub(),
-      audit: (line) => this.options.log(line)
+      audit: (line) => this.options.log(line),
+      registerPush: (pairingId, token) => this.store.setPushToken(pairingId, token)
     })
     if ((await this.store.list()).length > 0) this.ensureHub()
     this.http = await startRemoteHttpServer({
@@ -142,6 +147,19 @@ export class RemoteService {
       onConnection: (socket) => this.accept(socket)
     })
     if (this.options.relayCredential) {
+      this.notifications = new RemoteNotifications({
+        store: this.store,
+        credential: this.options.relayCredential,
+        remoteDeviceId: this.identity.remoteDeviceId,
+        enabled: this.options.notificationsEnabled ?? (async () => true),
+        getThreadSummary: (threadId) =>
+          this.options.host['host.remote.getThreadSummary']({ threadId }),
+        fetch: this.options.relayTestTransport?.fetch,
+        log: this.options.log
+      })
+      this.unsubscribeNotifications = this.options.subscribe((event) => {
+        void this.notifications?.handle(event)
+      })
       this.access = new RelayAccess(
         this.options.relayCredential,
         this.store,
@@ -195,6 +213,10 @@ export class RemoteService {
   }
 
   async stop(): Promise<void> {
+    this.unsubscribeNotifications?.()
+    this.unsubscribeNotifications = null
+    await this.notifications?.stop()
+    this.notifications = null
     if (this.bootstrap) clearTimeout(this.bootstrap.timer)
     this.bootstrap = null
     const temporaryPhones = [...this.bootstrapGrants.keys()]

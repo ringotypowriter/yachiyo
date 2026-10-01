@@ -77,3 +77,28 @@ test('mailbox counters and pairings persist across store instances', async () =>
     assert.deepEqual(await reloaded.list(), [])
   })
 })
+
+test('push tokens persist encrypted, rotate, opt out and disappear with pairing revocation', async () => {
+  await withDirectory(async (directory) => {
+    const store = new PairingStore({ directory, secretBox: xorBox })
+    const { record } = await store.completePairing({
+      token: store.createOffer().token,
+      phoneKey: generateKeyPair().publicKey,
+      deviceName: 'iPhone'
+    })
+    const token = 'a'.repeat(64)
+    await store.setPushToken(record.pairingId, token)
+    const { readFile } = await import('node:fs/promises')
+    assert.equal((await readFile(join(directory, 'pairings.json'), 'utf8')).includes(token), false)
+    const reloaded = new PairingStore({ directory, secretBox: xorBox })
+    assert.equal(await reloaded.pushToken(record.pairingId), token)
+    await reloaded.setPushToken(record.pairingId, 'b'.repeat(64))
+    assert.equal(await reloaded.pushToken(record.pairingId), 'b'.repeat(64))
+    await reloaded.setPushToken(record.pairingId, null)
+    assert.equal(await reloaded.pushToken(record.pairingId), null)
+    await reloaded.setPushToken(record.pairingId, token)
+    await reloaded.revoke(record.pairingId)
+    assert.equal(await reloaded.pushToken(record.pairingId), null)
+    await assert.rejects(reloaded.setPushToken(record.pairingId, token), /Unknown pairing/)
+  })
+})

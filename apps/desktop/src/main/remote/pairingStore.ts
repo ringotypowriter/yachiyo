@@ -27,6 +27,8 @@ interface StoredPairing extends PairingRecord {
   mailboxSecret: string
   /** SecretBox-encrypted relay bearer, created once per pairing. */
   relayKey?: string
+  /** SecretBox-encrypted APNs device token; never exposed in public pairing records. */
+  pushToken?: string
 }
 
 interface PairingsFile {
@@ -170,6 +172,46 @@ export class PairingStore {
       })
     )
     return removed
+  }
+
+  async pushToken(pairingId: string): Promise<string | null> {
+    const pairing = (await this.load()).find((entry) => entry.pairingId === pairingId)
+    return pairing?.pushToken
+      ? this.secretBox.decrypt(Buffer.from(pairing.pushToken, 'base64')).toString('utf8')
+      : null
+  }
+
+  async clearPushToken(pairingId: string, rejectedToken: string): Promise<void> {
+    await this.mutate((pairings) =>
+      pairings.map((entry) => {
+        if (entry.pairingId !== pairingId || !entry.pushToken) return entry
+        const current = this.secretBox
+          .decrypt(Buffer.from(entry.pushToken, 'base64'))
+          .toString('utf8')
+        if (current !== rejectedToken) return entry
+        const record = { ...entry }
+        delete record.pushToken
+        return record
+      })
+    )
+  }
+
+  async setPushToken(pairingId: string, token: string | null): Promise<void> {
+    await this.mutate((pairings) => {
+      if (!pairings.some((entry) => entry.pairingId === pairingId))
+        throw new Error('Unknown pairing.')
+      return pairings.map((entry) => {
+        if (entry.pairingId !== pairingId) return entry
+        const record = { ...entry }
+        delete record.pushToken
+        return token
+          ? {
+              ...record,
+              pushToken: this.secretBox.encrypt(Buffer.from(token.toLowerCase())).toString('base64')
+            }
+          : record
+      })
+    })
   }
 
   async relayKey(pairingId: string): Promise<string> {
