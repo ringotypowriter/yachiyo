@@ -84,3 +84,15 @@ public struct PairedDesktop: Codable, Equatable, Sendable, Identifiable {
         self.cursor = cursor
     }
 }
+
+extension PairedDesktop {
+    /// Installs the desktop's current relay endpoints (one per region) ahead of the direct ones,
+    /// as a mailbox update does. Returns false, changing nothing, when none can be dialed.
+    @discardableResult
+    public mutating func adoptRelayEndpoints(_ offered: [RemoteEndpoint]) -> Bool {
+        let relay = offered.map(StoredEndpoint.init).filter { $0.kind == "relay" && $0.dialURL != nil }
+        guard !relay.isEmpty else { return false }
+        endpoints = relay + endpoints.filter { $0.kind != "relay" }
+        return true
+    }
+}

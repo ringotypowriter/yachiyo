@@ -327,6 +327,16 @@ final class DesktopLink {
         return connected
     }
 
+    /// Relay regions are learned over the encrypted session, since iCloud address updates only
+    /// exist for a Mac desktop. A desktop without the method keeps the stored endpoints.
+    private func refreshRelayEndpoints(_ client: RemoteClient, generation: UUID) {
+        Task { [weak self] in
+            let output: RemoteRemoteRelayEndpointsOutput? = try? await client.call("remote.relay.endpoints", EmptyInput(), timeout: Self.greetingTimeout)
+            guard let output, let self, isCurrent(generation), self.client === client else { return }
+            if desktop.adoptRelayEndpoints(output.endpoints) { persistIfChanged() }
+        }
+    }
+
     /// Hello and subscribe; the push consumer is already running.
     private func greet(_ client: RemoteClient, generation: UUID) async throws {
         connectionPhase = "Desktop greeting"
@@ -359,6 +369,7 @@ final class DesktopLink {
         // encrypted socket, not the lifetime of the run loop.
         connectionID = UUID()
         setState(.online)
+        refreshRelayEndpoints(client, generation: generation)
         if subscribedThreads != threadIds { watch(threadIds: threadIds) }
     }
 

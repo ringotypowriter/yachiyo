@@ -19,10 +19,10 @@ test('orphaned bootstrap grants are deleted after a crash before restoring paire
     }
     const credential = { server: 'https://relay.example', hostId: 'mac-1', key: 'K'.repeat(43) }
     const access = new RelayAccess(credential, store, fetchImpl)
-    const bootstrap = await access.bootstrap()
+    const [bootstrap] = await access.bootstrap()
     const pending = new PairingStore({ directory, secretBox: plaintextSecretBox })
     await new RelayAccess(credential, pending, fetchImpl).restore()
-    const phone = new URL(bootstrap.url).pathname.split('/')[4]
+    const phone = new URL(bootstrap!.url).pathname.split('/')[4]
     assert.equal(requests.at(-1), `DELETE https://relay.example/v1/hosts/mac-1/phones/${phone}`)
     assert.deepEqual(await pending.relayGrantIds(), [])
     assert.equal((await store.relayGrantIds()).length, 1, 'the old process snapshot is not reused')
@@ -67,11 +67,86 @@ test('host reconnect restores the still-current QR bootstrap instead of deleting
       store,
       fetchImpl
     )
-    const bootstrap = await access.bootstrap()
+    const [bootstrap] = await access.bootstrap()
     await access.restore(bootstrap)
     assert.equal(requests.length, 2)
     assert.equal(requests[1]?.startsWith('PUT '), true)
     assert.equal((await store.relayGrantIds()).length, 1)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('a phone is granted in every region and reachable regions cover an unreachable one', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'relay-regions-'))
+  try {
+    const store = new PairingStore({ directory, secretBox: plaintextSecretBox })
+    const requests: string[] = []
+    let asiaDown = false
+    const fetchImpl: typeof fetch = async (url, init) => {
+      requests.push(`${init?.method} ${new URL(String(url)).origin}`)
+      if (asiaDown && String(url).startsWith('https://asia.example')) throw new Error('offline')
+      return new Response(null, { status: 204 })
+    }
+    const access = new RelayAccess(
+      { server: 'https://asia.example', hostId: 'mac-1', key: 'K'.repeat(43) },
+      store,
+      fetchImpl,
+      ['https://asia.example', 'https://us.example']
+    )
+    const key = 'p'.repeat(43)
+    const endpoints = await access.grant('phone-1', key)
+    assert.deepEqual(requests, ['PUT https://asia.example', 'PUT https://us.example'])
+    assert.deepEqual(
+      endpoints.map((endpoint) => [endpoint.url, endpoint.token]),
+      [
+        ['wss://asia.example/v1/phones/mac-1/phone-1/ws', key],
+        ['wss://us.example/v1/phones/mac-1/phone-1/ws', key]
+      ]
+    )
+
+    asiaDown = true
+    assert.equal((await access.grant('phone-2', key)).length, 2, 'one region is enough')
+    await assert.rejects(access.revoke('phone-1'))
+    assert.deepEqual(
+      (await store.relayGrantIds()).sort(),
+      ['phone-1', 'phone-2'],
+      'a grant one region still holds stays tracked'
+    )
+
+    // Neither phone is paired: the reconnecting region's restore retries both revocations.
+    asiaDown = false
+    requests.length = 0
+    await access.restore(undefined, ['https://us.example'])
+    assert.deepEqual(await store.relayGrantIds(), [])
+    assert.equal(requests.filter((request) => request.startsWith('DELETE')).length, 4)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('a reconnecting region re-registers paired phones in that region only', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'relay-region-restore-'))
+  try {
+    const store = new PairingStore({ directory, secretBox: plaintextSecretBox })
+    const { record } = await store.completePairing({
+      token: store.createOffer().token,
+      phoneKey: randomBytes(32),
+      deviceName: 'iPhone'
+    })
+    const requests: string[] = []
+    const fetchImpl: typeof fetch = async (url, init) => {
+      requests.push(`${init?.method} ${String(url)}`)
+      return new Response(null, { status: 204 })
+    }
+    const access = new RelayAccess(
+      { server: 'https://asia.example', hostId: 'mac-1', key: 'K'.repeat(43) },
+      store,
+      fetchImpl,
+      ['https://asia.example', 'https://us.example']
+    )
+    await access.restore(undefined, ['https://us.example'])
+    assert.deepEqual(requests, [`PUT https://us.example/v1/hosts/mac-1/phones/${record.pairingId}`])
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

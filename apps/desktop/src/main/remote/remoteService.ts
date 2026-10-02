@@ -19,7 +19,7 @@ import {
 import { startRemoteHttpServer, type RemoteHttpServer } from './remoteHttpServer.ts'
 import { MailboxWriter } from './mailboxWriter.ts'
 import type { RelayCredential } from './relayActivation.ts'
-import { RelayAccess } from './relayAccess.ts'
+import { RelayAccess, type RelayEndpoint } from './relayAccess.ts'
 import { RelayHost } from './relayHost.ts'
 import { RemoteNotifications } from './remoteNotifications.ts'
 import {
@@ -82,12 +82,13 @@ export class RemoteService {
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private mailbox: MailboxWriter | null = null
   private readonly connections = new Set<RemoteConnection>()
-  private relay: RelayHost | null = null
+  /** One host socket per relay region; a phone reaches the desktop through any of them. */
+  private relays: { server: string; host: RelayHost }[] = []
   private notifications: RemoteNotifications | null = null
   private unsubscribeNotifications: (() => void) | null = null
   private access: RelayAccess | null = null
   private bootstrap: {
-    endpoint: Extract<RemoteEndpoint, { kind: 'relay' }>
+    endpoints: RelayEndpoint[]
     phone: string
     timer: ReturnType<typeof setTimeout>
   } | null = null
@@ -111,7 +112,7 @@ export class RemoteService {
   }
 
   get relayConnected(): boolean {
-    return this.relay?.connected ?? false
+    return this.relays.some((relay) => relay.host.connected)
   }
 
   async start(): Promise<void> {
@@ -138,7 +139,9 @@ export class RemoteService {
       epoch: () => this.ensureHub().epoch,
       hub: () => this.ensureHub(),
       audit: (line) => this.options.log(line),
-      registerPush: (pairingId, token) => this.store.setPushToken(pairingId, token)
+      registerPush: (pairingId, token) => this.store.setPushToken(pairingId, token),
+      relayEndpoints: async (pairingId) =>
+        this.access?.endpoints(pairingId, await this.store.relayKey(pairingId)) ?? []
     })
     if ((await this.store.list()).length > 0) this.ensureHub()
     this.http = await startRemoteHttpServer({
@@ -165,24 +168,35 @@ export class RemoteService {
         this.store,
         this.options.relayTestTransport?.fetch
       )
-      this.relay = new RelayHost({
-        server: this.options.relayCredential.server,
-        hostId: this.options.relayCredential.hostId,
-        key: this.options.relayCredential.key,
-        connect: this.options.relayTestTransport?.connect,
-        accept: (socket, phone) => this.accept(socket, phone),
-        authorizePhone: (phone) =>
-          !/^[0-9a-f]{32}$/.test(phone) ||
-          Boolean(
-            this.bootstrapGrants.get(phone) &&
-            !this.bootstrapGrants.get(phone)!.expired &&
-            this.store.activeToken()
-          ),
-        log: this.options.log
-      })
-      await this.relay.start(() =>
-        this.access!.restore(
-          this.bootstrap && this.store.activeToken() ? this.bootstrap.endpoint : undefined
+      const credential = this.options.relayCredential
+      // Same order as `RelayAccess.endpoints`.
+      this.relays = this.access.servers.map((server) => ({
+        server,
+        host: new RelayHost({
+          server,
+          hostId: credential.hostId,
+          key: credential.key,
+          connect: this.options.relayTestTransport?.connect,
+          accept: (socket, phone) => this.accept(socket, phone),
+          authorizePhone: (phone) =>
+            !/^[0-9a-f]{32}$/.test(phone) ||
+            Boolean(
+              this.bootstrapGrants.get(phone) &&
+              !this.bootstrapGrants.get(phone)!.expired &&
+              this.store.activeToken()
+            ),
+          log: this.options.log
+        })
+      }))
+      // A region restores only its own grants when its socket (re)connects.
+      await Promise.all(
+        this.relays.map(({ server, host }) =>
+          host.start(() =>
+            this.access!.restore(
+              this.bootstrap && this.store.activeToken() ? this.bootstrap.endpoints[0] : undefined,
+              [server]
+            )
+          )
         )
       )
     }
@@ -202,7 +216,7 @@ export class RemoteService {
         )) {
           const key = await this.store.relayKey(pairing.pairingId)
           await this.mailbox.publish(
-            [...endpoints, this.access.endpoint(pairing.pairingId, key)],
+            [...endpoints, ...this.access.endpoints(pairing.pairingId, key)],
             [pairing.pairingId]
           )
         }
@@ -224,8 +238,8 @@ export class RemoteService {
     for (const connection of [...this.connections]) {
       connection.close(REMOTE_CLOSE_CODES.shuttingDown, 'shutting down')
     }
-    await this.relay?.stop()
-    this.relay = null
+    await Promise.all(this.relays.map((relay) => relay.host.stop()))
+    this.relays = []
     await Promise.all(
       temporaryPhones.map(async (phone) => {
         try {
@@ -262,23 +276,24 @@ export class RemoteService {
   async createPairingUrl(): Promise<{ url: string; expiresAt: string }> {
     const identity = this.identity ?? (await this.store.loadIdentity())
     const endpoints = this.options.endpoints()
-    if (this.access && this.relay?.connected) {
+    if (this.access && this.relayConnected) {
       // A new QR replaces the previous bootstrap grant. Never place its bearer in shared mailboxes.
       const old = this.bootstrap
-      const endpoint = await this.access.bootstrap()
+      const granted = await this.access.bootstrap()
       if (old) {
         clearTimeout(old.timer)
         this.expireBootstrap(old.phone)
       }
-      const phoneId = new URL(endpoint.url).pathname.split('/')[4]
+      const phoneId = new URL(granted[0]!.url).pathname.split('/')[4]!
       this.bootstrapGrants.set(phoneId, { active: 0, expired: false })
       const timer = setTimeout(() => {
-        if (this.bootstrap?.endpoint === endpoint) this.bootstrap = null
+        if (this.bootstrap?.endpoints === granted) this.bootstrap = null
         this.expireBootstrap(phoneId)
       }, 5 * 60_000)
       timer.unref()
-      this.bootstrap = { endpoint, phone: phoneId, timer }
-      endpoints.unshift(endpoint)
+      this.bootstrap = { endpoints: granted, phone: phoneId, timer }
+      // The phone pairs through the first endpoint that answers; skip regions that are offline.
+      endpoints.unshift(...granted.filter((_, index) => this.relays[index]?.host.connected))
     }
     if (endpoints.length === 0) {
       throw new Error('Remote has no reachable endpoint yet; start the tunnel or enable LAN.')
@@ -381,14 +396,15 @@ export class RemoteService {
       relayEndpoint: this.access
         ? async (record) => {
             try {
-              const endpoint = await this.access!.paired(record.pairingId)
+              const granted = await this.access!.paired(record.pairingId)
               if (
                 !(await this.store.list()).some((pairing) => pairing.pairingId === record.pairingId)
               ) {
                 await this.access!.revoke(record.pairingId)
                 return undefined
               }
-              return endpoint
+              // The grant names the primary region; the phone asks for the rest once online.
+              return granted[0]
             } catch {
               this.options.log('[remote] relay phone registration unavailable')
               return undefined

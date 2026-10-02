@@ -11,6 +11,10 @@
       "input": "RemoteRemotePushRegisterInput",
       "output": "RemoteOk"
     },
+    "remote.relay.endpoints": {
+      "input": "RemoteRemoteRelayEndpointsInput",
+      "output": "RemoteRemoteRelayEndpointsOutput"
+    },
     "threads.list": {
       "input": "RemoteThreadsListInput",
       "output": "RemoteThreadsListOutput"
@@ -1973,6 +1977,27 @@
       },
       "required": [
         "token"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteRemoteRelayEndpointsInput": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "RemoteRemoteRelayEndpointsOutput": {
+      "type": "object",
+      "properties": {
+        "endpoints": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteEndpoint"
+          }
+        }
+      },
+      "required": [
+        "endpoints"
       ],
       "additionalProperties": false
     },

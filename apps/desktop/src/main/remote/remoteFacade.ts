@@ -20,6 +20,7 @@ import {
 } from '@yachiyo/runtime/app/host/remote/remoteThreadBudget'
 
 import type { AttachmentStaging } from './attachmentStaging.ts'
+import type { RelayEndpoint } from './relayAccess.ts'
 import { RemoteError } from './remoteErrors.ts'
 import type { RemoteEventHub, RemoteEventSubscription } from './remoteEventHub.ts'
 
@@ -68,6 +69,7 @@ export interface RemoteFacadeOptions {
   hub: () => RemoteEventHub
   audit: (line: string) => void
   registerPush?: (pairingId: string, token: string | null) => Promise<void>
+  relayEndpoints?: (pairingId: string) => Promise<RelayEndpoint[]>
   now?: () => number
 }
 
@@ -184,6 +186,9 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
       await options.registerPush(context.pairingId, input.token)
       return OK
     },
+    'remote.relay.endpoints': async (_input, context) => ({
+      endpoints: (await options.relayEndpoints?.(context.pairingId)) ?? []
+    }),
     'threads.list': (input) => host['host.remote.listThreadSummaries'](input),
     'threads.load': async (input) => {
       // Snapshot before the host RPC awaits: events emitted while it is in flight must be

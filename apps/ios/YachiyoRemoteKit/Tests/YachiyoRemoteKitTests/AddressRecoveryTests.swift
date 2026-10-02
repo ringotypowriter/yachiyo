@@ -25,6 +25,31 @@ final class AddressRecoveryTests: XCTestCase {
         DesktopConnector(identity: RemoteClientIdentity(staticPrivateKey: NoiseKeyPair.generatePrivateKey(), deviceName: "Test", appVersion: "1"), mailbox: source)
     }
 
+    func testRelayRegionsFromTheDesktopReplaceTheStoredRelayEndpoint() {
+        let token = Base64URL.encode(Data(repeating: 7, count: 32))
+        var paired = desktop()
+        paired.endpoints.append(StoredEndpoint(kind: "relay", url: "wss://asia.example/v1/phones/host/old/ws", token: token))
+        let regions = ["asia", "us"].map { RemoteEndpoint(kind: .relay, url: "wss://\($0).example/v1/phones/host/pairing/ws", token: token) }
+
+        XCTAssertTrue(paired.adoptRelayEndpoints(regions))
+        XCTAssertEqual(paired.endpoints.map(\.url), [
+            "wss://asia.example/v1/phones/host/pairing/ws", "wss://us.example/v1/phones/host/pairing/ws",
+            "wss://old.example/remote/v1", "ws://192.168.1.2:47831/remote/v1"
+        ])
+        XCTAssertEqual(paired.endpoints.prefix(2).map(\.token), [token, token])
+    }
+
+    func testRelayRegionsThatCannotBeDialedLeaveTheStoredEndpoints() {
+        var paired = desktop()
+        let before = paired
+        XCTAssertFalse(paired.adoptRelayEndpoints([]))
+        XCTAssertFalse(paired.adoptRelayEndpoints([
+            RemoteEndpoint(kind: .relay, url: "wss://us.example/v1/phones/host/pairing/ws", token: "short"),
+            RemoteEndpoint(kind: .tunnel, url: "wss://other.example/remote/v1", token: nil)
+        ]))
+        XCTAssertEqual(paired, before)
+    }
+
     func testNormalizesHostHTTPAndIPv6() throws {
         for (input, expected) in [
             (" localhost:47831 ", "ws://localhost:47831/remote/v1"),

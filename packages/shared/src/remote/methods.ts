@@ -7,6 +7,7 @@ import {
   idSchema,
   modelOverrideSchema,
   reasoningSelectionSchema,
+  remoteEndpointSchema,
   runModeSchema
 } from './common.ts'
 import {
@@ -96,6 +97,14 @@ export const remoteMethods = {
         .nullable()
     }),
     output: okSchema
+  },
+  /**
+   * The calling pairing's `relay` endpoints, one per region and all with the same token; empty
+   * when the relay is off. A phone learns regions here instead of from the pairing grant.
+   */
+  'remote.relay.endpoints': {
+    input: z.object({}),
+    output: z.object({ endpoints: z.array(remoteEndpointSchema).max(8) })
   },
   'threads.list': {
     input: z.object({

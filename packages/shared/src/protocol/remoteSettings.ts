@@ -1,6 +1,15 @@
 /** Built-in Yachiyo Connect service; not a user-configurable endpoint. */
 export const YACHIYO_CONNECT_SERVER = 'https://yachiyo-relay-production.up.railway.app'
 
+/**
+ * Every Yachiyo Connect region, primary first. All regions accept the same signed host
+ * credential; the desktop stays connected to each one and phones race them per dial.
+ */
+export const YACHIYO_CONNECT_REGIONS: readonly string[] = [
+  YACHIYO_CONNECT_SERVER,
+  'https://yachiyo-relay-us-production.up.railway.app'
+]
+
 /** How the remote service is reached from outside the desktop. */
 export type RemoteTunnelMode = 'quick' | 'named' | 'none' | 'relay'
 
