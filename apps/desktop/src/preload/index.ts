@@ -10,6 +10,7 @@ import type {
 import type {
   AnswerToolQuestionInput,
   BrowserAutomationSessionRecord,
+  ControlBrowserAutomationSessionInput,
   OpenBrowserPreviewInput,
   ReleaseBrowserPreviewInput,
   ReleaseBrowserPreviewResult,
@@ -387,6 +388,10 @@ const api = {
       input: ListBrowserAutomationSessionsInput
     ): Promise<BrowserAutomationSessionRecord[]> =>
       ipcRenderer.invoke('yachiyo:list-browser-automation-sessions', input),
+    controlBrowserAutomationSession: (
+      input: ControlBrowserAutomationSessionInput
+    ): Promise<BrowserAutomationSessionRecord> =>
+      ipcRenderer.invoke('yachiyo:control-browser-automation-session', input),
     showBrowserAutomationSession: (
       input: ShowBrowserAutomationSessionInput
     ): Promise<BrowserAutomationSessionRecord> =>

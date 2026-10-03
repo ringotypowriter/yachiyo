@@ -11,56 +11,38 @@ Use `yachiyo-browser` for practical browser work with the `useBrowser` tool:
 - verify UI flows and page changes
 - work with authenticated sessions when needed
 
-The browser is a headful Electron BrowserWindow. The user can see the browser window and interact with it directly. If you hit a blocking step the user can handle (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to the current conversation, but cookies and local storage are shared via a single global browser profile.
+The browser is an embedded Electron page that the user can see and interact with directly. If you hit a blocking step the user can handle (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to the current conversation, but cookies and local storage are shared via a single global browser profile.
 
 ## Definition Of Done
 
 - The requested page or flow was actually exercised.
-- The final state was verified with a fresh snapshot, URL check, text check, screenshot, or PDF.
+- The final state was verified with the latest action observation, URL check, screenshot, or PDF (a fresh snapshot when necessary).
 - Any output artifact exists where expected.
 - The session was closed unless the task explicitly needed it left open.
 
 ## Core Loop
 
-Treat browser work as a repeatable loop:
+`open`, `loadUrl`, navigation and interaction actions return a compact observation containing URL,
+page text and current refs. Read it before making another call. Do not automatically chain
+`open → wait → snapshot` or `click → wait → snapshot`. Use a conditional `wait` only when a
+specific application condition is not met, then `snapshot` to inspect it. Use `snapshot` with
+`query` or `scopeRef` when the compact observation omits needed detail.
 
-1. Open the page.
-2. Wait until it is ready.
-3. Snapshot to get refs.
-4. Interact using refs.
-5. Re-snapshot after anything that changes the page.
-6. Verify the result.
-
-Typical sequence:
+Refs identify actual DOM elements, not XPath positions. They are generation-specific and
+may become stale after a new snapshot, navigation or element removal. Pass the ref exactly as
+shown without `@` and never retry a mutation blindly after an observation failure: the action
+may already have completed. A failed attached snapshot is reported separately from the action.
 
 ```json
 { "action": "open", "url": "https://example.com" }
-{ "action": "wait" }
-{ "action": "snapshot" }
+{ "action": "fill", "ref": "<fresh-ref-from-open>", "text": "Jane Doe" }
+{ "action": "snapshot", "query": "Continue" }
+{ "action": "snapshot", "scopeRef": "<fresh-container-ref>" }
 ```
 
-If the snapshot shows refs like `@e1` and `@e2`, use them **without the @ prefix** in the `ref` parameter:
-
-```json
-{ "action": "fill", "ref": "e1", "text": "user@example.com" }
-{ "action": "click", "ref": "e2" }
-{ "action": "wait" }
-{ "action": "snapshot" }
-```
-
-## Element Refs
-
-Refs like `@e1` are session-local handles returned by snapshots. Treat them as short-lived. When passing a ref to an action, omit the `@` prefix and use just `e1`.
-
-Always re-snapshot after:
-
-- navigation
-- form submission
-- opening or closing a modal
-- expanding dynamic content
-- any action that likely changed the DOM
-
-If a ref stops working, assume it is stale and take a new snapshot instead of retrying blindly.
+Snapshot refs include accessible labels, roles and control state; password values are not
+returned. Snapshot text explicitly signals truncation. Open shadow roots and same-origin
+frames can be inspected; cross-origin frames may be inaccessible and are reported as such.
 
 ## Actions Reference
 
@@ -86,8 +68,8 @@ If a ref stops working, assume it is stale and take a new snapshot instead of re
 { "action": "snapshot", "maxRefs": 100 }
 ```
 
-- `snapshot` returns the page URL, title, and a numbered list of interactive elements with refs.
-- Each ref line includes the tag, visible text, aria-label, placeholder, and href when available.
+- `snapshot` returns URL, title, viewport text and interactive elements with refs. `query` searches text and control attributes; `scopeRef` limits observation to descendants of a fresh ref.
+- Each ref can include label, role, value (except passwords), checked, disabled, expanded, placeholder, and href.
 - `maxRefs` defaults to 60 and caps at 200. Increase it when a page has many interactive elements.
 
 ### Interaction
@@ -134,6 +116,19 @@ Use named sessions whenever you may have multiple independent automations:
 
 This prevents cross-talk between tabs, refs, and state.
 
+New windows and `target="_blank"` links become browser tabs. Read the session handles in the
+observation and pass the intended `session` on subsequent calls; do not guess tab names.
+
+### User control
+
+The browser panel provides **Take over** and **Resume**. Taking over blocks new and queued
+agent writes, including arbitrary `eval` and JavaScript waits. Do not create a replacement
+session to bypass this boundary. Wait for the user to resume, then inspect fresh state.
+Already dispatched site requests cannot be undone by taking over.
+
+Pending JavaScript dialogs are shown in the panel. A snapshot can report the pending dialog
+without executing page code; the user must accept or dismiss it before automation resumes.
+
 ### Closing sessions
 
 ```json
@@ -141,7 +136,7 @@ This prevents cross-talk between tabs, refs, and state.
 { "action": "close", "session": "site1" }
 ```
 
-Always close sessions when done. Do not leave background browser windows open unless the task explicitly depends on persistence.
+Close temporary sessions when done. Do not close a page the user asked to retain.
 
 ## Authentication and State
 
@@ -150,12 +145,16 @@ Cookies and local storage are shared across all sessions via a single global bro
 If a task requires logging in and the profile does not already have the necessary cookies:
 
 1. Open the login page.
-2. Snapshot to find the username and password field refs.
+2. Use refs from the open result (or take a local snapshot if needed).
 3. Fill the credentials and submit.
-4. Wait for redirect or a post-login indicator.
+4. Inspect the attached action observation; wait for a post-login indicator only if needed.
 5. Verify with `getUrl` or `snapshot`.
 
 Do not persist credentials in tool parameters beyond the immediate fill action.
+
+## Eval results
+
+`eval` executes an async JavaScript function body. Explicitly `return` the value or Promise you want back; a bare expression returns `undefined`.
 
 ## Debugging Slow or Fragile Pages
 
@@ -173,35 +172,22 @@ If a page is slow, increase `timeoutMs` up to 120000.
 
 ### Form fill and submit
 
-```json
-{ "action": "open", "url": "https://example.com/form" }
-{ "action": "wait" }
-{ "action": "snapshot" }
-{ "action": "fill", "ref": "e1", "text": "Jane Doe" }
-{ "action": "fill", "ref": "e2", "text": "jane@example.com" }
-{ "action": "click", "ref": "e3" }
-{ "action": "wait" }
-{ "action": "snapshot" }
-```
+Open the page and identify fields in the attached observation. Fill one field, inspect
+its action observation for fresh refs, and continue. Submit with a current ref. Verify
+that the resulting page actually shows the desired outcome. If fields are omitted,
+request a local `snapshot` with `query` or `scopeRef` instead of a fixed delay.
 
 ### Login and verify redirect
 
-```json
-{ "action": "open", "url": "https://app.example.com/login" }
-{ "action": "wait" }
-{ "action": "snapshot" }
-{ "action": "fill", "ref": "e1", "text": "$USERNAME" }
-{ "action": "fill", "ref": "e2", "text": "$PASSWORD" }
-{ "action": "click", "ref": "e3" }
-{ "action": "wait", "predicate": "(() => window.location.pathname.includes('/dashboard'))()" }
-{ "action": "getUrl" }
-```
+Ask the user to complete CAPTCHA or two-factor steps. Use current field refs and avoid
+printing credentials in snapshots or reports. After submit, inspect the action observation.
+If redirect has not happened yet, use `wait` with a targeted URL or element predicate,
+then inspect the final URL or take a fresh snapshot.
 
 ### Capture current page state
 
 ```json
 { "action": "open", "url": "https://example.com" }
-{ "action": "wait" }
 { "action": "screenshot", "fileName": "page.png" }
 { "action": "pdf", "fileName": "page.pdf" }
 ```

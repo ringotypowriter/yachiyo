@@ -1,4 +1,21 @@
 import electron from 'electron'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomUUID } from 'node:crypto'
+import { buildBrowserAnnotationScript } from './browserAnnotation.ts'
+import {
+  collectBrowserFrameSnapshots,
+  executeBrowserFrameScript,
+  framePointToMain,
+  type BrowserFrameSnapshotCollection
+} from './browserFrameAutomation.ts'
+type FrameContext = Omit<BrowserFrameSnapshotCollection['frames'][number], 'snapshot'>
+import {
+  browserCdp,
+  browserRefExpression,
+  browserTargetScript,
+  clickBrowserPoint,
+  pressBrowserKey
+} from './browserPageInput.ts'
 import {
   BROWSER_PREVIEW_INSPECTION_SCRIPT,
   inspectBrowserPreviewFrames,
@@ -21,14 +38,15 @@ import { loadUrlSettlingReplacementNavigation } from './browserNavigationSettlem
 import { buildBrowserAutomationSnapshotScript } from './browserAutomationSnapshotScript.ts'
 import type {
   BrowserAutomationPageState,
-  BrowserAutomationPageText,
   BrowserAutomationRef,
+  BrowserAutomationSnapshot,
   BrowserAutomationToolBackend,
   BrowserAutomationViewport
 } from './browserAutomationToolBackend.ts'
 import { assertNonEmptyScreenshotByteLength } from './browserCaptureValidation.ts'
 import { createBrowserPointerOverlay, type BrowserPointerOverlay } from './browserPointerOverlay.ts'
 import type {
+  ControlBrowserAutomationSessionInput,
   BrowserPreviewReadingState,
   ReleaseBrowserPreviewInput,
   ReleaseBrowserPreviewResult,
@@ -40,6 +58,9 @@ import type {
   SetBrowserAutomationSessionBoundsInput,
   ShowBrowserAutomationSessionInput
 } from '@yachiyo/shared/protocol'
+
+const snapshotNamespace = randomUUID().slice(0, 12)
+let snapshotSequence = 0
 
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 100
 const INTERACTION_SETTLE_MS = 250
@@ -74,6 +95,9 @@ export interface BrowserAutomationService extends BrowserAutomationToolBackend {
   }): Promise<BrowserAutomationSessionRecord>
   releasePreview(input: ReleaseBrowserPreviewInput): Promise<ReleaseBrowserPreviewResult>
   listSessions(input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[]
+  controlSession(
+    input: ControlBrowserAutomationSessionInput
+  ): Promise<BrowserAutomationSessionRecord>
 
   showSessionView(
     input: ShowBrowserAutomationSessionInput & {
@@ -91,14 +115,22 @@ export interface BrowserAutomationService extends BrowserAutomationToolBackend {
 }
 
 interface ThreadBrowserSessionState {
+  controlledBy: 'agent' | 'user'
+  controlVersion: number
+  annotationToken?: string
+  annotation?: BrowserAutomationSessionRecord['annotation']
+  dialog?: BrowserAutomationSessionRecord['dialog']
+  download?: BrowserAutomationSessionRecord['download']
+  error?: string
   previewOwned: boolean
   mediaPlaying: boolean
   downloads: number
   navigationVersion: number
   invalidated?: boolean
   view: InstanceType<typeof electron.WebContentsView>
-  refXpathById: Map<string, string>
+  backgroundWindow: InstanceType<typeof electron.BrowserWindow>
   refSummaryById: Map<string, string>
+  refFrames: Map<string, FrameContext>
   threadId: string
   session: string
   viewport: BrowserAutomationViewport
@@ -188,6 +220,7 @@ export function createElectronBrowserAutomationService(input: {
       destroySessionState(state)
     }
   }, input.operationTimeoutMs)
+  const mutationContext = new AsyncLocalStorage<{ version: number }>()
   const threadSessions = new Map<string, Map<string, ThreadBrowserSessionState>>()
   let browserSession: ReturnType<typeof session.fromPath> | undefined
   let proxyReady: Promise<void> | undefined
@@ -233,8 +266,22 @@ export function createElectronBrowserAutomationService(input: {
       for (const state of sessions.values()) {
         if (state.view.webContents !== contents) continue
         state.downloads++
-        item.once('done', () => {
+        const updateDownload = (
+          status: 'progressing' | 'completed' | 'cancelled' | 'interrupted'
+        ): void => {
+          state.download = {
+            fileName: item.getFilename(),
+            state: status,
+            receivedBytes: item.getReceivedBytes(),
+            totalBytes: item.getTotalBytes()
+          }
+          state.updatedAt = timestamp()
+        }
+        updateDownload('progressing')
+        item.on('updated', (_event, status) => updateDownload(status))
+        item.once('done', (_event, status) => {
           state.downloads--
+          updateDownload(status)
         })
       }
   }
@@ -302,7 +349,14 @@ export function createElectronBrowserAutomationService(input: {
 
     let result: unknown
     try {
-      const execution = state.view.webContents.executeJavaScript(wrapScript(script), true)
+      const execution =
+        action === 'eval' || action === 'wait predicate'
+          ? state.view.webContents.executeJavaScript(wrapScript(script), true)
+          : state.view.webContents.executeJavaScriptInIsolatedWorld(
+              999,
+              [{ code: wrapScript(script) }],
+              true
+            )
       result = await execution
     } catch (error) {
       throw normalizeBrowserAutomationScriptExecutionError(error, context)
@@ -314,6 +368,9 @@ export function createElectronBrowserAutomationService(input: {
 
   function assertStateCurrent(state: ThreadBrowserSessionState): void {
     lifecycle.assertCurrent()
+    const mutation = mutationContext.getStore()
+    if (mutation && (state.controlledBy === 'user' || mutation.version !== state.controlVersion))
+      throw new Error('Browser control is paused for the user. Resume and observe the page again.')
     if (state.invalidated)
       throw new Error(`Browser session "${state.session}" is invalidated. Re-open it.`)
   }
@@ -336,6 +393,14 @@ export function createElectronBrowserAutomationService(input: {
 
   function toSessionRecord(state: ThreadBrowserSessionState): BrowserAutomationSessionRecord {
     return {
+      controlledBy: state.controlledBy,
+      canGoBack: state.view.webContents.navigationHistory?.canGoBack() ?? false,
+      canGoForward: state.view.webContents.navigationHistory?.canGoForward() ?? false,
+      loading: state.view.webContents.isLoadingMainFrame(),
+      ...(state.error ? { error: state.error } : {}),
+      ...(state.annotation ? { annotation: state.annotation } : {}),
+      ...(state.dialog ? { dialog: state.dialog } : {}),
+      ...(state.download ? { download: state.download } : {}),
       threadId: state.threadId,
       session: state.session,
       url: state.url,
@@ -346,22 +411,15 @@ export function createElectronBrowserAutomationService(input: {
     }
   }
 
-  function detachSessionView(state: ThreadBrowserSessionState): void {
-    const attachedWindow = state.attachedWindow
-    if (!attachedWindow || attachedWindow.isDestroyed()) {
-      state.attachedWindow = null
-      return
-    }
-
-    try {
-      if (state.overlay) {
-        state.overlay.detach()
-      }
-      attachedWindow.contentView.removeChildView(state.view)
-    } catch {
-      // Electron throws if a view is not currently attached; the desired state is detached.
-    }
+  function detachSessionView(state: ThreadBrowserSessionState, park = true): void {
+    const parent = state.attachedWindow ?? state.backgroundWindow
+    state.overlay?.detach()
+    if (!parent.isDestroyed()) parent.contentView.removeChildView(state.view)
     state.attachedWindow = null
+    if (park && !state.invalidated && !state.backgroundWindow.isDestroyed()) {
+      state.backgroundWindow.contentView.addChildView(state.view)
+      state.view.setBounds({ x: 0, y: 0, ...state.viewport })
+    }
   }
 
   function destroySessionState(state: ThreadBrowserSessionState): void {
@@ -379,6 +437,7 @@ export function createElectronBrowserAutomationService(input: {
     if (!state.view.webContents.isDestroyed()) {
       state.view.webContents.close()
     }
+    if (!state.backgroundWindow.isDestroyed()) state.backgroundWindow.destroy()
   }
 
   function setPointer(
@@ -391,36 +450,249 @@ export function createElectronBrowserAutomationService(input: {
     state.overlay?.updatePointer(state.pointer)
   }
 
+  async function evaluateRef<T>(
+    state: ThreadBrowserSessionState,
+    ref: string,
+    script: string,
+    action: string
+  ): Promise<T> {
+    assertStateCurrent(state)
+    const frame = state.refFrames.get(ref)
+    if (!frame) return evaluate<T>(state, script, action)
+    const result = await executeBrowserFrameScript(state.view.webContents, frame, script)
+    assertStateCurrent(state)
+    return result as T
+  }
+
   async function pointAtRef(
     state: ThreadBrowserSessionState,
     sessionName: string,
-    ref: string
-  ): Promise<string> {
-    const xpath = state.refXpathById.get(ref)
-    if (!xpath) {
-      const summary = state.refSummaryById.get(ref)
-      throw new Error(
-        `Unknown ref "${ref}" for session "${sessionName}"${summary ? ` (${summary})` : ''}. Call useBrowser({ action: "snapshot" }) and use the latest refs.`
-      )
+    ref: string,
+    editable = false
+  ): Promise<{ x: number; y: number; checked?: boolean }> {
+    if (!state.refSummaryById.has(ref))
+      throw new Error(`Stale ref "${ref}" for session "${sessionName}". Take a new snapshot.`)
+    const deadline = Date.now() + 1_000
+    while (true) {
+      try {
+        const point = await evaluateRef<{ x: number; y: number; checked?: boolean }>(
+          state,
+          ref,
+          browserTargetScript(ref, editable),
+          'locate ref'
+        )
+        const frame = state.refFrames.get(ref)
+        const mapped = frame
+          ? { ...point, ...(await framePointToMain(state.view.webContents, frame, point)) }
+          : point
+        setPointer(state, { x: mapped.x, y: mapped.y, visible: true, label: `Yachiyo's Cursor` })
+        return mapped
+      } catch (error) {
+        if (
+          Date.now() >= deadline ||
+          !(error instanceof Error) ||
+          !/covered|not visible/.test(error.message)
+        )
+          throw error
+        await sleep(50)
+        assertStateCurrent(state)
+      }
     }
+  }
 
-    const point = await evaluate<{ x: number; y: number }>(
-      state,
-      `(() => {
-        const xpath = ${JSON.stringify(xpath)}
-        const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-        if (!(node instanceof Element)) throw new Error('Element not found for ref.')
-        node.scrollIntoView({ block: 'center', inline: 'center' })
-        const rect = node.getBoundingClientRect()
-        return {
-          x: Math.round(rect.x + rect.width / 2),
-          y: Math.round(rect.y + rect.height / 2)
+  async function enablePageEvents(state: ThreadBrowserSessionState): Promise<void> {
+    const contents = state.view.webContents
+    if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
+    contents.debugger.on('message', (_event, method, parameters) => {
+      if (state.invalidated) return
+      if (method === 'Page.javascriptDialogOpening') {
+        state.dialog = {
+          type: String(parameters.type),
+          message: String(parameters.message),
+          defaultPrompt: String(parameters.defaultPrompt ?? '')
         }
-      })()`,
-      'locate ref'
-    )
-    setPointer(state, { x: point.x, y: point.y, visible: true, label: `Yachiyo's Cursor` })
-    return xpath
+        state.controlledBy = 'user'
+        state.controlVersion++
+        lifecycle.interrupt(state, new Error('Browser dialog is waiting for the user.'))
+      } else if (method === 'Page.javascriptDialogClosed') state.dialog = undefined
+      else if (method === 'Runtime.consoleAPICalled' && state.annotationToken) {
+        const args = parameters.args as Array<{ value?: unknown }> | undefined
+        if (args?.[0]?.value !== state.annotationToken || typeof args[1]?.value !== 'string') return
+        try {
+          const annotation = JSON.parse(args[1].value) as NonNullable<
+            BrowserAutomationSessionRecord['annotation']
+          >
+          if (
+            typeof annotation.text !== 'string' ||
+            ![annotation.x, annotation.y, annotation.width, annotation.height].every(
+              Number.isFinite
+            )
+          )
+            return
+          state.annotation = { ...annotation, text: annotation.text.slice(0, 500) }
+          state.annotationToken = undefined
+        } catch {
+          /* Page-provided annotation payloads are untrusted. */
+        }
+      }
+      state.updatedAt = timestamp()
+    })
+    await browserCdp(contents, 'Page.enable')
+    await browserCdp(contents, 'Runtime.enable')
+    // Chromium otherwise drops mouse input for some hidden, newly created pages.
+    // This changes page focus only; it never activates a native window.
+    await browserCdp(contents, 'Emulation.setFocusEmulationEnabled', {
+      enabled: state.controlledBy === 'agent'
+    })
+  }
+
+  function createPage(
+    threadId: string,
+    sessionName: string,
+    viewport: BrowserAutomationViewport | undefined,
+    currentSession: ReturnType<typeof session.fromPath>,
+    preferences?: Electron.WebPreferences,
+    contents?: Electron.WebContents
+  ): ThreadBrowserSessionState {
+    const threadMap = getThreadMap(threadId)
+    const viewportSize = toViewport(viewport)
+    const view = new WebContentsView({
+      ...(contents ? { webContents: contents } : {}),
+      webPreferences: {
+        ...preferences,
+        nodeIntegration: false,
+        contextIsolation: true,
+        backgroundThrottling: false,
+        sandbox: true,
+        session: currentSession
+      }
+    })
+    view.setBounds({ x: 0, y: 0, ...viewportSize })
+
+    // An unattached WebContentsView has a zero-sized renderer viewport. Keep
+    // the same page hosted when its conversation panel is not on screen.
+    const backgroundWindow = new BrowserWindow({
+      show: false,
+      width: viewportSize.width,
+      height: viewportSize.height,
+      focusable: false,
+      skipTaskbar: true,
+      webPreferences: { backgroundThrottling: false, sandbox: true }
+    })
+    backgroundWindow.contentView.addChildView(view)
+
+    const state: ThreadBrowserSessionState = {
+      controlledBy: 'agent',
+      controlVersion: 0,
+      previewOwned:
+        previewOwners.has(sessionKey(threadId, sessionName)) &&
+        !agentOwners.has(sessionKey(threadId, sessionName)),
+      mediaPlaying: false,
+      downloads: 0,
+      navigationVersion: 0,
+      view,
+      backgroundWindow,
+      refSummaryById: new Map<string, string>(),
+      refFrames: new Map(),
+      threadId,
+      session: sessionName,
+      viewport: viewportSize,
+      url: '',
+      pointer: null,
+      overlay: null,
+      attachedWindow: null,
+      updatedAt: timestamp()
+    }
+    threadMap.set(sessionName, state)
+    view.webContents.on('media-started-playing', () => {
+      state.mediaPlaying = true
+    })
+    view.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+      state.navigationVersion++
+      if (isMainFrame !== false) {
+        state.annotation = undefined
+        state.annotationToken = undefined
+        state.refSummaryById.clear()
+        state.refFrames.clear()
+      }
+    })
+    view.webContents.on('frame-created', () => {
+      state.navigationVersion++
+    })
+    view.webContents.on('media-paused', () => {
+      state.mediaPlaying = false
+    })
+    const trackDirtyFrames = (): void => {
+      if (!state.previewOwned || state.invalidated) return
+      for (const frame of view.webContents.mainFrame?.framesInSubtree ?? []) {
+        void frame.executeJavaScript(BROWSER_PREVIEW_INSPECTION_SCRIPT).catch(() => {})
+      }
+    }
+    view.webContents.on('dom-ready', trackDirtyFrames)
+    view.webContents.on('did-frame-finish-load', trackDirtyFrames)
+
+    view.webContents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+      if (isMainFrame && code !== -3) state.error = description
+    })
+    view.webContents.on('did-finish-load', () => {
+      state.error = undefined
+    })
+    view.webContents.on('did-navigate', (_event, navigatedUrl) => {
+      if (!state.invalidated) updateSessionMetadata(state, { url: navigatedUrl })
+    })
+    view.webContents.on('did-navigate-in-page', (_event, navigatedUrl) => {
+      if (!state.invalidated) updateSessionMetadata(state, { url: navigatedUrl })
+    })
+    view.webContents.on('page-title-updated', (_event, title) => {
+      if (!state.invalidated) updateSessionMetadata(state, { title })
+    })
+    view.webContents.once('render-process-gone', () => {
+      if (threadMap.get(sessionName) === state) {
+        lifecycle.invalidate(state, new Error('Browser renderer crashed. Re-open the session.'))
+      }
+    })
+    view.webContents.once('destroyed', () => {
+      if (threadMap.get(sessionName) === state) {
+        threadMap.delete(sessionName)
+        destroySessionState(state)
+      }
+    })
+
+    view.webContents.setWindowOpenHandler(({ url }) => {
+      if (!/^(https?:|about:blank$)/.test(url)) return { action: 'deny' }
+      return {
+        action: 'allow',
+        createWindow: (options) => {
+          let childName: string
+          do {
+            childName = `tab-${++snapshotSequence}`
+          } while (threadMap.has(childName))
+          const child = createPage(
+            threadId,
+            childName,
+            state.viewport,
+            currentSession,
+            options.webPreferences,
+            (
+              options as Electron.BrowserWindowConstructorOptions & {
+                webContents?: Electron.WebContents
+              }
+            ).webContents
+          )
+          child.controlledBy = state.controlledBy
+          void enablePageEvents(child).catch((error) => {
+            child.error = String(error)
+          })
+          return child.view.webContents
+        }
+      }
+    })
+    return state
+  }
+
+  async function installAnnotation(state: ThreadBrowserSessionState): Promise<void> {
+    state.annotationToken = randomUUID()
+    await evaluate(state, buildBrowserAnnotationScript(state.annotationToken), 'annotate')
   }
 
   async function settleAndUpdate(
@@ -610,7 +882,7 @@ export function createElectronBrowserAutomationService(input: {
       }
 
       if (state.attachedWindow !== window) {
-        detachSessionView(state)
+        detachSessionView(state, false)
         window.contentView.addChildView(state.view)
         state.attachedWindow = window
       }
@@ -652,6 +924,70 @@ export function createElectronBrowserAutomationService(input: {
       return toSessionRecord(state)
     },
 
+    async controlSession(args) {
+      const state = requireSessionState(args.threadId, args.session)
+      if (
+        state.dialog &&
+        !['takeOver', 'close', 'acceptDialog', 'dismissDialog'].includes(args.action)
+      )
+        throw new Error('Handle the pending browser dialog before resuming or navigating.')
+      if (args.action === 'takeOver' || args.action === 'resume') {
+        state.controlledBy = args.action === 'takeOver' ? 'user' : 'agent'
+        state.controlVersion++
+        state.refSummaryById.clear()
+        lifecycle.interrupt(
+          args,
+          new Error('Browser control changed; pending automation is paused.')
+        )
+        if (!state.dialog)
+          await browserCdp(state.view.webContents, 'Emulation.setFocusEmulationEnabled', {
+            enabled: state.controlledBy === 'agent'
+          })
+        setPointer(state, null)
+        if (args.action === 'resume' && state.annotationToken) {
+          state.annotationToken = undefined
+          await lifecycle.run(args, () =>
+            evaluate(state, 'globalThis.__yachiyoCancelAnnotation?.()', 'cancel annotation')
+          )
+        }
+        return toSessionRecord(state)
+      }
+      if (args.action === 'close') {
+        const record = toSessionRecord(state)
+        lifecycle.invalidate(args, new Error('Browser session closed by user.'))
+        await rawOperations.close(args)
+        return record
+      }
+      if (args.action === 'acceptDialog' || args.action === 'dismissDialog') {
+        await browserCdp(state.view.webContents, 'Page.handleJavaScriptDialog', {
+          accept: args.action === 'acceptDialog',
+          promptText: args.text ?? ''
+        })
+        state.dialog = undefined
+        return toSessionRecord(state)
+      }
+      state.controlledBy = 'user'
+      state.controlVersion++
+      lifecycle.interrupt(args, new Error('Browser control changed; pending automation is paused.'))
+      return lifecycle.run(args, async () => {
+        if (args.action === 'navigate') {
+          const url = new URL(args.url ?? '')
+          if (!['http:', 'https:'].includes(url.protocol))
+            throw new Error('Browser address must use HTTP or HTTPS.')
+          await rawOperations.loadUrl({ ...args, url: url.href })
+        } else if (args.action === 'reload') {
+          await rawOperations.loadUrl({ ...args, url: state.view.webContents.getURL() })
+        } else if (args.action === 'back') await rawOperations.goBack(args)
+        else if (args.action === 'forward') await rawOperations.goForward(args)
+        else if (args.action === 'annotate') {
+          state.annotation = undefined
+          await installAnnotation(state)
+        }
+        updateSessionMetadata(state)
+        return toSessionRecord(state)
+      })
+    },
+
     async open({ threadId, session: sessionName, url, viewport }) {
       const currentSession = await ensureProxyReady()
       const threadMap = getThreadMap(threadId)
@@ -685,78 +1021,10 @@ export function createElectronBrowserAutomationService(input: {
         lifecycle.assertCurrent()
       }
 
-      const viewportSize = toViewport(viewport)
-      const view = new WebContentsView({
-        webPreferences: {
-          backgroundThrottling: false,
-          sandbox: false,
-          session: currentSession
-        }
-      })
-      view.setBounds({ x: 0, y: 0, ...viewportSize })
-      view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-
-      const state: ThreadBrowserSessionState = {
-        previewOwned:
-          previewOwners.has(sessionKey(threadId, sessionName)) &&
-          !agentOwners.has(sessionKey(threadId, sessionName)),
-        mediaPlaying: false,
-        downloads: 0,
-        navigationVersion: 0,
-        view,
-        refXpathById: new Map<string, string>(),
-        refSummaryById: new Map<string, string>(),
-        threadId,
-        session: sessionName,
-        viewport: viewportSize,
-        url: '',
-        pointer: null,
-        overlay: null,
-        attachedWindow: null,
-        updatedAt: timestamp()
-      }
-      threadMap.set(sessionName, state)
-      view.webContents.on('media-started-playing', () => {
-        state.mediaPlaying = true
-      })
-      view.webContents.on('did-start-navigation', () => {
-        state.navigationVersion++
-      })
-      view.webContents.on('frame-created', () => {
-        state.navigationVersion++
-      })
-      view.webContents.on('media-paused', () => {
-        state.mediaPlaying = false
-      })
-      const trackDirtyFrames = (): void => {
-        if (!state.previewOwned || state.invalidated) return
-        for (const frame of view.webContents.mainFrame?.framesInSubtree ?? []) {
-          void frame.executeJavaScript(BROWSER_PREVIEW_INSPECTION_SCRIPT).catch(() => {})
-        }
-      }
-      view.webContents.on('dom-ready', trackDirtyFrames)
-      view.webContents.on('did-frame-finish-load', trackDirtyFrames)
-
-      view.webContents.on('did-navigate', (_event, navigatedUrl) => {
-        if (!state.invalidated) updateSessionMetadata(state, { url: navigatedUrl })
-      })
-      view.webContents.on('did-navigate-in-page', (_event, navigatedUrl) => {
-        if (!state.invalidated) updateSessionMetadata(state, { url: navigatedUrl })
-      })
-      view.webContents.on('page-title-updated', (_event, title) => {
-        if (!state.invalidated) updateSessionMetadata(state, { title })
-      })
-      view.webContents.once('render-process-gone', () => {
-        if (threadMap.get(sessionName) === state) {
-          lifecycle.invalidate(state, new Error('Browser renderer crashed. Re-open the session.'))
-        }
-      })
-      view.webContents.once('destroyed', () => {
-        if (threadMap.get(sessionName) === state) {
-          threadMap.delete(sessionName)
-          destroySessionState(state)
-        }
-      })
+      const state = createPage(threadId, sessionName, viewport, currentSession)
+      const view = state.view
+      await view.webContents.loadURL('about:blank')
+      await enablePageEvents(state)
 
       if (url) {
         const finalUrl = await loadUrlSettlingReplacementNavigation(view.webContents, url)
@@ -830,52 +1098,78 @@ export function createElectronBrowserAutomationService(input: {
       throw new Error(`Timed out after ${timeoutMs}ms waiting for predicate.`)
     },
 
-    async snapshot({ threadId, session: sessionName, maxRefs }) {
+    async snapshot({ threadId, session: sessionName, maxRefs, query, scopeRef }) {
       const state = requireSessionState(threadId, sessionName)
+      if (state.dialog)
+        return {
+          url: state.url,
+          title: state.title,
+          refs: [],
+          refCount: 0,
+          pageText: {
+            headings: [],
+            snippets: [`Waiting for user: ${state.dialog.type}: ${state.dialog.message}`]
+          }
+        }
       const limit = typeof maxRefs === 'number' && maxRefs > 0 ? Math.min(maxRefs, 200) : 60
-
-      const result = await evaluate<{
-        url: string
-        title?: string
-        pageText: BrowserAutomationPageText
-        refs: Array<Omit<BrowserAutomationRef, 'ref'> & { xpath: string }>
-      }>(state, buildBrowserAutomationSnapshotScript(limit), 'snapshot')
-
+      const generation = `s${snapshotNamespace}-${++snapshotSequence}`
+      const scopedFrame = scopeRef ? state.refFrames.get(scopeRef) : undefined
+      const script = buildBrowserAutomationSnapshotScript(limit, { generation, query, scopeRef })
+      const result = scopedFrame
+        ? await evaluateRef<BrowserAutomationSnapshot>(state, scopeRef!, script, 'snapshot')
+        : await evaluate<BrowserAutomationSnapshot>(state, script, 'snapshot')
       assertStateCurrent(state)
-      state.refXpathById.clear()
       state.refSummaryById.clear()
-      const refs: BrowserAutomationRef[] = []
-      for (let i = 0; i < result.refs.length; i++) {
-        const ref = `e${i + 1}`
-        const item = result.refs[i]!
-        if (item.xpath) {
-          state.refXpathById.set(ref, item.xpath)
+      state.refFrames.clear()
+      if (scopedFrame) for (const ref of result.refs) state.refFrames.set(ref.ref, scopedFrame)
+      else if (result.inaccessibleFrames && result.refs.length < limit) {
+        try {
+          const frames = await collectBrowserFrameSnapshots(state.view.webContents, {
+            generation,
+            maxRefs: limit - result.refs.length,
+            query
+          })
+          assertStateCurrent(state)
+          for (const frame of frames.frames) {
+            for (const ref of frame.snapshot.refs.slice(0, limit - result.refs.length)) {
+              result.refs.push(ref)
+              state.refFrames.set(ref.ref, frame)
+            }
+            result.pageText.snippets.push(
+              ...frame.snapshot.pageText.headings,
+              ...frame.snapshot.pageText.snippets
+            )
+          }
+          result.inaccessibleFrames = frames.unavailableFrames.length
+          if (frames.frames.length)
+            result.pageText.viewport = result.pageText.viewport?.replace(
+              /\[Cross-origin frames inaccessible:[^\]]*\]\s*/,
+              ''
+            )
+          if (frames.unavailableFrames.length)
+            result.pageText.snippets.push(
+              `${frames.unavailableFrames.length} embedded frame(s) could not be inspected.`
+            )
+          result.pageText.snippets = result.pageText.snippets.slice(0, 24)
+        } catch (error) {
+          assertStateCurrent(state)
+          result.pageText.snippets.push(
+            `Embedded frame observation unavailable: ${error instanceof Error ? error.message : String(error)}`
+          )
         }
-        const automationRef: BrowserAutomationRef = {
-          ref,
-          tag: item.tag,
-          ...(item.text ? { text: item.text } : {}),
-          ...(item.ariaLabel ? { ariaLabel: item.ariaLabel } : {}),
-          ...(item.placeholder ? { placeholder: item.placeholder } : {}),
-          ...(item.href ? { href: item.href } : {}),
-          ...(item.id ? { id: item.id } : {}),
-          ...(item.role ? { role: item.role } : {}),
-          ...(item.name ? { name: item.name } : {}),
-          ...(item.testId ? { testId: item.testId } : {}),
-          ...(item.selectorHint ? { selectorHint: item.selectorHint } : {}),
-          ...(item.box ? { box: item.box } : {})
-        }
-        state.refSummaryById.set(ref, formatRefSummary(automationRef))
-        refs.push(automationRef)
       }
-
+      for (const ref of result.refs) state.refSummaryById.set(ref.ref, formatRefSummary(ref))
+      if (scopedFrame) {
+        result.url = state.view.webContents.getURL()
+        result.title = state.view.webContents.getTitle()
+      }
       updateSessionMetadata(state, { url: result.url, title: result.title })
       return {
-        url: result.url,
-        ...(result.title ? { title: result.title } : {}),
-        pageText: result.pageText,
-        refCount: refs.length,
-        refs
+        ...result,
+        refCount: result.refs.length,
+        tabs: service
+          .listSessions({ threadId })
+          .map(({ session, url, title }) => ({ session, url, title }))
       }
     },
 
@@ -906,11 +1200,8 @@ export function createElectronBrowserAutomationService(input: {
 
     async goBack({ threadId, session: sessionName }) {
       const state = requireSessionState(threadId, sessionName)
-      const webContents = state.view.webContents as typeof state.view.webContents & {
-        canGoBack?: () => boolean
-        goBack?: () => void
-      }
-      if (!webContents.canGoBack?.()) {
+      const webContents = state.view.webContents.navigationHistory
+      if (!webContents?.canGoBack()) {
         updateSessionMetadata(state)
         return pageState(state)
       }
@@ -919,11 +1210,8 @@ export function createElectronBrowserAutomationService(input: {
 
     async goForward({ threadId, session: sessionName }) {
       const state = requireSessionState(threadId, sessionName)
-      const webContents = state.view.webContents as typeof state.view.webContents & {
-        canGoForward?: () => boolean
-        goForward?: () => void
-      }
-      if (!webContents.canGoForward?.()) {
+      const webContents = state.view.webContents.navigationHistory
+      if (!webContents?.canGoForward()) {
         updateSessionMetadata(state)
         return pageState(state)
       }
@@ -932,104 +1220,83 @@ export function createElectronBrowserAutomationService(input: {
 
     async click({ threadId, session: sessionName, ref }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = await pointAtRef(state, sessionName, ref)
-      await evaluate<void>(
-        state,
-        `(() => {
-          const xpath = ${JSON.stringify(xpath)}
-          const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-          if (!(node instanceof Element)) throw new Error('Element not found for ref.')
-          ;(node).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-          ;(node).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-          ;(node).dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-          ;(node).dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        })()`,
-        'click'
+      const point = await pointAtRef(state, sessionName, ref)
+      await clickBrowserPoint(
+        state.view.webContents,
+        { x: point.x, y: point.y },
+        () => assertStateCurrent(state),
+        () => pointAtRef(state, sessionName, ref)
       )
       return settleAndUpdate(state)
     },
 
     async fill({ threadId, session: sessionName, ref, text }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = await pointAtRef(state, sessionName, ref)
-      await evaluate<void>(
+      await pointAtRef(state, sessionName, ref, true)
+      const semantic = await evaluateRef<boolean>(
         state,
+        ref,
         `(() => {
-          const xpath = ${JSON.stringify(xpath)}
+        const node = ${browserRefExpression(ref)}
+        node.focus()
+        if (node.tagName === 'INPUT') {
           const value = ${JSON.stringify(text)}
-          const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-          if (!(node instanceof Element)) throw new Error('Element not found for ref.')
-          const el = node
-          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-            const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set
-            setter?.call(el, value)
-            el.dispatchEvent(new Event('input', { bubbles: true }))
-            el.dispatchEvent(new Event('change', { bubbles: true }))
-            return
+          if (['date','time','month','week','datetime-local','color','range'].includes(node.type)) {
+            const view = node.ownerDocument.defaultView
+            Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype,'value').set.call(node,value)
+            if (node.value !== value) throw new Error('Input rejected the requested value or format.')
+            node.dispatchEvent(new view.Event('input',{bubbles:true})); node.dispatchEvent(new view.Event('change',{bubbles:true}))
+            return true
           }
-          if ((el).isContentEditable) {
-            el.textContent = value
-            el.dispatchEvent(new Event('input', { bubbles: true }))
-            el.dispatchEvent(new Event('change', { bubbles: true }))
-            return
-          }
-          throw new Error('Ref is not fillable.')
-        })()`,
-        'fill'
+          if (['file','checkbox','radio','button','submit','reset','image','hidden'].includes(node.type)) throw new Error('Input does not accept text filling.')
+        }
+        if (typeof node.select === 'function') node.select()
+        else { const range = node.ownerDocument.createRange(); range.selectNodeContents(node); const selection = node.ownerDocument.getSelection(); selection.removeAllRanges(); selection.addRange(range) }
+        return false
+      })()`,
+        'select input'
       )
+      if (!semantic) await browserCdp(state.view.webContents, 'Input.insertText', { text })
       return settleAndUpdate(state)
     },
 
     async type({ threadId, session: sessionName, ref, text }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = await pointAtRef(state, sessionName, ref)
-      await evaluate<void>(
+      await pointAtRef(state, sessionName, ref, true)
+      await evaluateRef(
         state,
-        `(() => {
-          const xpath = ${JSON.stringify(xpath)}
-          const value = ${JSON.stringify(text)}
-          const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-          if (!(node instanceof Element)) throw new Error('Element not found for ref.')
-          const el = node
-          if (el instanceof HTMLElement) el.focus()
-          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-            el.value = (el.value || '') + value
-            el.dispatchEvent(new Event('input', { bubbles: true }))
-            el.dispatchEvent(new Event('change', { bubbles: true }))
-            return
-          }
-          if ((el).isContentEditable) {
-            el.textContent = (el.textContent || '') + value
-            el.dispatchEvent(new Event('input', { bubbles: true }))
-            el.dispatchEvent(new Event('change', { bubbles: true }))
-            return
-          }
-          throw new Error('Ref is not typable.')
-        })()`,
-        'type'
+        ref,
+        `(() => { const node = ${browserRefExpression(ref)}; node.focus(); if (typeof node.setSelectionRange === 'function') { try {node.setSelectionRange(node.value.length,node.value.length)} catch {} } })()`,
+        'focus input'
       )
+      for (const character of text) {
+        assertStateCurrent(state)
+        if (character.length === 1)
+          await pressBrowserKey(
+            state.view.webContents,
+            character === '\n' ? 'Enter' : character,
+            () => assertStateCurrent(state)
+          )
+        else await browserCdp(state.view.webContents, 'Input.insertText', { text: character })
+      }
       return settleAndUpdate(state)
     },
 
     async select({ threadId, session: sessionName, ref, value }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = await pointAtRef(state, sessionName, ref)
-      await evaluate<void>(
+      await pointAtRef(state, sessionName, ref)
+      await evaluateRef(
         state,
+        ref,
         `(() => {
-          const xpath = ${JSON.stringify(xpath)}
-          const value = ${JSON.stringify(value)}
-          const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-          if (!(node instanceof Element)) throw new Error('Element not found for ref.')
-          const el = node
-          if (el instanceof HTMLSelectElement) {
-            el.value = value
-            el.dispatchEvent(new Event('input', { bubbles: true }))
-            el.dispatchEvent(new Event('change', { bubbles: true }))
-            return
-          }
-          throw new Error('Ref is not a select element.')
-        })()`,
+        const node = ${browserRefExpression(ref)}
+        if (node.tagName !== 'SELECT') throw new Error('Target is not a select element.')
+        const option = [...node.options].find(option => option.value === ${JSON.stringify(value)})
+        if (!option || option.disabled || option.parentElement.disabled) throw new Error('Option is unavailable or disabled.')
+        node.value = option.value
+        const Event = node.ownerDocument.defaultView.Event
+        node.dispatchEvent(new Event('input', {bubbles:true})); node.dispatchEvent(new Event('change', {bubbles:true}))
+      })()`,
         'select'
       )
       return settleAndUpdate(state)
@@ -1037,44 +1304,29 @@ export function createElectronBrowserAutomationService(input: {
 
     async check({ threadId, session: sessionName, ref, checked }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = await pointAtRef(state, sessionName, ref)
-      await evaluate<void>(
+      const point = await pointAtRef(state, sessionName, ref)
+      if (typeof point.checked !== 'boolean')
+        throw new Error('Target is not a checkbox or radio input.')
+      if (point.checked !== checked)
+        await clickBrowserPoint(
+          state.view.webContents,
+          { x: point.x, y: point.y },
+          () => assertStateCurrent(state),
+          () => pointAtRef(state, sessionName, ref)
+        )
+      const value = await evaluateRef<boolean>(
         state,
-        `(() => {
-          const xpath = ${JSON.stringify(xpath)}
-          const checked = ${JSON.stringify(checked)}
-          const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-          if (!(node instanceof Element)) throw new Error('Element not found for ref.')
-          const el = node
-          if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
-            el.checked = checked
-            el.dispatchEvent(new Event('input', { bubbles: true }))
-            el.dispatchEvent(new Event('change', { bubbles: true }))
-            return
-          }
-          throw new Error('Ref is not a checkbox/radio input.')
-        })()`,
-        'check'
+        ref,
+        `(() => {const node = ${browserRefExpression(ref)}; return 'checked' in node ? node.checked : node.getAttribute('aria-checked') === 'true'})()`,
+        'verify check'
       )
+      if (value !== checked) throw new Error('The page did not accept the checked state.')
       return settleAndUpdate(state)
     },
 
     async press({ threadId, session: sessionName, key }) {
       const state = requireSessionState(threadId, sessionName)
-      const parts = key
-        .split('+')
-        .map((part) => part.trim())
-        .filter(Boolean)
-      const keyCode = parts.pop() ?? key
-      const modifiers = parts
-        .map((part) => part.toLowerCase())
-        .map((part) => (part === 'ctrl' ? 'control' : part === 'cmd' ? 'meta' : part))
-        .filter(
-          (part): part is 'shift' | 'control' | 'alt' | 'meta' =>
-            part === 'shift' || part === 'control' || part === 'alt' || part === 'meta'
-        )
-      state.view.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-      state.view.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+      await pressBrowserKey(state.view.webContents, key, () => assertStateCurrent(state))
       return settleAndUpdate(state)
     },
 
@@ -1098,12 +1350,17 @@ export function createElectronBrowserAutomationService(input: {
 
       await mkdir(dirname(savedFilePath), { recursive: true })
       assertStateCurrent(state)
-      const image = await state.view.webContents.capturePage(undefined, {
-        stayHidden: true,
-        stayAwake: true
-      })
+      const image = await browserCdp<{ data: string }>(
+        state.view.webContents,
+        'Page.captureScreenshot',
+        {
+          format: 'png',
+          fromSurface: true,
+          captureBeyondViewport: false
+        }
+      )
       assertStateCurrent(state)
-      const buffer = image.toPNG()
+      const buffer = Buffer.from(image.data, 'base64')
       assertNonEmptyScreenshotByteLength(buffer.byteLength)
       assertStateCurrent(state)
       await writeFile(savedFilePath, buffer)
@@ -1160,6 +1417,7 @@ export function createElectronBrowserAutomationService(input: {
       agentOwners.clear()
     }
   }
+  const rawOperations = { ...service }
   const openPreviewRaw = service.open.bind(service)
   for (const method of BROWSER_AUTOMATION_TOOL_METHODS) {
     const operation = service[method].bind(service) as (args: {
@@ -1177,6 +1435,14 @@ export function createElectronBrowserAutomationService(input: {
         agentOwners.add(sessionKey(args.threadId, args.session))
         const state = threadSessions.get(args.threadId)?.get(args.session)
         if (state) state.previewOwned = false
+        const readOnly = ['getUrl', 'getTitle', 'snapshot', 'screenshot', 'pdf'].includes(method)
+        if (state?.dialog && !['getUrl', 'getTitle', 'snapshot', 'close'].includes(method))
+          return Promise.reject(new Error('Handle the pending browser dialog before continuing.'))
+        const version = state?.controlVersion ?? 0
+        if (!readOnly && state?.controlledBy === 'user')
+          return Promise.reject(
+            new Error('Browser control is paused for the user. Resume automation first.')
+          )
         if (method === 'close') {
           lifecycle.invalidate(args, new Error('Browser session closed. Re-open it.'))
           if (!state) agentOwners.delete(sessionKey(args.threadId, args.session))
@@ -1188,7 +1454,9 @@ export function createElectronBrowserAutomationService(input: {
           (method === 'waitForFunction' || method === 'evaluateScript') && args.timeoutMs
             ? { ...args, timeoutMs: args.timeoutMs + 1_000 }
             : args
-        return lifecycle.run(deadlineInput, () => operation(args))
+        return lifecycle.run(deadlineInput, () =>
+          readOnly ? operation(args) : mutationContext.run({ version }, () => operation(args))
+        )
       }
     })
   }

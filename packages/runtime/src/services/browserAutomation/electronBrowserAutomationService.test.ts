@@ -19,7 +19,19 @@ class FakeContents extends EventEmitter {
   closed = 0
   executeJavaScript: (script?: string) => Promise<unknown> = (script) =>
     script?.startsWith('window.scrollTo') ? Promise.resolve(undefined) : new Promise(() => {})
+  executeJavaScriptInIsolatedWorld(
+    _world: number,
+    scripts: Array<{ code: string }>
+  ): Promise<unknown> {
+    return this.executeJavaScript(scripts[0]?.code)
+  }
   capturePage: () => Promise<unknown> = () => new Promise(() => {})
+  debugger = Object.assign(new EventEmitter(), {
+    isAttached: () => true,
+    attach: () => {},
+    sendCommand: (method: string) =>
+      method === 'Page.captureScreenshot' ? new Promise(() => {}) : Promise.resolve({})
+  })
   loadedUrls: string[] = []
   loadURL: (url: string) => Promise<void> = async (url) => {
     this.loadedUrls.push(url)
@@ -82,7 +94,16 @@ function setup(
     profilePath: '/unused',
     operationTimeoutMs: timeout,
     electron: {
-      BrowserWindow: class {},
+      BrowserWindow: class {
+        destroyed = false
+        contentView = { addChildView: () => {}, removeChildView: () => {} }
+        isDestroyed(): boolean {
+          return this.destroyed
+        }
+        destroy(): void {
+          this.destroyed = true
+        }
+      },
       WebContentsView: FakeView,
       session: {
         fromPath: () => fakeSession
@@ -92,6 +113,71 @@ function setup(
   return { service, contents, session: fakeSession }
 }
 const input = { threadId: 't', session: 's' }
+
+test('pending dialogs remain observable without executing page scripts or allowing resume', async () => {
+  const { service, contents } = setup()
+  try {
+    await service.open(input)
+    contents[0].debugger.emit('message', {}, 'Page.javascriptDialogOpening', {
+      type: 'confirm',
+      message: 'Continue?'
+    })
+    const snapshot = await service.snapshot(input)
+    assert.match(snapshot.pageText.snippets.join(' '), /Continue/)
+    await assert.rejects(service.controlSession({ ...input, action: 'resume' }), /dialog/i)
+    assert.equal(contents[0].closed, 0)
+  } finally {
+    service.dispose()
+  }
+})
+
+test('takeover rejects agent navigation and eval without losing the page; resume permits navigation', async () => {
+  const { service, contents } = setup(1000)
+  try {
+    await service.open(input)
+    const record = await service.controlSession({ ...input, action: 'takeOver' })
+    assert.equal(record.controlledBy, 'user')
+    await assert.rejects(
+      service.loadUrl({ ...input, url: 'https://blocked.test' }),
+      /user|control|paused/i
+    )
+    await assert.rejects(
+      service.evaluateScript({ ...input, script: 'document.body.remove()', timeoutMs: 100 }),
+      /user|control|paused/i
+    )
+    assert.deepEqual(contents[0]!.loadedUrls, ['about:blank'])
+    assert.equal(contents[0]!.closed, 0)
+    await service.controlSession({ ...input, action: 'resume' })
+    await service.loadUrl({ ...input, url: 'https://allowed.test' })
+    assert.deepEqual(contents[0]!.loadedUrls, ['about:blank', 'https://allowed.test'])
+  } finally {
+    service.dispose()
+  }
+})
+
+test('takeover followed by resume still rejects agent writes queued before the takeover', async () => {
+  const { service, contents } = setup(1000)
+  try {
+    await service.open(input)
+    let release!: () => void
+    contents[0]!.loadURL = () =>
+      new Promise((resolve) => {
+        release = resolve
+      })
+    const first = service.loadUrl({ ...input, url: 'https://first.test' })
+    const firstRejected = assert.rejects(first, /control|paused/i)
+    const queued = service.loadUrl({ ...input, url: 'https://queued.test' })
+    const queuedRejected = assert.rejects(queued, /control|paused/i)
+    await new Promise((resolve) => setImmediate(resolve))
+    await service.controlSession({ ...input, action: 'takeOver' })
+    await service.controlSession({ ...input, action: 'resume' })
+    release()
+    await Promise.all([firstRejected, queuedRejected])
+    assert.equal(contents[0]!.closed, 0)
+  } finally {
+    service.dispose()
+  }
+})
 
 test('snapshot deadline closes real session and rejects queued navigation', async () => {
   const { service, contents } = setup()
@@ -386,7 +472,7 @@ test('service-side idle reclamation retains the latest URL and reading snapshot 
     contents[0].emit('did-navigate', {}, 'https://example.test/b')
     await service.releasePreview({ ...input, mode: 'auto' })
     await service.openPreview({ ...input, url: 'https://example.test/a' })
-    assert.deepEqual(contents[1].loadedUrls, ['https://example.test/b'])
+    assert.deepEqual(contents[1].loadedUrls, ['about:blank', 'https://example.test/b'])
     assert.equal(contents[1].zoom, 1.25)
   } finally {
     service.dispose()
@@ -414,10 +500,18 @@ test('media and active downloads defer discard until playback and download finis
     contents[0].emit('media-started-playing')
     assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, false)
     contents[0].emit('media-paused')
-    const download = new EventEmitter()
+    const download = Object.assign(new EventEmitter(), {
+      getFilename: () => 'report.csv',
+      getReceivedBytes: () => 12,
+      getTotalBytes: () => 12
+    })
     session.emit('will-download', {}, download, contents[0])
+    assert.equal(service.listSessions(input)[0].download?.state, 'progressing')
+    download.emit('updated', {}, 'progressing')
+    assert.equal(service.listSessions(input)[0].download?.receivedBytes, 12)
     assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, false)
-    download.emit('done')
+    download.emit('done', {}, 'completed')
+    assert.equal(service.listSessions(input)[0].download?.state, 'completed')
     assert.equal((await service.releasePreview({ ...input, mode: 'auto' })).released, true)
   } finally {
     service.dispose()

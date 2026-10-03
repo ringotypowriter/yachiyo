@@ -35,13 +35,26 @@ function box(input: { x?: number; y: number; width?: number; height?: number }):
 function evaluateSnapshot(
   html: string,
   limit: number,
-  counters = { queries: 0, scanned: 0, layouts: 0, textReads: 0 }
+  counters = { queries: 0, scanned: 0, layouts: 0, textReads: 0 },
+  options: { generation: string; query?: string; scopeRef?: string } = { generation: 'test' },
+  setup?: (document: Document) => void,
+  existingWindow?: ReturnType<typeof parseHTML>['window']
 ): {
   pageText: { viewport?: string; headings: string[]; snippets: string[] }
-  refs: Array<{ id?: string; xpath: string }>
+  refs: Array<{
+    id?: string
+    ref: string
+    label?: string
+    value?: string
+    checked?: boolean
+    disabled?: boolean
+    expanded?: boolean
+    role?: string
+  }>
 } {
-  const { window } = parseHTML(html)
+  const window = existingWindow ?? parseHTML(html).window
   const document = window.document
+  setup?.(document)
   const elements = Array.from(document.querySelectorAll('[data-box]'))
 
   for (const element of elements) {
@@ -72,12 +85,14 @@ function evaluateSnapshot(
   }) as typeof document.createTreeWalker
   for (const element of elements) {
     const text = element.textContent
-    Object.defineProperty(element, 'innerText', {
-      get() {
-        counters.textReads++
-        return text
-      }
-    })
+    if (!Object.hasOwn(element, 'innerText')) {
+      Object.defineProperty(element, 'innerText', {
+        get() {
+          counters.textReads++
+          return text
+        }
+      })
+    }
   }
 
   window.getComputedStyle = () =>
@@ -92,10 +107,19 @@ function evaluateSnapshot(
     'HTMLAnchorElement',
     'CSS',
     'location',
-    `return ${buildBrowserAutomationSnapshotScript(limit)}`
-  )(window, document, window.Element, window.HTMLAnchorElement, undefined, {
-    href: 'https://example.com/page'
-  })
+    'globalThis',
+    `return ${buildBrowserAutomationSnapshotScript(limit, options)}`
+  )(
+    window,
+    document,
+    window.Element,
+    window.HTMLAnchorElement,
+    undefined,
+    {
+      href: 'https://example.com/page'
+    },
+    window
+  )
 }
 
 test('browser automation snapshot prioritizes refs visible in the viewport', () => {
@@ -193,15 +217,37 @@ test('snapshot stops viewport layout reads once enough unique text is collected'
   assert.ok(counters.layouts <= 9, JSON.stringify(counters))
 })
 
-test('snapshot omits unusable refs on XPath budget exhaustion but retains ID paths', () => {
+test('snapshot stores element identity rather than XPath and reports output truncation', () => {
   const snapshot = evaluateSnapshot(
     `<html><body>${'<button data-box data-y="10"></button>'.repeat(800)}<button id="last" data-box data-y="20"></button></body></html>`,
-    1000
+    3
   )
-  assert.ok(snapshot.refs.length > 1 && snapshot.refs.length < 200)
-  assert.ok(snapshot.refs.every((ref) => ref.xpath.startsWith('/')))
-  assert.equal(snapshot.refs.at(-1)?.xpath, '//*[@id="last"]')
-  assert.match(snapshot.pageText.viewport ?? '', /scan budget reached/)
+  assert.equal(snapshot.refs.length, 3)
+  assert.deepEqual(
+    snapshot.refs.map((ref) => ref.ref),
+    ['test:1', 'test:2', 'test:3']
+  )
+  assert.match(snapshot.pageText.viewport ?? '', /truncated/)
+})
+
+test('snapshot exposes accessible control state and never exposes password values', () => {
+  const snapshot = evaluateSnapshot(
+    `<html><body>
+    <label for="user">User name</label><input id="user" data-box data-y="10" value="Alice">
+    <label for="secret">Password</label><input id="secret" type="password" data-box data-y="40" value="private">
+    <input id="agree" type="checkbox" aria-label="Agree" checked disabled data-box data-y="70">
+    <button id="more" aria-expanded="true" data-box data-y="100">Details</button>
+  </body></html>`,
+    10
+  )
+  assert.equal(snapshot.refs[0]?.label, 'User name')
+  assert.equal(snapshot.refs[0]?.value, 'Alice')
+  assert.equal(snapshot.refs[0]?.role, 'textbox')
+  assert.equal(snapshot.refs[1]?.label, 'Password')
+  assert.equal(snapshot.refs[1]?.value, undefined)
+  assert.equal(snapshot.refs[2]?.checked, true)
+  assert.equal(snapshot.refs[2]?.disabled, true)
+  assert.equal(snapshot.refs[3]?.expanded, true)
 })
 
 test('snapshot continues collecting body text after the interactive candidate budget', () => {
@@ -226,4 +272,131 @@ test('snapshot preserves body visibility exclusions and first-seen text ordering
     0
   )
   assert.equal(snapshot.pageText.viewport, 'First text Second text')
+})
+
+test('snapshot query and scope return local matches only', () => {
+  const html = `<html><body><section id="group" data-box data-y="5">
+    <button id="alpha" data-box data-y="10">Alpha</button>
+    <button id="beta" data-box data-y="40">Beta</button>
+  </section><button id="outside" data-box data-y="70">Alpha outside</button></body></html>`
+  const snapshot = evaluateSnapshot(html, 10, undefined, { generation: 'q', query: 'Alpha' })
+  assert.deepEqual(
+    snapshot.refs.map((ref) => ref.id),
+    ['alpha', 'outside']
+  )
+  const scoped = evaluateSnapshot(
+    html,
+    10,
+    undefined,
+    { generation: 'q', scopeRef: 'prior' },
+    (document) => {
+      ;(
+        document.defaultView as typeof window & { __yachiyoBrowserRefs: Map<string, Element> }
+      ).__yachiyoBrowserRefs = new Map([['prior', document.querySelector('#group')!]])
+    }
+  )
+  assert.deepEqual(
+    scoped.refs.map((ref) => ref.id),
+    ['alpha', 'beta']
+  )
+})
+
+test('snapshot traverses open shadow roots with the shared scan budget', () => {
+  const snapshot = evaluateSnapshot(
+    '<html><body><div id="host"></div></body></html>',
+    10,
+    undefined,
+    { generation: 'shadow' },
+    (document) => {
+      const shadow = document.querySelector('#host')!.attachShadow({ mode: 'open' })
+      shadow.innerHTML = '<button id="inside">Inside shadow</button>'
+      shadow.querySelector('button')!.getBoundingClientRect = () => box({ y: 30 }) as DOMRect
+    }
+  )
+  assert.deepEqual(
+    snapshot.refs.map((ref) => ref.id),
+    ['inside']
+  )
+})
+
+test('snapshot reports inaccessible frames instead of pretending to inspect them', () => {
+  const snapshot = evaluateSnapshot(
+    '<html><body><iframe id="foreign"></iframe></body></html>',
+    10,
+    undefined,
+    { generation: 'frame' },
+    (document) => {
+      Object.defineProperty(document.querySelector('iframe'), 'contentDocument', { value: null })
+    }
+  )
+  assert.deepEqual(snapshot.refs, [])
+  assert.match(snapshot.pageText.viewport ?? '', /Cross-origin frames inaccessible: 1/)
+})
+
+test('snapshot traverses same-origin iframe and offsets its ref box', () => {
+  const snapshot = evaluateSnapshot(
+    '<html><body><iframe id="same"></iframe></body></html>',
+    10,
+    undefined,
+    { generation: 'frame' },
+    (document) => {
+      const frame = document.querySelector('iframe')!
+      const inner = parseHTML(
+        '<html><body><button id="inside">Frame button</button></body></html>'
+      ).document
+      Object.defineProperty(frame, 'contentDocument', { value: inner })
+      frame.getBoundingClientRect = () => box({ x: 40, y: 50 }) as DOMRect
+      inner.querySelector('button')!.getBoundingClientRect = () => box({ x: 10, y: 15 }) as DOMRect
+    }
+  )
+  assert.equal(snapshot.refs[0]?.id, 'inside')
+})
+
+test('scoped query races replace the ref generation and reject stale or detached scope', () => {
+  const html = `<html><body><section id="scope" role="button" data-box data-y="5">
+    <button id="first" data-box data-y="10">First item</button>
+    <button id="second" data-box data-y="40">Second item</button>
+  </section></body></html>`
+  const window = parseHTML(html).window
+  const first = evaluateSnapshot(html, 10, undefined, { generation: 'one' }, undefined, window)
+  const firstRef = first.refs.find((ref) => ref.id === 'first')!.ref
+  const scope = window.document.querySelector('#scope')!
+  const scopeRef = first.refs.find((ref) => ref.id === 'scope')!.ref
+  const second = evaluateSnapshot(
+    html,
+    10,
+    undefined,
+    { generation: 'two', scopeRef, query: 'Second' },
+    undefined,
+    window
+  )
+  assert.deepEqual(
+    second.refs.map((ref) => ref.id),
+    ['scope', 'second']
+  )
+  assert.equal(second.refs[1]?.ref, 'two:2')
+  assert.equal(
+    (
+      window as typeof window & { __yachiyoBrowserRefs: Map<string, Element> }
+    ).__yachiyoBrowserRefs.has(firstRef),
+    false
+  )
+  assert.throws(
+    () =>
+      evaluateSnapshot(html, 10, undefined, { generation: 'three', scopeRef }, undefined, window),
+    /Stale browser scope ref/
+  )
+  scope.remove()
+  assert.throws(
+    () =>
+      evaluateSnapshot(
+        html,
+        10,
+        undefined,
+        { generation: 'four', scopeRef: second.refs[1]!.ref },
+        undefined,
+        window
+      ),
+    /Stale browser scope ref/
+  )
 })

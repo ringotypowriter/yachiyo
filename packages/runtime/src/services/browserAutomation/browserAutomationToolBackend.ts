@@ -25,6 +25,11 @@ export interface BrowserAutomationRef {
   ref: string
   tag: string
   text?: string
+  label?: string
+  value?: string
+  checked?: boolean
+  disabled?: boolean
+  expanded?: boolean
   ariaLabel?: string
   placeholder?: string
   href?: string
@@ -54,11 +59,14 @@ export interface BrowserAutomationEvaluationResult extends BrowserAutomationPage
 export type BrowserAutomationScrollDirection = 'up' | 'down' | 'left' | 'right'
 
 export interface BrowserAutomationSnapshot {
+  tabs?: Array<{ session: string; url: string; title?: string }>
   url: string
   title?: string
   pageText: BrowserAutomationPageText
   refCount: number
   refs: BrowserAutomationRef[]
+  truncated?: boolean
+  inaccessibleFrames?: number
 }
 
 export interface BrowserAutomationPdfResult {
@@ -108,6 +116,8 @@ export interface BrowserAutomationToolBackend {
     threadId: string
     session: string
     maxRefs?: number
+    query?: string
+    scopeRef?: string
   }): Promise<BrowserAutomationSnapshot>
 
   scroll(input: {

@@ -1,6 +1,6 @@
 ---
 name: yachiyo-browser
-description: Use this skill for browser automation with the useBrowser tool — opening pages, taking snapshots, clicking and filling elements, handling page state, capturing screenshots, extracting page data, and verifying web flows. The user can see and interact with the browser window directly, and you may ask them to handle blocking steps (e.g. CAPTCHA, login, 2FA). Re-snapshot after page changes, use isolated sessions when needed, and always close the browser session when done.
+description: Use this skill for browser automation with the useBrowser tool — opening pages, taking snapshots, clicking and filling elements, handling page state, capturing screenshots, extracting page data, and verifying web flows. The user can see and interact with the browser window directly, and you may ask them to handle blocking steps (e.g. CAPTCHA, login, 2FA). Use action-attached observations, request local snapshots only when needed, and close temporary browser sessions when done.
 ---
 
 # Yachiyo Browser
@@ -12,17 +12,16 @@ Read [guide.md](references/guide.md) for the operating guide before non-trivial 
 ## Stable Workflow
 
 1. Open the target page with `action="open"`.
-2. Wait for load or specific content with `action="wait"`.
-3. Take a snapshot with `action="snapshot"` to discover fresh element refs.
-4. Interact with the page using those refs (`click`, `fill`, `type`, `select`, `check`, `press`).
-5. Re-snapshot after navigation or visible DOM changes.
-6. Verify the result with text, URL, screenshot, or PDF.
-7. Close the session with `action="close"` when done.
+2. Read the compact snapshot attached to the open result and use its fresh refs.
+3. Interact with the page (`click`, `fill`, `type`, `select`, `check`, `press`) and read each action’s attached observation.
+4. Use `snapshot` with `query` or `scopeRef` for missing detail; `wait` only for a concrete condition that is not yet satisfied.
+5. Verify the requested effect from page state, URL, screenshot, or PDF; an action acknowledgment alone is not proof.
+6. Close temporary sessions with `action="close"` when done.
 
 ## Good Defaults
 
-- Prefer `snapshot` before interacting.
-- Prefer explicit waits with custom `predicate` over fixed delays.
+- Use refs from the latest observation; older refs may be stale after another snapshot or navigation.
+- Prefer conditional `wait` with a custom `predicate` over fixed delays.
 - Use named `session` values for multi-site or concurrent work.
 - Cookies and storage are shared across sessions via a single global browser profile.
 - Save screenshots and PDFs to explicit filenames when artifacts are needed.

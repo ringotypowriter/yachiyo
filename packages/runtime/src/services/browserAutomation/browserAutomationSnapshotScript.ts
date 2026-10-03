@@ -1,84 +1,53 @@
-export function buildBrowserAutomationSnapshotScript(limit: number): string {
+export function buildBrowserAutomationSnapshotScript(
+  limit: number,
+  options: { generation: string; query?: string; scopeRef?: string } = { generation: 'default' }
+): string {
   return `(() => {
     const limit = ${JSON.stringify(limit)}
-    // These bound explicit DOM work, not wall time: browser layout and text getters
-    // can themselves be expensive. Results beyond the scan budgets are omitted.
+    const options = ${JSON.stringify(options)}
+    const previous = globalThis.__yachiyoBrowserRefs
+    const scope = options.scopeRef ? previous?.get(options.scopeRef) : document
+    if (!scope || (options.scopeRef && !scope.isConnected)) throw new Error('Stale browser scope ref: ' + options.scopeRef)
+    // A snapshot replaces the entire registry; old generations cannot resolve to new nodes.
+    const registry = new Map()
+    globalThis.__yachiyoBrowserRefs = registry
     const MAX_SCAN_NODES = 10000
     const MAX_REF_CANDIDATES = 1000
-    let xpathSteps = 10000
     let truncated = false
+    let inaccessibleFrames = 0
+    let scanned = 0
+    let candidateCount = 0
+    let textLength = 0
     const geometry = new WeakMap()
     const visibleRect = (el) => {
-      if (!(el instanceof Element)) return null
       if (geometry.has(el)) return geometry.get(el)
-      const style = window.getComputedStyle(el)
+      const view = el.ownerDocument.defaultView || window
+      const style = view.getComputedStyle(el)
       const rect = style && style.visibility !== 'hidden' && style.display !== 'none'
         ? el.getBoundingClientRect() : null
       const visible = rect && rect.width > 1 && rect.height > 1 ? rect : null
       geometry.set(el, visible)
       return visible
     }
-
     const clip = (text, length) => {
       const normalized = String(text || '').replace(/\\s+/g, ' ').trim()
       return normalized.length > length ? normalized.slice(0, length - 3) + '...' : normalized
     }
-
     const elementText = (el) => clip(el.innerText || el.textContent || '', 120)
-
     const visibleText = (el) => {
       const rect = visibleRect(el)
       if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) return ''
       return clip(el.innerText || el.textContent || '', 240)
     }
-
-    const isInViewport = (rect) => (
-      rect.bottom >= 0 && rect.top <= window.innerHeight &&
-      rect.right >= 0 && rect.left <= window.innerWidth
-    )
-
-    const cssIdentifier = (value) => {
-      if (globalThis.CSS && typeof globalThis.CSS.escape === 'function') {
-        return globalThis.CSS.escape(value)
-      }
-      return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\\\$&')
-    }
-
+    const cssIdentifier = (value) => globalThis.CSS?.escape
+      ? globalThis.CSS.escape(value) : String(value).replace(/[^a-zA-Z0-9_-]/g, '\\\\$&')
     const cssAttributeValue = (value) => String(value).replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"')
-
-    const toXpath = (el) => {
-      if (!(el instanceof Element)) return ''
-      if (el.id) return '//*[@id=' + JSON.stringify(el.id) + ']'
-      const parts = []
-      let node = el
-      while (node && node.nodeType === 1 && parts.length < 32) {
-        if (xpathSteps-- <= 0) { truncated = true; return '' }
-        const tag = node.tagName.toLowerCase()
-        let index = 1
-        let sibling = node.previousElementSibling
-        while (sibling) {
-          if (xpathSteps-- <= 0) { truncated = true; return '' }
-          if (sibling.tagName === node.tagName) index++
-          sibling = sibling.previousElementSibling
-        }
-        parts.unshift(tag + '[' + index + ']')
-        node = node.parentElement
-      }
-      if (node && node.nodeType === 1) { truncated = true; return '' }
-      return '/' + parts.join('/')
-    }
-
     const selector = [
-      'a[href]',
-      'button',
-      'input:not([type="hidden"])',
-      'textarea',
-      'select',
-      '[role="button"]',
-      '[role="link"]',
-      '[contenteditable="true"]'
+      'a[href]', 'button', 'input:not([type="hidden"])', 'textarea', 'select',
+      '[role="button"]', '[role="link"]', '[role="checkbox"]', '[role="radio"]',
+      '[role="switch"]', '[role="combobox"]', '[role="menuitem"]', '[role="textbox"]',
+      '[contenteditable="true"]', 'summary'
     ].join(',')
-
     const candidates = []
     const headings = []
     const snippets = []
@@ -86,95 +55,132 @@ export function buildBrowserAutomationSnapshotScript(limit: number): string {
     const seenLines = new Set()
     const hiddenAncestors = new WeakMap()
     const bodyElements = new WeakSet()
-    let textLength = 0
-    let candidateCount = 0
-    let scanned = 0
-    // SHOW_ALL is intentional: a filtered walker may traverse unbounded numbers
-    // of nonmatching nodes inside a single nextNode() call.
-    const walker = document.createTreeWalker(document, window.NodeFilter?.SHOW_ALL ?? 0xffffffff)
-    while (scanned < MAX_SCAN_NODES) {
-      const node = walker.nextNode()
-      if (!node) break
-      scanned++
-      if (node instanceof Element) {
-        if (node === document.body || bodyElements.has(node.parentElement)) bodyElements.add(node)
-        hiddenAncestors.set(node, Boolean(hiddenAncestors.get(node.parentElement)) ||
-          node.hasAttribute('hidden') || node.getAttribute('aria-hidden') === 'true')
-        if (limit > 0 && node.matches(selector)) {
-          if (candidateCount < MAX_REF_CANDIDATES) {
-            candidateCount++
-            const rect = visibleRect(node)
-            if (rect) candidates.push({ el: node, rect, inViewport: isInViewport(rect) })
-          } else truncated = true
+    const query = options.query?.toLocaleLowerCase()
+    const matchesQuery = (el) => !query || [el.id, el.getAttribute('aria-label'),
+      el.getAttribute('placeholder'), el.getAttribute('name'),
+      el.tagName.toLowerCase() === 'input' && el.type === 'password' ? null : el.getAttribute('value'),
+      el.textContent].some((value) => value?.toLocaleLowerCase().includes(query))
+    const roots = [{ root: scope, frame: null }]
+    while (roots.length && scanned < MAX_SCAN_NODES) {
+      const { root, frame } = roots.shift()
+      const doc = root.ownerDocument || root
+      const view = doc.defaultView || window
+      const walker = doc.createTreeWalker(root, view.NodeFilter?.SHOW_ALL ?? 0xffffffff)
+      // TreeWalker excludes its root node; scoped interactive elements must be included.
+      let node = root.nodeType === 1 ? root : walker.nextNode()
+      while (node && scanned < MAX_SCAN_NODES) {
+        scanned++
+        if (node.nodeType === 1) {
+          if (node === doc.body || root === node || bodyElements.has(node.parentElement) ||
+              node.getRootNode()?.nodeType === 11) bodyElements.add(node)
+          hiddenAncestors.set(node, Boolean(hiddenAncestors.get(node.parentElement)) ||
+            node.hasAttribute('hidden') || node.getAttribute('aria-hidden') === 'true')
+          if (limit > 0 && node.matches(selector) && matchesQuery(node)) {
+            if (candidateCount < MAX_REF_CANDIDATES) {
+              candidateCount++
+              const rect = visibleRect(node)
+              if (rect) {
+                let offset = { x: 0, y: 0 }
+                for (let current = frame; current; current = current.ownerDocument.defaultView?.frameElement) {
+                  const parentRect = current.getBoundingClientRect()
+                  offset = { x: offset.x + parentRect.x, y: offset.y + parentRect.y }
+                }
+                const x = rect.x + offset.x
+                const y = rect.y + offset.y
+                candidates.push({ el: node, rect: { x, y, width: rect.width, height: rect.height },
+                  inViewport: y + rect.height >= 0 && y <= window.innerHeight &&
+                    x + rect.width >= 0 && x <= window.innerWidth })
+              }
+            } else truncated = true
+          }
+          if (headings.length < 12 && node.matches('h1,h2,h3,[role="heading"]')) {
+            const text = visibleText(node)
+            if (text && (!query || text.toLocaleLowerCase().includes(query))) headings.push(text)
+          }
+          if (snippets.length < 20 && node.matches('p,li')) {
+            const text = visibleText(node)
+            if (text.length >= 20 && (!query || text.toLocaleLowerCase().includes(query))) snippets.push(text)
+          }
+          if (node.shadowRoot) roots.push({ root: node.shadowRoot, frame })
+          if (node.tagName?.toLowerCase() === 'iframe') {
+            try {
+              const inner = node.contentDocument
+              if (inner) roots.push({ root: inner, frame: node })
+              else inaccessibleFrames++
+            } catch { inaccessibleFrames++ }
+          }
+        } else if (node.nodeType === 3 && textLength < 2000) {
+          const parent = node.parentElement
+          if (!parent || !bodyElements.has(parent) || hiddenAncestors.get(parent) ||
+              ['script', 'style', 'noscript', 'template', 'svg'].includes(parent.tagName.toLowerCase())) {
+            node = scanned < MAX_SCAN_NODES ? walker.nextNode() : null; continue
+          }
+          const text = clip(node.nodeValue || '', 240)
+          if (!text || seenLines.has(text) || (query && !text.toLocaleLowerCase().includes(query))) {
+            node = scanned < MAX_SCAN_NODES ? walker.nextNode() : null; continue
+          }
+          const rect = visibleRect(parent)
+          if (rect && rect.bottom >= 0 && rect.top <= window.innerHeight) {
+            seenLines.add(text)
+            textLength += text.length + (lines.length ? 1 : 0)
+            lines.push(text)
+          }
         }
-        if (headings.length < 12 && node.matches('h1,h2,h3,[role="heading"]')) {
-          const text = visibleText(node)
-          if (text) headings.push(text)
-        }
-        if (snippets.length < 20 && node.matches('p,li')) {
-          const text = visibleText(node)
-          if (text.length >= 20) snippets.push(text)
-        }
-      } else if (node.nodeType === 3 && textLength < 2000) {
-        const parent = node.parentElement
-        if (!parent || !bodyElements.has(parent) || hiddenAncestors.get(parent) ||
-            ['script', 'style', 'noscript', 'template', 'svg'].includes(parent.tagName.toLowerCase())) continue
-        const text = clip(node.nodeValue || '', 240)
-        if (!text || seenLines.has(text)) continue
-        const rect = visibleRect(parent)
-        if (rect && rect.bottom >= 0 && rect.top <= window.innerHeight) {
-          seenLines.add(text)
-          textLength += text.length + (lines.length ? 1 : 0)
-          lines.push(text)
-        }
+        node = scanned < MAX_SCAN_NODES ? walker.nextNode() : null
       }
     }
-    if (scanned === MAX_SCAN_NODES) truncated = true
+    if (scanned === MAX_SCAN_NODES || textLength >= 2000) truncated = true
     const nodes = candidates.sort((left, right) =>
       Number(!left.inViewport) - Number(!right.inViewport) ||
-      left.rect.top - right.rect.top || left.rect.left - right.rect.left
+      left.rect.y - right.rect.y || left.rect.x - right.rect.x
     ).slice(0, limit)
-
-    const refs = nodes.flatMap(({ el, rect }) => {
-      const xpath = toXpath(el)
-      if (!xpath) return []
+    if (candidates.length > limit) truncated = true
+    const refs = nodes.map(({ el, rect }, index) => {
+      const ref = options.generation + ':' + (index + 1)
+      registry.set(ref, el)
       const id = (el.id || '').trim() || undefined
-      const role = (el.getAttribute('role') || '').trim() || undefined
+      const role = (el.getAttribute('role') || '').trim() ||
+        ({ a: 'link', button: 'button', textarea: 'textbox', select: 'combobox', summary: 'button' }[el.tagName.toLowerCase()]) ||
+        (el.tagName.toLowerCase() === 'input'
+          ? ({ checkbox: 'checkbox', radio: 'radio', button: 'button', submit: 'button' }[el.type] || 'textbox')
+          : undefined)
       const name = (el.getAttribute('name') || '').trim() || undefined
       const testId = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim() || undefined
-      const selectorHint = id
-        ? '#' + cssIdentifier(id)
-        : testId
-          ? '[data-testid="' + cssAttributeValue(testId) + '"]'
-          : undefined
+      const labelledBy = el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) =>
+        el.ownerDocument.getElementById(id)?.textContent || '').join(' ').trim()
+      const associated = el.labels && Array.from(el.labels).map((label) => label.textContent).join(' ').trim()
+      const label = clip(labelledBy || el.getAttribute('aria-label') || associated ||
+        (el.id && el.ownerDocument.querySelector('label[for="' + cssAttributeValue(el.id) + '"]')?.textContent) ||
+        (el.closest('label')?.textContent) || elementText(el), 120) || undefined
+      const selectorHint = id ? '#' + cssIdentifier(id) : testId
+        ? '[data-testid="' + cssAttributeValue(testId) + '"]' : undefined
+      const sensitive = el.tagName.toLowerCase() === 'input' && el.type === 'password'
+      const value = !sensitive && ('value' in el) ? clip(el.value, 120) : undefined
       return {
-        tag: el.tagName.toLowerCase(),
-        text: elementText(el) || undefined,
+        ref, tag: el.tagName.toLowerCase(), text: sensitive ? undefined : elementText(el) || undefined,
+        label, value: value || undefined,
+        checked: el.matches('input[type=checkbox],input[type=radio],[role=checkbox],[role=radio],[role=switch]')
+          ? (('checked' in el ? Boolean(el.checked) : el.hasAttribute('checked')) || el.getAttribute('aria-checked') === 'true') : undefined,
+        disabled: el.matches('button,input,select,textarea,option,[aria-disabled]')
+          ? (('disabled' in el ? Boolean(el.disabled) : el.hasAttribute('disabled')) || el.getAttribute('aria-disabled') === 'true') : undefined,
+        expanded: el.hasAttribute('aria-expanded') ? el.getAttribute('aria-expanded') === 'true' : undefined,
         ariaLabel: (el.getAttribute('aria-label') || '').trim() || undefined,
         placeholder: (el.getAttribute('placeholder') || '').trim() || undefined,
-        href: (el instanceof HTMLAnchorElement ? el.href : (el.getAttribute('href') || '').trim()) || undefined,
-        id,
-        role,
-        name,
-        testId,
-        selectorHint,
-        box: {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height)
-        },
-        xpath
+        href: (el.getAttribute('href') || '').trim() || undefined,
+        id, role, name, testId, selectorHint,
+        box: { x: Math.round(rect.x), y: Math.round(rect.y),
+          width: Math.round(rect.width), height: Math.round(rect.height) }
       }
     })
-
     return {
       url: location.href,
       title: document.title || undefined,
       pageText: { headings, snippets, viewport: clip(
-        (truncated ? '[Snapshot scan budget reached; content and refs may be incomplete.] ' : '') + lines.join('\\n'),
-        2000
+        (truncated ? '[Snapshot scan budget reached or output truncated: scan, candidate or ref limit reached; content and refs may be incomplete.] ' : '') +
+        (inaccessibleFrames ? '[Cross-origin frames inaccessible: ' + inaccessibleFrames + '.] ' : '') + lines.join('\\n'), 2000
       ) },
+      truncated,
+      inaccessibleFrames,
       refs
     }
   })()`

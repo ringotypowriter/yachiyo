@@ -96,6 +96,11 @@ function formatRefs(snapshot: BrowserAutomationSnapshot): string[] {
   return snapshot.refs.map((ref) => {
     const bits: string[] = []
     if (ref.text) bits.push(ref.text)
+    if (ref.label && ref.label !== ref.text) bits.push(`label="${ref.label}"`)
+    if (ref.value !== undefined) bits.push(`value="${ref.value}"`)
+    if (ref.checked !== undefined) bits.push(`checked=${ref.checked}`)
+    if (ref.disabled) bits.push('disabled')
+    if (ref.expanded !== undefined) bits.push(`expanded=${ref.expanded}`)
     if (ref.ariaLabel) bits.push(`aria="${ref.ariaLabel}"`)
     if (ref.placeholder) bits.push(`placeholder="${ref.placeholder}"`)
     if (ref.id) bits.push(`id="${ref.id}"`)
@@ -111,6 +116,10 @@ function formatRefs(snapshot: BrowserAutomationSnapshot): string[] {
 
 function formatPageText(snapshot: BrowserAutomationSnapshot): string {
   const sections: string[] = []
+  if (snapshot.tabs && snapshot.tabs.length > 1)
+    sections.push(
+      `Browser tabs (use the exact session to operate a tab):\n${snapshot.tabs.map((tab) => `session="${tab.session}" — ${(tab.title || tab.url).slice(0, 160)}`).join('\n')}`
+    )
   if (snapshot.pageText.headings.length > 0) {
     sections.push(`Headings:\n${snapshot.pageText.headings.map((line) => `- ${line}`).join('\n')}`)
   }
@@ -120,6 +129,10 @@ function formatPageText(snapshot: BrowserAutomationSnapshot): string {
   if (snapshot.pageText.viewport) {
     sections.push(`Viewport text:\n${snapshot.pageText.viewport}`)
   }
+  if (snapshot.truncated)
+    sections.push('[Snapshot truncated; use a scoped snapshot to inspect more.]')
+  if (snapshot.inaccessibleFrames)
+    sections.push(`[${snapshot.inaccessibleFrames} cross-origin frame(s) inaccessible.]`)
   return sections.length > 0 ? `Page text\n${sections.join('\n\n')}` : ''
 }
 
@@ -143,7 +156,7 @@ export function createTool(
 ): Tool<UseBrowserToolInput, UseBrowserToolOutput> {
   return tool({
     description:
-      'Browser automation for opening pages, inspecting content, clicking, filling forms, scrolling, and capturing screenshots or PDFs. You can also run JavaScript in the page with action="eval". The browser window is visible to the user and they can interact with it directly. If a step requires human action (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to this conversation, but cookies and storage are shared globally. Start with action="open"; loadUrl, snapshot, and wait auto-open the session if needed.',
+      'Browser automation for opening pages, inspecting content, clicking, filling forms, scrolling, and capturing screenshots or PDFs. Open, navigation and interactions include a compact current snapshot; use wait only for a specific readiness condition, not a fixed delay. action="eval" executes an async function body: explicitly return a value (or Promise) to receive a result. Pages remain usable in the background and are available in the shared browser panel. Users can take over; do not recreate the page to bypass their control, and wait for them to resume. If a step requires human action (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it. Sessions are scoped to this conversation, but cookies and storage are shared globally. Observations list session handles for other open tabs. Start with action="open"; loadUrl, snapshot, and wait auto-open the session if needed.',
     inputSchema: useBrowserToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, options): Promise<UseBrowserToolOutput> => {
@@ -211,6 +224,35 @@ export function createTool(
         })
       }
 
+      // Observation is deliberately outside the mutation/navigation retry boundary.
+      // Once an action succeeds, a failed snapshot must not encourage replaying it.
+      const withObservation = async (message: string): Promise<string> => {
+        try {
+          const snapshot = await service.snapshot({
+            ...cancellation,
+            threadId,
+            session,
+            maxRefs: 24
+          })
+          const page = formatPageText(snapshot).slice(0, 1000)
+          const refs = formatRefs(snapshot).slice(0, 12).join('\n').slice(0, 1800)
+          return [
+            message,
+            snapshot.title ? `${snapshot.title}\n${snapshot.url}` : snapshot.url,
+            page,
+            refs,
+            snapshot.refCount > 12
+              ? `[Showing 12 of ${snapshot.refCount} refs; use snapshot for more.]`
+              : ''
+          ]
+            .filter(Boolean)
+            .join('\n\n')
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          return `${message}\n[Action completed; current snapshot unavailable: ${reason.slice(0, 200)}. Take a fresh snapshot if needed.]`
+        }
+      }
+
       try {
         switch (input.action) {
           case 'open': {
@@ -227,9 +269,11 @@ export function createTool(
             const title = opened.title
             return {
               content: textContent(
-                title
-                  ? `Opened${formatAttemptSuffix(navigationAttempts ?? 1)}: ${title}\n${finalUrl}`
-                  : `Opened${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
+                await withObservation(
+                  title
+                    ? `Opened${formatAttemptSuffix(navigationAttempts ?? 1)}: ${title}\n${finalUrl}`
+                    : `Opened${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
+                )
               ),
               details: detailsWithNavigationAttempts({
                 ...baseDetails,
@@ -276,7 +320,9 @@ export function createTool(
             )
             return {
               content: textContent(
-                `Loaded${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
+                await withObservation(
+                  `Loaded${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
+                )
               ),
               details: detailsWithNavigationAttempts({ ...baseDetails, finalUrl }),
               metadata: {}
@@ -320,7 +366,9 @@ export function createTool(
                 ...cancellation,
                 threadId,
                 session,
-                maxRefs: input.maxRefs
+                maxRefs: input.maxRefs,
+                ...(input.query ? { query: input.query } : {}),
+                ...(input.scopeRef ? { scopeRef: input.scopeRef } : {})
               })
               .catch(async (error: unknown) => {
                 if (!isMissingSessionError(error) || !input.url) throw error
@@ -331,7 +379,9 @@ export function createTool(
                   ...cancellation,
                   threadId,
                   session,
-                  maxRefs: input.maxRefs
+                  maxRefs: input.maxRefs,
+                  ...(input.query ? { query: input.query } : {}),
+                  ...(input.scopeRef ? { scopeRef: input.scopeRef } : {})
                 })
               })
             const refs = formatRefs(snapshot)
@@ -365,7 +415,7 @@ export function createTool(
               ...(input.ref ? { ref: input.ref } : {})
             })
             return {
-              content: textContent(`Scrolled: ${result.url}`),
+              content: textContent(await withObservation(`Scrolled: ${result.url}`)),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,
@@ -377,7 +427,7 @@ export function createTool(
           case 'goBack': {
             const result = await service.goBack({ ...cancellation, threadId, session })
             return {
-              content: textContent(`Went back: ${result.url}`),
+              content: textContent(await withObservation(`Went back: ${result.url}`)),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,
@@ -389,7 +439,7 @@ export function createTool(
           case 'goForward': {
             const result = await service.goForward({ ...cancellation, threadId, session })
             return {
-              content: textContent(`Went forward: ${result.url}`),
+              content: textContent(await withObservation(`Went forward: ${result.url}`)),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,
@@ -407,7 +457,7 @@ export function createTool(
               ref: input.ref
             })
             return {
-              content: textContent(`Clicked @${input.ref}: ${result.url}`),
+              content: textContent(await withObservation(`Clicked @${input.ref}: ${result.url}`)),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,
@@ -426,7 +476,7 @@ export function createTool(
               text: input.text ?? ''
             })
             return {
-              content: textContent(`Filled @${input.ref}: ${result.url}`),
+              content: textContent(await withObservation(`Filled @${input.ref}: ${result.url}`)),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,
@@ -445,7 +495,9 @@ export function createTool(
               text: input.text ?? ''
             })
             return {
-              content: textContent(`Typed into @${input.ref}: ${result.url}`),
+              content: textContent(
+                await withObservation(`Typed into @${input.ref}: ${result.url}`)
+              ),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,
@@ -466,7 +518,7 @@ export function createTool(
               value
             })
             return {
-              content: textContent(`Selected @${input.ref}: ${result.url}`),
+              content: textContent(await withObservation(`Selected @${input.ref}: ${result.url}`)),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,
@@ -487,7 +539,9 @@ export function createTool(
             })
             return {
               content: textContent(
-                `${input.checked ? 'Checked' : 'Unchecked'} @${input.ref}: ${result.url}`
+                await withObservation(
+                  `${input.checked ? 'Checked' : 'Unchecked'} @${input.ref}: ${result.url}`
+                )
               ),
               details: {
                 ...baseDetails,
@@ -506,7 +560,7 @@ export function createTool(
               key: input.key
             })
             return {
-              content: textContent(`Pressed: ${input.key}: ${result.url}`),
+              content: textContent(await withObservation(`Pressed: ${input.key}: ${result.url}`)),
               details: {
                 ...baseDetails,
                 finalUrl: result.url,

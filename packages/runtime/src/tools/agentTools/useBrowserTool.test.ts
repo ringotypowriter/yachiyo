@@ -21,6 +21,31 @@ const TOOL_INPUT_DEFAULTS = {
   maxRefs: 60
 } as const
 
+test('useBrowserTool: observations expose exact session handles for newly opened tabs', async () => {
+  const browser = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      snapshot: async () => ({
+        url: 'https://example.com',
+        pageText: { headings: [], snippets: [] },
+        refs: [],
+        refCount: 0,
+        tabs: [
+          { session: 'source', url: 'https://example.com' },
+          { session: 'tab-42', url: 'https://example.com/new', title: 'New tab' }
+        ]
+      })
+    })
+  })
+  const output = await resolveToolOutput(
+    browser.execute!(
+      { action: 'open', session: 'source', url: 'https://example.com', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  assert.match(outputText(output), /tab-42/)
+  assert.match(outputText(output), /session/)
+})
+
 function outputText(result: UseBrowserToolOutput): string {
   return result.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
 }
@@ -716,4 +741,197 @@ test('useBrowserTool: passes execution abort signal to snapshot and automatic op
   )
   assert.equal(result.error, undefined)
   assert.deepEqual(signals, [controller.signal, controller.signal, controller.signal])
+})
+
+test('useBrowserTool: mutation includes a bounded current snapshot without retrying the action', async () => {
+  let clicks = 0
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      click: async () => {
+        clicks++
+        return { url: 'https://example.com/done' }
+      },
+      snapshot: async () => ({
+        url: 'https://example.com/done',
+        pageText: { headings: ['Saved'], snippets: [] },
+        refCount: 1,
+        refs: [{ ref: 'g2:1', tag: 'button', label: 'Continue', role: 'button', disabled: true }]
+      })
+    })
+  })
+  const result = await resolveToolOutput(
+    tool.execute!(
+      { action: 'click', session: 's1', ref: 'g1:1', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  assert.equal(clicks, 1)
+  assert.equal(result.error, undefined)
+  assert.match(outputText(result), /Saved/)
+  assert.match(outputText(result), /@g2:1.*label="Continue".*disabled/)
+})
+
+test('useBrowserTool: failed post-action observation never reports a completed mutation as failed', async () => {
+  let fills = 0
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      fill: async () => {
+        fills++
+        return { url: 'https://example.com/form' }
+      },
+      snapshot: async () => {
+        throw new Error('snapshot unavailable')
+      }
+    })
+  })
+  const result = await resolveToolOutput(
+    tool.execute!(
+      { action: 'fill', session: 's1', ref: 'g1:1', text: 'test', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  assert.equal(fills, 1)
+  assert.equal(result.error, undefined)
+  assert.match(outputText(result), /Filled.*snapshot unavailable/s)
+})
+
+test('useBrowserTool: snapshot forwards local query and scope', async () => {
+  let received: unknown
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      snapshot: async (input) => {
+        received = input
+        return {
+          url: 'https://example.com',
+          pageText: { headings: [], snippets: [] },
+          refCount: 0,
+          refs: []
+        }
+      }
+    })
+  })
+  await resolveToolOutput(
+    tool.execute!(
+      {
+        action: 'snapshot',
+        session: 's1',
+        query: 'Search',
+        scopeRef: 'g1:2',
+        ...TOOL_INPUT_DEFAULTS
+      },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  assert.deepEqual(received, {
+    threadId: 'thread-1',
+    session: 's1',
+    maxRefs: 60,
+    query: 'Search',
+    scopeRef: 'g1:2'
+  })
+})
+
+test('useBrowserTool: deterministic form workflow completes with five calls and no extra observations', async () => {
+  const fields = ['First name', 'Email', 'City'] as const
+  const values: Record<string, string> = {}
+  let generation = 0
+  let submitted = false
+  let mutations = 0
+  let snapshots = 0
+  let waits = 0
+  const url = 'https://example.com/form'
+  const currentRefs = new Map<string, string>()
+  const service = makeService({
+    open: async () => ({ url, title: 'Application' }),
+    waitForFunction: async () => {
+      waits++
+    },
+    snapshot: async () => {
+      snapshots++
+      generation++
+      currentRefs.clear()
+      const refs = [...fields, 'Send'].map((label, index) => {
+        const ref = `g${generation}:${index + 1}`
+        currentRefs.set(ref, label)
+        return {
+          ref,
+          tag: label === 'Send' ? 'button' : 'input',
+          label,
+          role: label === 'Send' ? 'button' : 'textbox',
+          ...(values[label] ? { value: values[label] } : {})
+        }
+      })
+      return {
+        url: submitted ? `${url}/submitted` : url,
+        title: 'Application',
+        pageText: {
+          headings: [submitted ? 'Application submitted' : 'Application form'],
+          snippets: []
+        },
+        refCount: refs.length,
+        refs
+      }
+    },
+    fill: async ({ ref, text }) => {
+      const field = currentRefs.get(ref)
+      assert.ok(field && fields.some((name) => name === field), 'fill must use current element ref')
+      mutations++
+      values[field] = text
+      return { url, title: 'Application' }
+    },
+    click: async ({ ref }) => {
+      assert.equal(currentRefs.get(ref), 'Send', 'submit must use current element ref')
+      mutations++
+      submitted = fields.every((field) => Boolean(values[field]))
+      return { url: submitted ? `${url}/submitted` : url, title: 'Application' }
+    }
+  })
+  const tool = createTool(makeContext(), { browserAutomationService: service })
+  let calls = 0
+  let resultChars = 0
+  async function execute(input: Parameters<NonNullable<typeof tool.execute>>[0]): Promise<string> {
+    calls++
+    const result = await resolveToolOutput(tool.execute!(input, TOOL_EXECUTION_OPTIONS))
+    assert.equal(result.error, undefined)
+    resultChars += outputText(result).length
+    return outputText(result)
+  }
+  function refFor(observation: string, label: string): string {
+    const line = observation
+      .split('\n')
+      .find((entry) => entry.startsWith('@') && entry.includes(`label="${label}"`))
+    assert.ok(line, `observation must supply a fresh ref for ${label}`)
+    return line.match(/^@([^ ]+)/)![1]!
+  }
+
+  let observation = await execute({ action: 'open', session: 'form', url, ...TOOL_INPUT_DEFAULTS })
+  for (const [label, value] of [
+    ['First name', 'Ada'],
+    ['Email', 'ada@example.com'],
+    ['City', 'London']
+  ] as const) {
+    observation = await execute({
+      action: 'fill',
+      session: 'form',
+      ref: refFor(observation, label),
+      text: value,
+      ...TOOL_INPUT_DEFAULTS
+    })
+    assert.match(observation, new RegExp(`value="${value}"`))
+  }
+  observation = await execute({
+    action: 'click',
+    session: 'form',
+    ref: refFor(observation, 'Send'),
+    ...TOOL_INPUT_DEFAULTS
+  })
+  assert.equal(submitted, true, 'application result must succeed, not just send input')
+  assert.deepEqual(values, { 'First name': 'Ada', Email: 'ada@example.com', City: 'London' })
+  assert.match(observation, /Application submitted/)
+  assert.match(observation, /form\/submitted/)
+  assert.equal(calls, 5)
+  assert.equal(mutations, 4)
+  assert.equal(snapshots, 5)
+  assert.equal(waits, 0)
+  assert.ok(resultChars < 6000, `unexpected observation output volume: ${resultChars}`)
 })

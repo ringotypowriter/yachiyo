@@ -46,6 +46,44 @@ export interface BrowserAutomationSessionRecord {
   viewport: BrowserAutomationViewportRecord
   pointer?: BrowserAutomationPointerState
   updatedAt: string
+  controlledBy?: 'agent' | 'user'
+  canGoBack?: boolean
+  canGoForward?: boolean
+  loading?: boolean
+  error?: string
+  annotation?: {
+    text: string
+    selector?: string
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  dialog?: { type: string; message: string; defaultPrompt?: string }
+  download?: {
+    fileName: string
+    state: 'progressing' | 'completed' | 'cancelled' | 'interrupted'
+    receivedBytes: number
+    totalBytes: number
+  }
+}
+
+export interface ControlBrowserAutomationSessionInput {
+  threadId: string
+  session: string
+  action:
+    | 'takeOver'
+    | 'resume'
+    | 'back'
+    | 'forward'
+    | 'reload'
+    | 'navigate'
+    | 'close'
+    | 'annotate'
+    | 'acceptDialog'
+    | 'dismissDialog'
+  url?: string
+  text?: string
 }
 
 export interface ListBrowserAutomationSessionsInput {

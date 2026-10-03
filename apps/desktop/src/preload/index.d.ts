@@ -11,6 +11,7 @@ import type {
   AnswerToolQuestionInput,
   BootstrapPayload,
   BrowserAutomationSessionRecord,
+  ControlBrowserAutomationSessionInput,
   OpenBrowserPreviewInput,
   ReleaseBrowserPreviewInput,
   ReleaseBrowserPreviewResult,
@@ -302,6 +303,9 @@ declare global {
         listBrowserAutomationSessions: (
           input: ListBrowserAutomationSessionsInput
         ) => Promise<BrowserAutomationSessionRecord[]>
+        controlBrowserAutomationSession: (
+          input: ControlBrowserAutomationSessionInput
+        ) => Promise<BrowserAutomationSessionRecord>
         showBrowserAutomationSession: (
           input: ShowBrowserAutomationSessionInput
         ) => Promise<BrowserAutomationSessionRecord>

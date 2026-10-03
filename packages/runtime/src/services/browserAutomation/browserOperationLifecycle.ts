@@ -11,6 +11,7 @@ export function createBrowserOperationLifecycle(
 ): {
   run<T>(input: OperationInput, operation: () => Promise<T>): Promise<T>
   invalidate(input: SessionKey, error: Error): void
+  interrupt(input: SessionKey, error: Error): void
   assertCurrent(): void
   dispose(): void
 } {
@@ -20,12 +21,16 @@ export function createBrowserOperationLifecycle(
   const keyOf = (input: SessionKey): string => JSON.stringify([input.threadId, input.session])
 
   function invalidate(input: SessionKey, error: Error): void {
+    interrupt(input, error)
+    destroy(input)
+  }
+
+  function interrupt(input: SessionKey, error: Error): void {
     const key = keyOf(input)
     const generation = generations.get(key)
     if (!generation) return
     generations.delete(key)
     generation.controller.abort(error)
-    destroy(input)
   }
 
   function assertCurrent(): void {
@@ -99,5 +104,5 @@ export function createBrowserOperationLifecycle(
     }
   }
 
-  return { run, invalidate, assertCurrent, dispose }
+  return { run, invalidate, interrupt, assertCurrent, dispose }
 }

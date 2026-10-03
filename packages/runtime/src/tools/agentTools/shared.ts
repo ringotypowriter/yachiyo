@@ -442,7 +442,20 @@ export const useBrowserToolInputSchema = z.object({
     .string()
     .min(1)
     .optional()
-    .describe('Element reference from snapshot, e.g. "e3". Do not include the @ prefix.'),
+    .describe(
+      'Element reference from the latest snapshot. Do not include the @ prefix; stale refs are rejected.'
+    ),
+  query: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('For snapshot: find matching text or control attributes within the page or scope.'),
+  scopeRef: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('For snapshot: inspect descendants of a current element ref.'),
   text: z.string().optional(),
   value: z.string().optional(),
   checked: z.boolean().optional(),
@@ -455,7 +468,7 @@ export const useBrowserToolInputSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      'JavaScript code for action="eval". Runs in the page context; return a serializable value or Promise.'
+      'Async JavaScript function body for action="eval". Explicitly use return to receive a serializable value or Promise (a bare expression returns undefined).'
     ),
   timeoutMs: z.number().int().min(1).max(120_000).default(15_000),
   maxRefs: z.number().int().min(1).max(200).default(60),
