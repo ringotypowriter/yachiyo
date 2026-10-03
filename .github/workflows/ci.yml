@@ -45,6 +45,9 @@ jobs:
       - name: Test renderer
         run: pnpm run test:renderer
 
+      - name: Test browser end-to-end
+        run: pnpm run test:browser
+
       - name: Test
         run: pnpm run test:server
 

@@ -349,15 +349,45 @@ export function createElectronBrowserAutomationService(input: {
 
     let result: unknown
     try {
-      const execution =
-        action === 'eval' || action === 'wait predicate'
-          ? state.view.webContents.executeJavaScript(wrapScript(script), true)
-          : state.view.webContents.executeJavaScriptInIsolatedWorld(
-              999,
-              [{ code: wrapScript(script) }],
-              true
-            )
-      result = await execution
+      // Electron's executeJavaScript helpers wait for the full load event.
+      // CDP can observe and interact with a DOM-ready document while images load.
+      const contents = state.view.webContents
+      let contextId: number | undefined
+      if (action !== 'eval' && action !== 'wait predicate') {
+        const tree = await browserCdp<{ frameTree: { frame: { id: string } } }>(
+          contents,
+          'Page.getFrameTree'
+        )
+        assertStateCurrent(state)
+        const world = await browserCdp<{ executionContextId: number }>(
+          contents,
+          'Page.createIsolatedWorld',
+          {
+            frameId: tree.frameTree.frame.id,
+            worldName: 'yachiyo-browser-main',
+            grantUniveralAccess: false
+          }
+        )
+        contextId = world.executionContextId
+      }
+      assertStateCurrent(state)
+      const execution = await browserCdp<{
+        result?: { value?: unknown }
+        exceptionDetails?: { text?: string; exception?: { description?: string } }
+      }>(contents, 'Runtime.evaluate', {
+        expression: wrapScript(script),
+        returnByValue: true,
+        awaitPromise: true,
+        userGesture: true,
+        ...(contextId === undefined ? {} : { contextId })
+      })
+      if (execution.exceptionDetails)
+        throw new Error(
+          execution.exceptionDetails.exception?.description ??
+            execution.exceptionDetails.text ??
+            'Browser script execution failed.'
+        )
+      result = execution.result?.value
     } catch (error) {
       throw normalizeBrowserAutomationScriptExecutionError(error, context)
     }
@@ -807,9 +837,9 @@ export function createElectronBrowserAutomationService(input: {
           contents.setZoomFactor(args.reading.webZoom)
         if (created && state.previewOwned && args.reading)
           await lifecycle.run(args, () =>
-            contents.executeJavaScript(
-              `window.scrollTo(${Number(args.reading?.webScrollX) || 0}, ${Number(args.reading?.webScrollY) || 0})`
-            )
+            browserCdp(contents, 'Runtime.evaluate', {
+              expression: `window.scrollTo(${Number(args.reading?.webScrollX) || 0}, ${Number(args.reading?.webScrollY) || 0})`
+            })
           )
         discardedPreviews.delete(key)
         return toSessionRecord(state)
@@ -1137,7 +1167,8 @@ export function createElectronBrowserAutomationService(input: {
             }
             result.pageText.snippets.push(
               ...frame.snapshot.pageText.headings,
-              ...frame.snapshot.pageText.snippets
+              ...frame.snapshot.pageText.snippets,
+              ...(frame.snapshot.pageText.viewport ? [frame.snapshot.pageText.viewport] : [])
             )
           }
           result.inaccessibleFrames = frames.unavailableFrames.length

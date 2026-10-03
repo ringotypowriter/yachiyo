@@ -28,6 +28,10 @@ page text and current refs. Read it before making another call. Do not automatic
 specific application condition is not met, then `snapshot` to inspect it. Use `snapshot` with
 `query` or `scopeRef` when the compact observation omits needed detail.
 
+Navigation returns once the document is ready to inspect; images and embedded pages may
+still be loading. Use the available content immediately. Wait for the particular element or
+application state you need, rather than waiting for every page resource to finish.
+
 Refs identify actual DOM elements, not XPath positions. They are generation-specific and
 may become stale after a new snapshot, navigation or element removal. Pass the ref exactly as
 shown without `@` and never retry a mutation blindly after an observation failure: the action

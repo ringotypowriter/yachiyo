@@ -244,9 +244,27 @@ async function run(): Promise<void> {
       assert.equal(await contents.executeJavaScript('document.querySelectorAll("li").length'), 21)
       console.log('PASS: 20/20 React controlled submissions, checkbox, select, and contenteditable')
     }
+    let resourceReleased = false
+    let releaseResource = (): void => {}
     const server = createServer((request, response) => {
       response.setHeader('Content-Type', 'text/html')
       const address = server.address() as { port: number }
+      response.setHeader('Cache-Control', 'no-store')
+      if (request.url?.startsWith('/held.svg')) {
+        releaseResource = () => {
+          if (response.writableEnded) return
+          resourceReleased = true
+          response.setHeader('Content-Type', 'image/svg+xml')
+          response.end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>')
+        }
+        return
+      }
+      if (request.url === '/slow' || request.url === '/slow-preview') {
+        response.end(
+          '<title>Slow image</title><h1>Ready before the image</h1><img src="/held.svg">'
+        )
+        return
+      }
       if (request.url === '/download') {
         response.setHeader('Content-Type', 'text/plain')
         response.setHeader('Content-Disposition', 'attachment; filename="browser-smoke.txt"')
@@ -261,14 +279,68 @@ async function run(): Promise<void> {
       }
       response.end(
         request.url === '/frame'
-          ? '<label>Cross name<input></label><button onclick="this.textContent=document.querySelector(\'input\').value">Submit cross frame</button>'
-          : `<h1>Frame host</h1><iframe style="margin:40px;border:8px solid red;width:500px;height:240px" src="http://127.0.0.1:${address.port}/frame"></iframe>`
+          ? "<label>Cross name<input></label><button onclick=\"this.textContent=document.querySelector('input').value;document.querySelector('output').textContent='Saved frame receipt: '+this.textContent\">Submit cross frame</button><output></output>"
+          : `<h1>Frame host</h1><iframe onload="this.dataset.ready='true'" style="margin:40px;border:8px solid red;width:500px;height:240px" src="http://127.0.0.1:${address.port}/frame"></iframe>`
       )
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     try {
       const address = server.address() as { port: number }
+      const browserTool = createTool(
+        { workspacePath: directory, threadId: target.threadId },
+        { browserAutomationService: service }
+      )
+      const resourceDeadline = setTimeout(() => releaseResource(), 2000)
+      const slowStarted = performance.now()
+      try {
+        const early = (await browserTool.execute!(
+          {
+            action: 'open',
+            session: 'slow-open',
+            url: `http://localhost:${address.port}/slow`,
+            timeoutMs: 5000,
+            maxRefs: 60
+          },
+          { toolCallId: 'slow-open', messages: [], context: undefined }
+        )) as UseBrowserToolOutput
+        assert.equal(early.error, undefined)
+        assert.equal(
+          resourceReleased,
+          false,
+          'Open and its attached observation must not wait for the image'
+        )
+        assert.match(
+          early.content.map((block) => (block.type === 'text' ? block.text : '')).join(' '),
+          /Ready before the image/
+        )
+        console.log(
+          `PASS: open and observation return before the held image (${Math.round(performance.now() - slowStarted)} ms)`
+        )
+      } finally {
+        clearTimeout(resourceDeadline)
+        releaseResource()
+      }
+      resourceReleased = false
+      const previewDeadline = setTimeout(() => releaseResource(), 2000)
+      try {
+        const preview = await service.openPreview({
+          ...target,
+          session: 'slow-preview',
+          url: `http://localhost:${address.port}/slow-preview`,
+          reading: { webScrollY: 10 }
+        })
+        assert.equal(resourceReleased, false, 'Preview restoration must not wait for the image')
+        assert.match(preview.url, /slow-preview/)
+      } finally {
+        clearTimeout(previewDeadline)
+        releaseResource()
+      }
       await service.loadUrl({ ...target, url: `http://localhost:${address.port}/` })
+      await service.waitForFunction({
+        ...target,
+        predicate: 'document.querySelector("iframe")?.dataset.ready === "true"',
+        timeoutMs: 5000
+      })
       const frames = await service.snapshot(target)
       const crossInput = frames.refs.find((ref) => ref.label === 'Cross name')
       assert.ok(crossInput, 'Cross-origin input is present in the browser snapshot')
@@ -289,11 +361,16 @@ async function run(): Promise<void> {
         ref: frames.refs.find((ref) => ref.text === 'Submit cross frame')!.ref
       })
       assert.ok((await service.snapshot(target)).refs.some((ref) => ref.text === 'Frame success'))
+      const submittedFrame = await service.snapshot({ ...target, query: 'Cross name' })
+      assert.ok(submittedFrame.refs.find((ref) => ref.label === 'Cross name'))
+      await service.fill({
+        ...target,
+        ref: submittedFrame.refs.find((ref) => ref.label === 'Cross name')!.ref,
+        text: ''
+      })
+      const receipt = await service.snapshot({ ...target, query: 'Saved frame receipt' })
+      assert.match(JSON.stringify(receipt.pageText), /Saved frame receipt: Frame success/)
       console.log('PASS: exact cross-origin frame targeting, trusted typing and click')
-      const browserTool = createTool(
-        { workspacePath: directory, threadId: target.threadId },
-        { browserAutomationService: service }
-      )
       let toolCalls = 0
       let outputCharacters = 0
       const began = performance.now()

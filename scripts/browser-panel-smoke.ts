@@ -29,12 +29,14 @@ async function run(): Promise<void> {
   assert.ok(address && typeof address !== 'string')
   const navigationUrl = `http://127.0.0.1:${address.port}/navigated`
   let window: InstanceType<typeof BrowserWindow> | undefined
+  let holdSessionChecks = false
+  const sessionChecks: Array<() => void> = []
   try {
     const renderer = join(directory, 'panel.js')
     const entry = join(directory, 'panel.tsx')
     await writeFile(
       entry,
-      `import React from 'react'; import {createRoot} from 'react-dom/client'; import {BrowserTimelineView} from ${JSON.stringify(resolve('apps/desktop/src/renderer/src/features/chat/components/BrowserTimelineView.tsx'))}; createRoot(document.getElementById('root')!).render(<BrowserTimelineView threadId="browser-panel-smoke" sessionId="panel"/>);`
+      `import React from 'react'; import {createRoot} from 'react-dom/client'; import {RetainedBrowserPreview} from ${JSON.stringify(resolve('apps/desktop/src/renderer/src/features/chat/components/RetainedBrowserPreview.tsx'))}; const root=createRoot(document.getElementById('root')!); const target={kind:'web',threadId:'browser-panel-smoke',session:'panel',url:'https://example.test/panel',title:'Panel smoke'}; window.renderPreview=(suspended=false)=>root.render(<RetainedBrowserPreview target={target} reading={{}} suspended={suspended}/>); window.renderPreview();`
     )
     await build({
       entryPoints: [entry],
@@ -104,7 +106,11 @@ async function run(): Promise<void> {
       webPreferences: { preload, contextIsolation: true, nodeIntegration: false }
     })
     const host = window
-    ipcMain.handle('listBrowserAutomationSessions', (_event, input) => service.listSessions(input))
+    ipcMain.handle('listBrowserAutomationSessions', (_event, input) =>
+      holdSessionChecks
+        ? new Promise((resolve) => sessionChecks.push(() => resolve(service.listSessions(input))))
+        : service.listSessions(input)
+    )
     ipcMain.handle('showBrowserAutomationSession', (_event, input) =>
       service.showSessionView({ ...input, window: host })
     )
@@ -131,6 +137,26 @@ async function run(): Promise<void> {
     assert.equal(info.back, true)
     assert.equal(info.expand, true)
     assert.match(info.address, /data:text\/html/)
+    await host.webContents.executeJavaScript(
+      `window.savedTimeline=document.querySelector('.browser-timeline-view');window.renderPreview(true);void 0`
+    )
+    await host.webContents.executeJavaScript(
+      'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))'
+    )
+    holdSessionChecks = true
+    await host.webContents.executeJavaScript('window.renderPreview(false);void 0')
+    await host.webContents.executeJavaScript(
+      'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))'
+    )
+    assert.equal(
+      await host.webContents.executeJavaScript(
+        `document.querySelector('.browser-timeline-view')===window.savedTimeline && !document.querySelector('.content-reader-notice')`
+      ),
+      true
+    )
+    holdSessionChecks = false
+    for (const finish of sessionChecks.splice(0)) finish()
+    console.log('PASS: retained preview stays mounted while its resume check is pending')
     await host.webContents.executeJavaScript(
       `document.querySelector('[aria-label="Expand browser"]').click()`
     )

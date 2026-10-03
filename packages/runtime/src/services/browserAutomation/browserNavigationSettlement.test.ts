@@ -49,6 +49,7 @@ const NAVIGATION_EVENTS = [
   'did-fail-load',
   'did-finish-load',
   'did-stop-loading',
+  'dom-ready',
   'destroyed'
 ] as const
 
@@ -61,6 +62,54 @@ function assertNavigationListenersRemoved(webContents: FakeWebContents): void {
     assert.equal(webContents.listenerCount(event), 0, `${event} listener was not removed`)
   }
 }
+
+test('navigation becomes usable at DOM readiness without waiting for slow subresources', async () => {
+  const webContents = new FakeWebContents()
+  let finishResources!: () => void
+  webContents.load = async (url) => {
+    webContents.startNavigation(url)
+    webContents.commitNavigation(url)
+    webContents.emit('dom-ready')
+    await new Promise<void>((resolve) => {
+      finishResources = resolve
+    })
+  }
+  const pending = loadUrlSettlingReplacementNavigation(
+    webContents,
+    'https://example.test/slow-image'
+  )
+  try {
+    const result = await Promise.race([
+      pending,
+      new Promise((resolve) => setImmediate(() => resolve('still loading')))
+    ])
+    assert.equal(result, 'https://example.test/slow-image')
+    assertNavigationListenersRemoved(webContents)
+  } finally {
+    finishResources()
+    await pending
+  }
+})
+
+test('replacement navigation can settle at DOM readiness while its images still load', async () => {
+  const webContents = new FakeWebContents()
+  webContents.load = async (url) => {
+    webContents.startNavigation(url)
+    webContents.startNavigation('https://example.test/redirected')
+    setImmediate(() => {
+      webContents.commitNavigation('https://example.test/redirected')
+      webContents.emit('dom-ready')
+    })
+    throw abortError(url)
+  }
+  assert.equal(
+    await loadUrlSettlingReplacementNavigation(webContents, 'https://example.test/start', {
+      settleTimeoutMs: 100
+    }),
+    'https://example.test/redirected'
+  )
+  assertNavigationListenersRemoved(webContents)
+})
 
 test('loadUrlSettlingReplacementNavigation returns the page-initiated replacement URL', async () => {
   const webContents = new FakeWebContents()

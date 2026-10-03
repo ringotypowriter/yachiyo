@@ -29,8 +29,14 @@ class FakeContents extends EventEmitter {
   debugger = Object.assign(new EventEmitter(), {
     isAttached: () => true,
     attach: () => {},
-    sendCommand: (method: string) =>
-      method === 'Page.captureScreenshot' ? new Promise(() => {}) : Promise.resolve({})
+    sendCommand: async (method: string, parameters?: { expression?: string }): Promise<unknown> => {
+      if (method === 'Page.captureScreenshot') return new Promise(() => {})
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'root' } } }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 999 }
+      if (method === 'Runtime.evaluate')
+        return { result: { value: await this.executeJavaScript(parameters?.expression) } }
+      return {}
+    }
   })
   loadedUrls: string[] = []
   loadURL: (url: string) => Promise<void> = async (url) => {
@@ -218,13 +224,18 @@ test('close bypasses hung snapshot; late result and old destroyed event cannot a
       contents[0]!.destroyed = true
     }
     let release!: (value: unknown) => void
+    let started!: () => void
+    const executing = new Promise<void>((resolve) => {
+      started = resolve
+    })
     contents[0]!.executeJavaScript = () =>
       new Promise((resolve) => {
         release = resolve
+        started()
       })
     const pending = service.snapshot(input)
     const rejected = assert.rejects(pending, /closed/)
-    await Promise.resolve()
+    await executing
     await service.close(input)
     await rejected
     await service.open(input)

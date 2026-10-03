@@ -30,6 +30,7 @@ interface NavigationEventListeners {
   'did-navigate': DidNavigateListener
   'did-start-navigation': DidStartNavigationListener
   'did-stop-loading': EmptyNavigationListener
+  'dom-ready': EmptyNavigationListener
 }
 
 interface NavigationWebContents {
@@ -64,6 +65,7 @@ export async function loadUrlSettlingReplacementNavigation(
   options: ReplacementNavigationSettlementOptions = {}
 ): Promise<string> {
   let mainFrameNavigationCount = 0
+  let documentCommitted = false
   let replacementCommitted = false
   let resolveOutcome: (outcome: ReplacementNavigationOutcome) => void = () => {}
   let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -79,14 +81,19 @@ export async function loadUrlSettlingReplacementNavigation(
   ): void => {
     if (!isMainFrame || isInPlace) return
     mainFrameNavigationCount += 1
+    documentCommitted = false
     if (mainFrameNavigationCount > 1) {
       replacementCommitted = false
     }
   }
   const onDidNavigate = (): void => {
+    documentCommitted = true
     if (mainFrameNavigationCount > 1) {
       replacementCommitted = true
     }
+  }
+  const onDomReady = (): void => {
+    if (documentCommitted) resolveOutcome({ status: 'loaded' })
   }
   const onDidFailLoad = (
     _event: unknown,
@@ -125,6 +132,7 @@ export async function loadUrlSettlingReplacementNavigation(
     webContents.off('did-fail-load', onDidFailLoad)
     webContents.off('did-finish-load', onDidFinishLoad)
     webContents.off('did-stop-loading', onDidStopLoading)
+    webContents.off('dom-ready', onDomReady)
     webContents.off('destroyed', onDestroyed)
     if (timeoutId) clearTimeout(timeoutId)
   }
@@ -134,11 +142,16 @@ export async function loadUrlSettlingReplacementNavigation(
   webContents.on('did-fail-load', onDidFailLoad)
   webContents.on('did-finish-load', onDidFinishLoad)
   webContents.on('did-stop-loading', onDidStopLoading)
+  webContents.on('dom-ready', onDomReady)
   webContents.on('destroyed', onDestroyed)
 
   try {
     try {
-      await webContents.loadURL(url)
+      const initial = await Promise.race([
+        webContents.loadURL(url).then(() => ({ status: 'loaded' as const })),
+        outcomePromise
+      ])
+      if (initial.status === 'failed') throw initial.error
       return webContents.getURL() || url
     } catch (error) {
       if (!isElectronNavigationAbort(error) || mainFrameNavigationCount <= 1) {

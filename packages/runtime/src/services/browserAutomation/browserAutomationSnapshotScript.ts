@@ -56,10 +56,25 @@ export function buildBrowserAutomationSnapshotScript(
     const hiddenAncestors = new WeakMap()
     const bodyElements = new WeakSet()
     const query = options.query?.toLocaleLowerCase()
-    const matchesQuery = (el) => !query || [el.id, el.getAttribute('aria-label'),
-      el.getAttribute('placeholder'), el.getAttribute('name'),
-      el.tagName.toLowerCase() === 'input' && el.type === 'password' ? null : el.getAttribute('value'),
-      el.textContent].some((value) => value?.toLocaleLowerCase().includes(query))
+    const controlDetails = (el) => {
+      const root = el.getRootNode()
+      const labelledBy = el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) =>
+        root.getElementById?.(id)?.textContent || el.ownerDocument.getElementById(id)?.textContent || '').join(' ').trim()
+      const associated = el.labels && Array.from(el.labels).map((label) => label.textContent).join(' ').trim()
+      const label = labelledBy || el.getAttribute('aria-label') || associated ||
+        (el.id && root.querySelector('label[for="' + cssAttributeValue(el.id) + '"]')?.textContent) ||
+        (el.closest('label')?.textContent) || el.textContent || undefined
+      const sensitive = el.tagName.toLowerCase() === 'input' && el.type === 'password'
+      const value = !sensitive && ('value' in el) ? String(el.value) : undefined
+      return { label, value: value || undefined, sensitive }
+    }
+    const matchesQuery = (el) => {
+      if (!query) return true
+      const { label, value, sensitive } = controlDetails(el)
+      return [el.id, el.getAttribute('aria-label'), el.getAttribute('placeholder'),
+        el.getAttribute('name'), label, value, sensitive ? null : el.textContent]
+        .some((text) => text?.toLocaleLowerCase().includes(query))
+    }
     const roots = [{ root: scope, frame: null }]
     while (roots.length && scanned < MAX_SCAN_NODES) {
       const { root, frame } = roots.shift()
@@ -146,19 +161,12 @@ export function buildBrowserAutomationSnapshotScript(
           : undefined)
       const name = (el.getAttribute('name') || '').trim() || undefined
       const testId = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim() || undefined
-      const labelledBy = el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) =>
-        el.ownerDocument.getElementById(id)?.textContent || '').join(' ').trim()
-      const associated = el.labels && Array.from(el.labels).map((label) => label.textContent).join(' ').trim()
-      const label = clip(labelledBy || el.getAttribute('aria-label') || associated ||
-        (el.id && el.ownerDocument.querySelector('label[for="' + cssAttributeValue(el.id) + '"]')?.textContent) ||
-        (el.closest('label')?.textContent) || elementText(el), 120) || undefined
+      const { label, value, sensitive } = controlDetails(el)
       const selectorHint = id ? '#' + cssIdentifier(id) : testId
         ? '[data-testid="' + cssAttributeValue(testId) + '"]' : undefined
-      const sensitive = el.tagName.toLowerCase() === 'input' && el.type === 'password'
-      const value = !sensitive && ('value' in el) ? clip(el.value, 120) : undefined
       return {
         ref, tag: el.tagName.toLowerCase(), text: sensitive ? undefined : elementText(el) || undefined,
-        label, value: value || undefined,
+        label: clip(label, 120) || undefined, value: clip(value, 120) || undefined,
         checked: el.matches('input[type=checkbox],input[type=radio],[role=checkbox],[role=radio],[role=switch]')
           ? (('checked' in el ? Boolean(el.checked) : el.hasAttribute('checked')) || el.getAttribute('aria-checked') === 'true') : undefined,
         disabled: el.matches('button,input,select,textarea,option,[aria-disabled]')

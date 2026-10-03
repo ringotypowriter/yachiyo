@@ -250,6 +250,88 @@ test('snapshot exposes accessible control state and never exposes password value
   assert.equal(snapshot.refs[3]?.expanded, true)
 })
 
+test('query matches displayed associated labels and live control values, not stale attributes', () => {
+  const html = `<html><body>
+    <label for="user">Account owner</label><input id="user" data-box data-y="10" value="old account">
+    <label>Wrapped address <textarea id="memo" data-box data-y="40">old memo</textarea></label>
+    <span id="named">Invoice recipient</span><select id="choice" aria-labelledby="named" data-box data-y="70"><option value="old">Old</option><option value="new">New</option></select>
+    <input id="secret" type="password" aria-label="Secret code" value="hidden secret" data-box data-y="100">
+  </body></html>`
+  const setup = (document: Document): void => {
+    ;(document.querySelector('#user') as HTMLInputElement).value = 'fresh account'
+    ;(document.querySelector('#memo') as HTMLTextAreaElement).value = 'fresh memo'
+    Object.defineProperty(document.querySelector('#choice'), 'value', { value: 'new' })
+    ;(document.querySelector('#secret') as HTMLInputElement).value = 'updated secret'
+  }
+  const search = (query: string): ReturnType<typeof evaluateSnapshot>['refs'] =>
+    evaluateSnapshot(html, 10, undefined, { generation: 'q', query }, setup).refs
+  assert.deepEqual(
+    search('Account owner').map((ref) => ref.id),
+    ['user']
+  )
+  assert.deepEqual(
+    search('Wrapped address').map((ref) => ref.id),
+    ['memo']
+  )
+  assert.deepEqual(
+    search('Invoice recipient').map((ref) => ref.id),
+    ['choice']
+  )
+  assert.deepEqual(
+    search('fresh account').map((ref) => ref.id),
+    ['user']
+  )
+  assert.deepEqual(
+    search('fresh memo').map((ref) => ref.id),
+    ['memo']
+  )
+  assert.deepEqual(
+    search('new').map((ref) => ref.id),
+    ['choice']
+  )
+  assert.deepEqual(
+    search('old account').map((ref) => ref.id),
+    []
+  )
+  assert.deepEqual(
+    search('hidden secret').map((ref) => ref.id),
+    []
+  )
+  assert.deepEqual(
+    search('updated secret').map((ref) => ref.id),
+    []
+  )
+})
+
+test('query finds associated labels inside open shadow roots and same-origin frames', () => {
+  const snapshot = evaluateSnapshot(
+    '<html><body><div id="host"></div><iframe id="same"></iframe></body></html>',
+    10,
+    undefined,
+    { generation: 'q', query: 'Lookup' },
+    (document) => {
+      const shadow = document.querySelector('#host')!.attachShadow({ mode: 'open' })
+      shadow.innerHTML = '<label for="shadowInput">Lookup shadow</label><input id="shadowInput">'
+      shadow.querySelector('input')!.getBoundingClientRect = () => box({ y: 10 }) as DOMRect
+      const frame = document.querySelector('iframe')!
+      const inner = parseHTML(
+        '<html><body><label for="frameInput">Lookup frame</label><input id="frameInput"></body></html>'
+      ).document
+      Object.defineProperty(frame, 'contentDocument', { value: inner })
+      frame.getBoundingClientRect = () => box({ y: 30 }) as DOMRect
+      inner.querySelector('input')!.getBoundingClientRect = () => box({ y: 10 }) as DOMRect
+    }
+  )
+  assert.deepEqual(
+    snapshot.refs.map((ref) => ref.id),
+    ['shadowInput', 'frameInput']
+  )
+  assert.deepEqual(
+    snapshot.refs.map((ref) => ref.label),
+    ['Lookup shadow', 'Lookup frame']
+  )
+})
+
 test('snapshot continues collecting body text after the interactive candidate budget', () => {
   const snapshot = evaluateSnapshot(
     `<html><body>${'<button data-box data-y="900"></button>'.repeat(1001)}<span data-box data-y="10">Later visible body text</span></body></html>`,
@@ -298,6 +380,27 @@ test('snapshot query and scope return local matches only', () => {
   assert.deepEqual(
     scoped.refs.map((ref) => ref.id),
     ['alpha', 'beta']
+  )
+})
+
+test('query searches full control text and values even when displayed summaries are clipped', () => {
+  const long = 'x'.repeat(130) + ' needle'
+  const snapshot = evaluateSnapshot(
+    `<html><body>
+    <button id="button" data-box data-y="10">${long}</button>
+    <label for="field">${long}</label><input id="field" data-box data-y="40">
+    <input id="value" data-box data-y="70" value="${long}">
+  </body></html>`,
+    10,
+    undefined,
+    { generation: 'long', query: 'needle' }
+  )
+  assert.deepEqual(
+    snapshot.refs.map((ref) => ref.id),
+    ['button', 'field', 'value']
+  )
+  assert.ok(
+    snapshot.refs.every((ref) => (ref.label?.length ?? 0) <= 120 && (ref.value?.length ?? 0) <= 120)
   )
 })
 

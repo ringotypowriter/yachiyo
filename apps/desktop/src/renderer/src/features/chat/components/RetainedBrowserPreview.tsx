@@ -21,7 +21,6 @@ export function RetainedBrowserPreview({
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     if (suspended) return
-    setReady(false)
     let cancelled = false
     const { target, reading } = initial.current
     void (async () => {
@@ -31,6 +30,7 @@ export function RetainedBrowserPreview({
         })
         if (!sessions.some((session) => session.session === target.session)) {
           if (cancelled) return
+          setReady(false)
           if (!target.url) throw new Error('The browser page is no longer available.')
           await window.api.yachiyo.openBrowserPreview({
             threadId: target.threadId,
@@ -44,8 +44,10 @@ export function RetainedBrowserPreview({
           setError(null)
         }
       } catch (error) {
-        if (!cancelled)
+        if (!cancelled) {
+          setReady(false)
           setError(error instanceof Error ? error.message : 'Unable to restore browser preview.')
+        }
       }
     })()
     return () => {
@@ -61,6 +63,7 @@ export function RetainedBrowserPreview({
             type="button"
             onClick={() => {
               setError(null)
+              setReady(false)
               setAttempt((value) => value + 1)
             }}
           >
