@@ -10,6 +10,8 @@ Only what's necessary for a cyber-assistant that lives in your computer.
 
 </div>
 
+https://github.com/user-attachments/assets/d4d329fd-a207-4683-b08e-0a515f2e2f2a
+
 ## Why Yachiyo?
 
 Because your AI assistant should be yours — not a platform, not a marketplace, not a maze of configuration files.
