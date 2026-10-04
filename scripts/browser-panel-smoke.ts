@@ -12,6 +12,19 @@ const { app, BrowserWindow, ipcMain } = electron
 app.setActivationPolicy('prohibited')
 app.on('window-all-closed', () => {})
 
+/** Polls until `check` holds, so assertions follow UI state instead of fixed delays. */
+async function waitFor(
+  label: string,
+  check: () => boolean | Promise<boolean>,
+  timeoutMs = 5000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
 async function run(): Promise<void> {
   await app.whenReady()
   const directory = await mkdtemp(join(tmpdir(), 'yachiyo-browser-panel-'))
@@ -130,7 +143,11 @@ async function run(): Promise<void> {
     })
     await host.loadFile(html)
     host.showInactive()
-    await new Promise((resolve) => setTimeout(resolve, 1200))
+    await waitFor('the browser preview controls', () =>
+      host.webContents.executeJavaScript(
+        `!!document.querySelector('[aria-label="Page address"]')?.value`
+      )
+    )
     const info = await host.webContents.executeJavaScript(
       `({address:document.querySelector('[aria-label="Page address"]')?.value,back:!!document.querySelector('[aria-label="Back"]'),expand:!!document.querySelector('[aria-label="Expand browser"]')})`
     )
@@ -160,40 +177,42 @@ async function run(): Promise<void> {
     await host.webContents.executeJavaScript(
       `document.querySelector('[aria-label="Expand browser"]').click()`
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    assert.equal(
-      await host.webContents.executeJavaScript(
+    await waitFor('the expanded browser', () =>
+      host.webContents.executeJavaScript(
         `!!document.querySelector('.browser-timeline-view--expanded')`
-      ),
-      true
+      )
     )
-    const expandedWidth = await host.webContents.executeJavaScript(
-      `document.querySelector('.browser-timeline-view--expanded').getBoundingClientRect().width`
-    )
-    assert.ok(
-      expandedWidth > 940,
-      `expanded browser remained clipped to narrow reader: ${expandedWidth}`
+    await waitFor(
+      'the expanded browser to grow past the narrow reader',
+      async () =>
+        (await host.webContents.executeJavaScript(
+          `document.querySelector('.browser-timeline-view--expanded').getBoundingClientRect().width`
+        )) > 940
     )
     await host.webContents.executeJavaScript(
       `document.querySelector('[aria-label="Take over"]').click()`
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    assert.equal(
-      service.listSessions(target).find((session) => session.session === target.session)
-        ?.controlledBy,
-      'user'
+    await waitFor(
+      'user takeover',
+      () =>
+        service.listSessions(target).find((session) => session.session === target.session)
+          ?.controlledBy === 'user'
     )
-    const native = electron.webContents
-      .getAllWebContents()
-      .find((contents) => contents.getTitle() === 'Panel smoke')
-    assert.ok(native)
-    const shell = await host.webContents.capturePage()
+    // Both captures go through CDP with fromSurface, like the service's own screenshots:
+    // webContents.capturePage() waits for a fresh frame and never settles when the
+    // compositor of a background or occluded view has none to publish.
+    host.webContents.debugger.attach('1.3')
+    const shell = await host.webContents.debugger.sendCommand('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true
+    })
+    host.webContents.debugger.detach()
+    const shellImage = Buffer.from(shell.data, 'base64')
+    assert.ok(shellImage.byteLength > 0, 'renderer shell screenshot must not be empty')
     await mkdir(resolve('.yachiyo/artifacts'), { recursive: true })
-    await writeFile(resolve('.yachiyo/artifacts/browser-panel-shell.png'), shell.toPNG())
-    const image = await native.capturePage()
-    assert.equal(image.isEmpty(), false, 'native browser screenshot must not be empty')
-    assert.equal(shell.isEmpty(), false, 'renderer shell screenshot must not be empty')
-    await writeFile(artifact, image.toPNG())
+    await writeFile(resolve('.yachiyo/artifacts/browser-panel-shell.png'), shellImage)
+    const capture = await service.screenshot({ ...target, workspacePath: directory })
+    await writeFile(artifact, await readFile(capture.savedFilePath))
     console.log(
       'PASS: real BrowserTimelineView address/expand/takeover and native capture',
       artifact
@@ -204,39 +223,36 @@ async function run(): Promise<void> {
       url: 'data:text/html,<title>Second tab</title><h1>Second tab</h1>',
       viewport: { width: 900, height: 650 }
     })
-    await new Promise((resolve) => setTimeout(resolve, 1200))
-    assert.equal(
-      await host.webContents.executeJavaScript(
-        `!!document.querySelector('[aria-label="Browser tabs"]')`
-      ),
-      true
+    await waitFor('the browser tabs button', () =>
+      host.webContents.executeJavaScript(`!!document.querySelector('[aria-label="Browser tabs"]')`)
     )
     const attachedBeforePicker = host.contentView.children.length
     await host.webContents.executeJavaScript(
       `document.querySelector('[aria-label="Browser tabs"]').click()`
     )
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    assert.equal(
-      await host.webContents.executeJavaScript(
+    await waitFor('the floating tab picker', () =>
+      host.webContents.executeJavaScript(
         `!!document.querySelector('.browser-timeline-view__picker-placeholder')`
-      ),
-      true
+      )
     )
-    assert.ok(
-      host.contentView.children.length < attachedBeforePicker,
-      'native page must park behind floating tab picker'
+    await waitFor(
+      'the native page to park behind the floating tab picker',
+      () => host.contentView.children.length < attachedBeforePicker
     )
     await host.webContents.executeJavaScript(
       `Array.from(document.querySelectorAll('[role="option"]')).find(option=>option.textContent.includes('Second tab')).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    assert.equal(
-      await host.webContents.executeJavaScript(
-        `document.querySelector('[aria-label="Page address"]').value`
-      ),
-      'data:text/html,<title>Second tab</title><h1>Second tab</h1>'
+    await waitFor(
+      'the second tab in the address bar',
+      async () =>
+        (await host.webContents.executeJavaScript(
+          `document.querySelector('[aria-label="Page address"]').value`
+        )) === 'data:text/html,<title>Second tab</title><h1>Second tab</h1>'
     )
-    assert.equal(host.contentView.children.length, attachedBeforePicker)
+    await waitFor(
+      'the second native view to attach',
+      () => host.contentView.children.length === attachedBeforePicker
+    )
     console.log('PASS: real new-tab picker parks native page and switches to new native view')
     await host.webContents.executeJavaScript(
       `{const address=document.querySelector('[aria-label="Page address"]');address.focus();address.select()}`
@@ -247,10 +263,10 @@ async function run(): Promise<void> {
     await host.webContents.executeJavaScript(
       `document.querySelector('.browser-timeline-view__address').requestSubmit()`
     )
-    await new Promise((resolve) => setTimeout(resolve, 350))
-    assert.match(
-      service.listSessions(target).find((session) => session.session === 'second')?.url ?? '',
-      /\/navigated/
+    await waitFor('the address bar navigation', () =>
+      /\/navigated/.test(
+        service.listSessions(target).find((session) => session.session === 'second')?.url ?? ''
+      )
     )
     console.log('PASS: address input commits real navigation via renderer controls')
     assert.equal(BrowserWindow.getFocusedWindow(), null)
