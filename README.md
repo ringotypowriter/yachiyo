@@ -66,9 +66,9 @@ _Run prompts on a schedule, keep history, and treat recurring work like a first-
 
 ### Essentials
 
-![Essentials view for quick access to pinned context and reusable workspace items.](apps/desktop/resources/screenshots/app-home.jpg)
+![The essentials bar above the thread list, next to an empty new chat.](apps/desktop/resources/screenshots/app-home.jpg)
 
-_A focused essentials surface for keeping important context, reusable items, and workspace shortcuts close at hand._
+_Pin presets that start a new thread with its workspace, model, or privacy mode already chosen._
 
 ## Showcases
 
