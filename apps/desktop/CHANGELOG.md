@@ -1,5 +1,17 @@
 # @yachiyo/desktop
 
+## 1.7.3
+
+### Patch Changes
+
+- [#75](https://github.com/ringotypowriter/yachiyo/pull/75) [`dee3719`](https://github.com/ringotypowriter/yachiyo/commit/dee37193bf419676cfb653408d8710b04845c9c3) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Start with plaintext provider credential storage when the system wallet is unavailable instead of exiting, so the Linux desktop app opens in sessions without GNOME Keyring or KWallet. Pass `--yachiyo-encrypted-credentials` to require encrypted storage.
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.7.3
+  - @yachiyo/runtime@1.7.3
+  - @yachiyo/shared@1.7.3
+  - @yachiyo/core-skills@1.7.3
+
 ## 1.7.2
 
 ### Patch Changes
