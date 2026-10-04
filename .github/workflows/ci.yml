@@ -148,3 +148,22 @@ jobs:
             apps/desktop/dist/*.deb
             apps/desktop/dist/latest-linux.yml
           if-no-files-found: error
+
+  linux_appimage:
+    needs: linux
+    # The AppImage catalog tests on this image, which is older than the build host.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux test build
+        uses: actions/download-artifact@v4
+        with:
+          name: yachiyo-linux-x64
+          path: dist
+
+      - name: Install display and AppImage runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool libfuse2
+
+      - name: Launch AppImage without a wallet or network
+        run: bash scripts/smoke-linux-appimage.sh dist/*.AppImage
