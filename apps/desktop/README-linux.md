@@ -1,11 +1,11 @@
 # Linux VM Remote setup
 
-The Linux x64 desktop build provides the same Remote WebSocket service and pairing flow as the macOS app. Run it in a Linux desktop session with a working system credential store (for example, GNOME Keyring or KWallet). Encrypted mode rejects Electron's insecure `basic_text` storage backend. An explicit provider-only plaintext fallback is described below; Remote pairing still requires a working wallet.
+The Linux x64 desktop build provides the same Remote WebSocket service and pairing flow as the macOS app. Run it in a Linux desktop session with a working system credential store (for example, GNOME Keyring or KWallet). Encrypted mode rejects Electron's insecure `basic_text` storage backend. Without a working wallet, Yachiyo starts with the provider-only plaintext fallback described below; Remote pairing still requires a working wallet.
 
 ## Desktop prerequisites
 
 - Use an x64 Linux desktop session with its session D-Bus available. Installing `libsecret` alone does not provide a working credential store: GNOME Keyring or KWallet must also be configured and unlocked in that session. A fresh wallet may require first-time setup by the user.
-- If the credential store is unavailable, unlock the wallet and restart, or explicitly choose the provider-only plaintext fallback using the startup flag described below. Corrupt encrypted credentials are not silently downgraded or overwritten.
+- If the credential store is unavailable, Yachiyo falls back to provider-only plaintext storage. To use encrypted storage, unlock the wallet and restart. Corrupt encrypted credentials are not silently downgraded or overwritten.
 - Source builds require the pinned Node/pnpm versions, a Rust toolchain, and a C/C++ build toolchain. Run `pnpm install`, then `pnpm build:linux` for AppImage and deb packages. The build prepares Electron-native dependencies and both Rust helpers.
 - Native SQLite modules must match Electron's ABI, not the host Node ABI. For a source checkout, `pnpm run native:prepare` repairs those bindings. For an installed package, reinstall the matching system/architecture package if the application log reports a native-module startup failure.
 
@@ -19,14 +19,17 @@ The Linux x64 desktop build provides the same Remote WebSocket service and pairi
 
 The Remote listener remains bound to `127.0.0.1` unless **Local network** is separately enabled. If the reverse proxy runs on another host, enable Local network and restrict port `47831` to that proxy at the firewall. iCloud address recovery is macOS-only; use a stable public hostname on Linux because phones need to rescan after an endpoint change.
 
-### Explicit plaintext credential fallback
+### Plaintext credential fallback
 
-Encrypted credential storage remains the default. If the system wallet is unavailable,
-startup fails with actionable guidance in the application log. Start Yachiyo with
-`--yachiyo-plaintext-credentials` to explicitly opt into plaintext storage and skip
-wallet access entirely, including when a wallet call would otherwise hang. This flag
-works for both the desktop and headless CLI. No dialog, banner, or settings control is
-added; the selected mode and its consequences are logged at startup.
+Encrypted credential storage is used whenever the system wallet is available. If it is
+unavailable, Yachiyo starts in plaintext mode instead of failing, for both the desktop and
+headless CLI. No dialog, banner, or settings control is added; the selected mode and its
+consequences are logged at startup.
+
+Start Yachiyo with `--yachiyo-plaintext-credentials` to choose plaintext storage and skip
+wallet access entirely, including when a wallet call would otherwise hang. Start it with
+`--yachiyo-encrypted-credentials` to require encrypted storage: startup then fails with
+guidance in the application log if the wallet is unavailable.
 
 This mode stores provider API keys and provider private keys **unencrypted** in
 `provider-credentials.plaintext.json` in the Yachiyo data directory. Other processes or
@@ -35,13 +38,12 @@ current built-in settings sync, but ordinary directory backups can still copy it
 
 Existing `provider-credentials.enc` and `provider-credentials.key` are not changed or
 unlocked in plaintext mode. Previously encrypted credentials are unavailable; the two
-stores are independent and never automatically merged. If a plaintext file exists, the
-next start requires an explicit storage-mode flag, rather than silently switching
-stores when the wallet recovers. Returning to encrypted mode does not delete the plaintext file.
-
-When a plaintext store exists, desktop startup and headless credential/config commands require an explicit
-`--yachiyo-plaintext-credentials` or `--yachiyo-encrypted-credentials` choice. Commands
-that do not open a config service (such as help or doctor) do not unlock either store.
+stores are independent and never automatically merged. Once a plaintext file exists,
+Yachiyo keeps using it on later starts without accessing the wallet, rather than silently
+switching stores when the wallet recovers. Pass `--yachiyo-encrypted-credentials` on each
+start to use encrypted storage again; doing so does not delete the plaintext file.
+Commands that do not open a config service (such as help or doctor) do not unlock either
+store.
 
 Remote access requires encrypted mode and an unlocked system wallet. In plaintext mode,
 Yachiyo leaves saved Remote settings and pairing files unchanged but does not start its

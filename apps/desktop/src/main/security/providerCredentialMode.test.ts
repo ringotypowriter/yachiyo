@@ -16,23 +16,21 @@ test('explicit plaintext mode never touches a hanging wallet', () => {
   )
 })
 
-test('unavailable wallet fails with opt-in guidance instead of silently downgrading', () => {
+test('unavailable wallet falls back to plaintext unless encrypted mode was requested', () => {
+  const base = {
+    plaintextExists: false,
+    unlockEncrypted: () => {
+      throw new ProviderCredentialStoreUnavailableError('unavailable')
+    }
+  }
+  assert.equal(selectProviderCredentialMode({ ...base, args: [] }), 'plaintext')
   assert.throws(
-    () =>
-      selectProviderCredentialMode({
-        args: [],
-        plaintextExists: false,
-        unlockEncrypted: () => {
-          throw new ProviderCredentialStoreUnavailableError('unavailable')
-        }
-      }),
-    (error: unknown) =>
-      error instanceof ProviderCredentialStoreUnavailableError &&
-      error.message.includes('--yachiyo-plaintext-credentials')
+    () => selectProviderCredentialMode({ ...base, args: ['--yachiyo-encrypted-credentials'] }),
+    ProviderCredentialStoreUnavailableError
   )
 })
 
-test('existing plaintext data requires an explicit mode for every entry point', () => {
+test('existing plaintext data stays selected until encrypted mode is requested', () => {
   let unlocks = 0
   const base = {
     plaintextExists: true,
@@ -40,7 +38,7 @@ test('existing plaintext data requires an explicit mode for every entry point', 
       unlocks++
     }
   }
-  assert.throws(() => selectProviderCredentialMode({ ...base, args: [] }), /Choose/)
+  assert.equal(selectProviderCredentialMode({ ...base, args: [] }), 'plaintext')
   assert.equal(unlocks, 0)
   assert.equal(
     selectProviderCredentialMode({ ...base, args: ['--yachiyo-plaintext-credentials'] }),
