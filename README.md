@@ -32,7 +32,7 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 
 - **Fully agentic runtime** — Yachiyo can search, read, edit, browse, recall memory, ask follow-up questions, run background shell tasks, and act on your local workspace with file attachments instead of staying a pure chat box.
 - **Built-in general-purpose skills** — Core capabilities like browser work, document handling, spreadsheets, Zotero, terminal control, and CLI self-management ship as reusable skill modules.
-- **Coding agent dispatch** — Delegate implementation work to Claude Code, Kimi, or Codex through ACP, then bring the result back into the same thread.
+- **Worker subagents** — Hand wide searches, plans, reviews, and edits to built-in Explore, Plan, Review, and General workers. Each runs in its own context on the model you choose for it, in parallel when the work splits cleanly, and reports back into the same thread.
 - **Scheduled runs** — Create one-off or cron-based tasks, keep run history, and let Yachiyo execute prompts on its own.
 - **Reply branching** — Messages form a tree. Branch from any turn and navigate alternate replies instead of flattening everything into one timeline.
 - **Channel multiplexing** — Serve Telegram, QQ (OneBot / QQBot), and Discord from one local instance with shared context, access control, and per-user limits.
@@ -51,6 +51,12 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 ![Reply branching keeps alternate responses inside one thread.](apps/desktop/resources/screenshots/reply-branching.jpg)
 
 _Compare different tones and keep the path you actually want without losing the other replies._
+
+### Worker subagents
+
+![A thread where Explore and Review workers track down and check a flaky test fix.](apps/desktop/resources/screenshots/coding-agents.jpg)
+
+_Send Explore, Plan, Review, and General workers off on their own contexts, then get one verified answer back._
 
 ### Providers
 
@@ -72,11 +78,11 @@ _Pin presets that start a new thread with its workspace, model, or privacy mode 
 
 ## Showcases
 
-### Multi-Agent Dispatch & Coordination
+### Parallel Workers
 
-"I have Claude Code and Codex working on different parts of the auth refactor. Send a prompt to both to 'run the latest migration and verify the schema,' then notify me when they finish."
+"`checkout.test.ts` fails about one run in ten on CI. Find out why and fix it."
 
-> Yachiyo acts as your central dispatcher. It handles the complex task of prompting multiple specialized agents, monitoring their progress through the Agent Client Protocol (ACP), and synthesizing their results into a single update.
+> Yachiyo splits the job across its own workers: Explore agents trace the cause in parallel, a Review agent checks the fix, and Yachiyo verifies every claimed change itself before reporting back. Each worker starts with a clean context, so the main conversation stays focused on the result.
 
 ### Real-Time Digital Foraging
 
@@ -100,7 +106,7 @@ Download the latest release from the [Releases](https://github.com/ringotypowrit
 - **Windows 11 x64** — run `yachiyo-<version>-setup.exe`.
 - **Linux x64 (experimental)** — make `yachiyo-<version>.AppImage` executable and run it, or install `yachiyo-<version>.deb` on Debian/Ubuntu.
 
-Windows v1 supports chat, workspaces, providers, channels, schedules, Bash tools, ACP coding agents, browser features, notifications, updates, and OneDrive/custom-folder sync. Activity/OCR, launch at login, keep awake, Kagete, Ghostty control, macOS app automation, and macOS screenshots remain Mac-only.
+Windows v1 supports chat, workspaces, providers, channels, schedules, Bash tools, subagents, browser features, notifications, updates, and OneDrive/custom-folder sync. Activity/OCR, launch at login, keep awake, Kagete, Ghostty control, macOS app automation, and macOS screenshots remain Mac-only.
 
 Linux x64 builds are experimental and require a graphical desktop session. macOS-only integrations remain unavailable; Linux ARM builds are not provided. Stable and nightly releases include AppImage and Debian packages with a Linux update feed.
 
