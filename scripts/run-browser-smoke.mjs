@@ -17,7 +17,7 @@ try {
     format: 'iife',
     define: { 'process.env.NODE_ENV': '"production"' }
   })
-  for (const script of ['browser-automation-smoke', 'browser-frame-probe', 'browser-panel-smoke']) {
+  for (const script of ['browser-automation-smoke', 'browser-frame-probe']) {
     const main = join(directory, `${script}.cjs`)
     await build({
       entryPoints: [`scripts/${script}.ts`],
