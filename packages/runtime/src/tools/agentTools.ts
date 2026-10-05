@@ -70,6 +70,7 @@ import { ReadRecordCache } from './agentTools/readRecordCache.ts'
 import { createTool as createWebReadTool } from './agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts'
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
+import { createTool as createRenderUiTool } from './agentTools/renderUiTool.ts'
 import { createTool as createUseBrowserTool } from './agentTools/useBrowserTool.ts'
 import { createTool as createUseThingsTool } from './agentTools/useThingsTool.ts'
 import { createTool as createReviewThingsTool } from './agentTools/reviewThingsTool.ts'
@@ -120,6 +121,7 @@ export type {
   JsReplToolOutput,
   PyReplToolOutput,
   ReadToolOutput,
+  RenderUiToolOutput,
   SkillsReadToolOutput,
   ToolContentBlock,
   WebReadToolOutput,
@@ -491,6 +493,10 @@ function summarizeMemoryToolOutput(
 }
 
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
+  if (toolName === 'renderUi') {
+    const title = typeof input === 'object' && input !== null && 'title' in input ? input.title : ''
+    return typeof title === 'string' ? title.slice(0, 160) : 'renderUi'
+  }
   if (toolName === 'askUser') {
     const question =
       typeof input === 'object' && input !== null && 'question' in input ? input.question : ''
@@ -976,6 +982,16 @@ export function createAgentToolSet(
   const hasAnyUserTool = USER_MANAGED_TOOL_NAMES.some((name) => enabledTools.has(name))
 
   if (hasAnyUserTool) {
+    if (shouldRegisterTool('renderUi')) {
+      tools.renderUi = wrapToolEnabled(
+        createRenderUiTool(),
+        'renderUi',
+        enabledTools.has('renderUi') &&
+          context.runMode !== 'explore' &&
+          context.runMode !== 'plan' &&
+          context.runMode !== 'chat'
+      )
+    }
     if (context.runMode !== 'code' && shouldRegisterTool('read')) {
       tools.read = wrapDisabledTool(createReadTool(context), 'read', enabledTools)
     }

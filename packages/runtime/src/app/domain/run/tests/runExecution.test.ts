@@ -25,6 +25,7 @@ import type {
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
 import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import { runRenderUiTool } from '../../../../tools/agentTools/renderUiTool.ts'
 
 function makeUsage(promptTokens: number, completionTokens: number): ModelUsage {
   return {
@@ -2405,3 +2406,255 @@ test('rapid preliminary tool updates do not write a recovery checkpoint per chun
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('renderUi input streams ephemeral preparing previews and persists only the canonical final output', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-render-ui-preview-'))
+  const thread: ThreadRecord = {
+    id: 'render-thread',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const message: MessageRecord = {
+    id: 'render-request',
+    threadId: thread.id,
+    role: 'user',
+    content: 'Render a UI',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const saved: ToolCallRecord[] = []
+  const base = createRunContextDeps({ events, messages: [message], workspacePath: root })
+  const deps: RunExecutionDeps = {
+    ...base,
+    storage: {
+      ...base.storage,
+      createToolCall: (call) => saved.push(call),
+      updateToolCall: (call) => saved.push(call),
+      upsertRunRecoveryCheckpoint: () => {},
+      deleteRunRecoveryCheckpoint: () => {},
+      completeRun: () => {},
+      saveThreadMessage: () => {},
+      updateRunSnapshot: () => {}
+    },
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        request.onToolCallPreparing?.({ toolCallId: 'provisional', toolName: 'renderUi' })
+        request.onToolInputDelta?.({
+          toolCallId: 'provisional',
+          toolName: 'renderUi',
+          delta: '{"title":"Live","css":"","html":"<button>Hi</button>"'
+        })
+        const toolCall = {
+          toolCallId: 'canonical',
+          toolName: 'renderUi',
+          input: { title: 'Final', css: '', html: '<button>Final</button>', js: '' }
+        }
+        request.onToolCallStart?.({ toolCall })
+        request.onToolCallFinish?.({
+          toolCall,
+          success: true,
+          output: {
+            details: { kind: 'renderUi', ...toolCall.input },
+            content: [{ type: 'text', text: 'Rendered UI' }],
+            metadata: {}
+          }
+        })
+        yield 'Rendered.'
+        request.onFinish?.(makeUsage(9, 1))
+      }
+    })
+  }
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: ['renderUi'],
+      runMode: 'auto',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'render-run',
+      thread,
+      requestMessageId: message.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null
+    })
+    assert.equal(result.kind, 'completed')
+    const updates = events.filter(
+      (event): event is { type: 'tool.updated'; toolCall: ToolCallRecord } =>
+        typeof event === 'object' &&
+        event !== null &&
+        'type' in event &&
+        event.type === 'tool.updated'
+    )
+    assert.ok(
+      updates.some(
+        (event) =>
+          event.toolCall.status === 'preparing' &&
+          event.toolCall.details &&
+          'kind' in event.toolCall.details &&
+          event.toolCall.details.kind === 'renderUi' &&
+          event.toolCall.details.html === '<button>Hi</button>'
+      )
+    )
+    assert.ok(
+      !saved.some(
+        (call) =>
+          call.details &&
+          'kind' in call.details &&
+          call.details.kind === 'renderUi' &&
+          call.details.html === '<button>Hi</button>'
+      )
+    )
+    assert.ok(
+      saved.some(
+        (call) =>
+          call.id === 'canonical' &&
+          call.details &&
+          'kind' in call.details &&
+          call.details.kind === 'renderUi' &&
+          call.details.html === '<button>Final</button>'
+      )
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+for (const scenario of ['interleaved', 'no-deltas', 'disabled', 'cancelled'] as const) {
+  test(`renderUi execution handles ${scenario} without leaking partial source into storage`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-render-ui-edge-'))
+    const thread: ThreadRecord = {
+      id: 'edge-thread',
+      title: 'Edge',
+      workspacePath: root,
+      updatedAt: '2026-10-05T10:00:00Z'
+    }
+    const message: MessageRecord = {
+      id: 'edge-request',
+      threadId: thread.id,
+      role: 'user',
+      content: 'Render',
+      status: 'completed',
+      createdAt: thread.updatedAt
+    }
+    const events: unknown[] = []
+    const saved: ToolCallRecord[] = []
+    const abortController = new AbortController()
+    const base = createRunContextDeps({ events, messages: [message], workspacePath: root })
+    const calls = ['first', 'second'].map((id) => ({
+      toolCallId: id,
+      toolName: 'renderUi',
+      input: { title: id, css: '', html: `<button>${id}</button>`, js: `window.${id}=true` }
+    }))
+    const deps: RunExecutionDeps = {
+      ...base,
+      storage: {
+        ...base.storage,
+        createToolCall: (call) => saved.push(call),
+        updateToolCall: (call) => saved.push(call),
+        upsertRunRecoveryCheckpoint: () => {},
+        deleteRunRecoveryCheckpoint: () => {},
+        completeRun: () => {},
+        cancelRun: () => {},
+        saveThreadMessage: () => {},
+        updateRunSnapshot: () => {}
+      },
+      createModelRuntime: () => ({
+        streamReply: async function* (request) {
+          for (const call of calls) request.onToolCallPreparing?.(call)
+          if (scenario !== 'no-deltas') {
+            const json = calls.map((call) => JSON.stringify(call.input))
+            for (
+              let index = 0;
+              index < Math.max(...json.map((value) => value.length));
+              index += 8
+            ) {
+              calls.forEach((call, callIndex) =>
+                request.onToolInputDelta?.({
+                  ...call,
+                  delta: json[callIndex].slice(index, index + 8)
+                })
+              )
+            }
+          }
+          if (scenario === 'cancelled') {
+            abortController.abort()
+            throw new DOMException('Stopped', 'AbortError')
+          }
+          if (scenario !== 'disabled') {
+            for (const call of [...calls].reverse()) {
+              request.onToolCallStart?.({ toolCall: call })
+              request.onToolCallFinish?.({
+                toolCall: call,
+                success: true,
+                output: runRenderUiTool(call.input)
+              })
+            }
+          }
+          yield 'Done.'
+          request.onFinish?.(makeUsage(9, 1))
+        }
+      })
+    }
+    try {
+      const result = await executeServerRun(deps, {
+        enabledTools: scenario === 'disabled' ? ['read'] : ['renderUi'],
+        runMode: 'auto',
+        inactivityTimeoutMs: 30000,
+        runTrigger: 'local',
+        runId: `edge-${scenario}`,
+        thread,
+        requestMessageId: message.id,
+        abortController,
+        updateHeadOnComplete: true,
+        previousEnabledTools: null,
+        previousRunMode: null
+      })
+      assert.equal(result.kind, scenario === 'cancelled' ? 'cancelled' : 'completed')
+      const updates = events.filter(
+        (event): event is { type: 'tool.updated'; toolCall: ToolCallRecord } =>
+          typeof event === 'object' &&
+          event !== null &&
+          'type' in event &&
+          event.type === 'tool.updated'
+      )
+      const previews = updates.filter(
+        ({ toolCall }) =>
+          toolCall.status === 'preparing' &&
+          toolCall.details &&
+          'kind' in toolCall.details &&
+          toolCall.details.kind === 'renderUi'
+      )
+      assert.equal(previews.length > 0, scenario === 'interleaved' || scenario === 'cancelled')
+      assert.ok(
+        saved.every(
+          (call) =>
+            !call.details ||
+            !('kind' in call.details) ||
+            call.details.kind !== 'renderUi' ||
+            call.status === 'completed'
+        )
+      )
+      if (scenario === 'interleaved' || scenario === 'no-deltas') {
+        for (const call of calls)
+          assert.deepEqual(saved.findLast((value) => value.id === call.toolCallId)?.details, {
+            kind: 'renderUi',
+            ...call.input
+          })
+      }
+      if (scenario === 'cancelled') {
+        const count = events.length
+        await new Promise((resolve) => setTimeout(resolve, 120))
+        assert.equal(
+          events.length,
+          count,
+          'No timer emits a late preparing preview after cancellation'
+        )
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}

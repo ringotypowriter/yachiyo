@@ -10,6 +10,14 @@ import type {
   WebSearchFailureCode
 } from '../protocol.ts'
 
+export interface RenderUiToolCallDetails {
+  kind: 'renderUi'
+  title: string
+  css: string
+  html: string
+  js: string
+}
+
 export interface ReadToolCallDetails {
   path: string
   startLine: number
@@ -286,6 +294,7 @@ export interface GetTaskToolCallDetails {
 }
 
 export type ToolCallDetailsSnapshot =
+  | RenderUiToolCallDetails
   | ReadToolCallDetails
   | WriteToolCallDetails
   | EditToolCallDetails

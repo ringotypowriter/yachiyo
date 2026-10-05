@@ -57,6 +57,7 @@ import {
   restorePersistedRunToolCalls
 } from '../tools/toolCallLifecycle.ts'
 import { createRecoveryCheckpointManager } from './recoveryCheckpointManager.ts'
+import { RenderUiInputStream } from './renderUiInputStream.ts'
 import { handleAbortedRun } from './runAbortHandling.ts'
 import { handleCompletedRun } from './runCompletionHandling.ts'
 import { extractRetryErrorMessage, handleRunFailure } from './runFailureHandling.ts'
@@ -450,6 +451,50 @@ export async function executeServerRun(
   let cumulativeCompletionTokens = input.priorUsage?.totalCompletionTokens ?? 0
   let tools: ToolSet | undefined
   let streamStartedAt: number | undefined
+  const renderUiStreams = new Map<
+    string,
+    {
+      parser: RenderUiInputStream
+      pending?: ToolCallRecord['details']
+      lastEmittedAt: number
+      timer?: ReturnType<typeof setTimeout>
+    }
+  >()
+  const clearRenderUiStream = (toolCallId: string): void => {
+    const stream = renderUiStreams.get(toolCallId)
+    if (stream?.timer) clearTimeout(stream.timer)
+    renderUiStreams.delete(toolCallId)
+  }
+  const emitRenderUiPreview = (toolCallId: string): void => {
+    const stream = renderUiStreams.get(toolCallId)
+    if (!stream) return
+    stream.timer = undefined
+    const toolCall = toolLifecycle.getToolCall(toolCallId)
+    if (!stream.pending || toolCall?.status !== 'preparing' || input.abortController.signal.aborted)
+      return
+    stream.lastEmittedAt = Date.now()
+    deps.emit<ToolCallUpdatedEvent>({
+      type: 'tool.updated',
+      threadId: input.thread.id,
+      runId: input.runId,
+      toolCall: { ...toolCall, details: stream.pending }
+    })
+    stream.pending = undefined
+  }
+  const clearRenderUiStreams = (restorePreparing: boolean): void => {
+    for (const toolCallId of renderUiStreams.keys()) {
+      const toolCall = toolLifecycle.getToolCall(toolCallId)
+      clearRenderUiStream(toolCallId)
+      if (restorePreparing && toolCall?.status === 'preparing') {
+        deps.emit<ToolCallUpdatedEvent>({
+          type: 'tool.updated',
+          threadId: input.thread.id,
+          runId: input.runId,
+          toolCall
+        })
+      }
+    }
+  }
   let firstTokenMs: number | undefined
   let streamDurationRecorded = false
   const recordFirstToken = (): void => {
@@ -716,6 +761,13 @@ export async function executeServerRun(
 
         toolLifecycle.setToolCall(toolCall)
         instrumentedCreateToolCall(toolCall)
+        if (event.toolName === 'renderUi' && actualEnabledTools.includes('renderUi')) {
+          clearRenderUiStream(event.toolCallId)
+          renderUiStreams.set(event.toolCallId, {
+            parser: new RenderUiInputStream(),
+            lastEmittedAt: 0
+          })
+        }
         deckSummaries?.start(toolCall)
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
@@ -724,7 +776,28 @@ export async function executeServerRun(
           toolCall
         })
       },
+      onToolInputDelta: ({ toolCallId, toolName, delta }) => {
+        if (toolName !== 'renderUi' || !actualEnabledTools.includes('renderUi')) return
+        const stream = renderUiStreams.get(toolCallId)
+        if (!stream || toolLifecycle.getToolCall(toolCallId)?.status !== 'preparing') return
+        const preview = stream.parser.append(delta)
+        if (!preview) return
+        stream.pending = preview
+        if (!stream.timer) {
+          const delay = Math.max(0, 100 - (Date.now() - stream.lastEmittedAt))
+          if (delay === 0) emitRenderUiPreview(toolCallId)
+          else stream.timer = setTimeout(() => emitRenderUiPreview(toolCallId), delay)
+        }
+      },
       onToolCallStart: (event) => {
+        if (event.toolCall.toolName === 'renderUi') {
+          const provisional = toolLifecycle.findPreparingToolCall({
+            toolCallId: event.toolCall.toolCallId,
+            toolName: 'renderUi'
+          })
+          const previewId = provisional.orphanedPreparingKey ?? event.toolCall.toolCallId
+          clearRenderUiStream(previewId)
+        }
         if (!isTrackedToolName(event.toolCall.toolName)) {
           return
         }
@@ -836,6 +909,7 @@ export async function executeServerRun(
         })
       },
       onToolCallError: (event) => {
+        clearRenderUiStream(event.toolCall.toolCallId)
         const errorMessage =
           event.error instanceof Error ? event.error.message : String(event.error)
         const steerContent = toolLifecycle.recordToolFailureLoop({
@@ -908,6 +982,7 @@ export async function executeServerRun(
         return 'continue'
       },
       onToolCallFinish: (event) => {
+        clearRenderUiStream(event.toolCall.toolCallId)
         try {
           // Reset the tool-fail loop guard whenever a tool finishes successfully.
           if (event.success) {
@@ -1090,6 +1165,7 @@ export async function executeServerRun(
       textDeltaBatcher.push(dedupedDelta)
     }
 
+    clearRenderUiStreams(true)
     flushDeltas()
     recordModelStreamDuration()
     attachFirstTokenTiming()
@@ -1142,6 +1218,7 @@ export async function executeServerRun(
       toolLifecycle
     })
   } catch (error) {
+    clearRenderUiStreams(true)
     deckSummaries?.close()
     flushDeltas()
     recordModelStreamDuration()
@@ -1213,6 +1290,7 @@ export async function executeServerRun(
       toolLifecycle
     })
   } finally {
+    clearRenderUiStreams(false)
     await disposeAgentToolSet(tools).catch(() => {})
   }
 }

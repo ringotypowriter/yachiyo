@@ -165,10 +165,10 @@ export type WebSearchFailureCode =
   | 'extraction-failed'
   | 'provider-failed'
   | 'aborted'
-
 export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 230_400
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadRequestFormat = 'markdown'
 export const CORE_TOOL_NAMES = [
+  'renderUi',
   'read',
   'write',
   'edit',

@@ -17,6 +17,7 @@ import type {
   JsReplToolCallDetails,
   PyReplToolCallDetails,
   ReadToolCallDetails,
+  RenderUiToolCallDetails,
   RunModeId,
   SkillsReadToolCallDetails,
   ToolCallDetailsSnapshot,
@@ -586,6 +587,7 @@ export interface AgentToolResult<TDetails extends ToolCallDetailsSnapshot> {
 
 export type ReadToolOutput = AgentToolResult<ReadToolCallDetails>
 export type WriteToolOutput = AgentToolResult<WriteToolCallDetails>
+export type RenderUiToolOutput = AgentToolResult<RenderUiToolCallDetails>
 export type EditToolOutput = AgentToolResult<EditToolCallDetails>
 export type BashToolOutput = AgentToolResult<BashToolCallDetails>
 export type JsReplToolOutput = AgentToolResult<JsReplToolCallDetails>
@@ -601,6 +603,7 @@ export type AskUserToolOutput = AgentToolResult<AskUserToolCallDetails>
 export type ApplyPatchToolOutput = AgentToolResult<ApplyPatchToolCallDetails>
 
 export type AgentToolOutput =
+  | RenderUiToolOutput
   | ReadToolOutput
   | WriteToolOutput
   | EditToolOutput

@@ -122,6 +122,7 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
     case 'group-work-summary':
       return 56
     case 'group-tool-call':
+      return item.toolCall.toolName === 'renderUi' ? 320 : 48
     case 'group-tool-call-group':
     case 'group-tool-call-deck':
       return 48

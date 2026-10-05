@@ -80,6 +80,7 @@ export interface ModelStreamRequest {
   tools?: ToolSet
   toolChoice?: ToolChoice<ToolSet>
   onToolCallPreparing?: (event: { toolCallId: string; toolName: string }) => void
+  onToolInputDelta?: (event: { toolCallId: string; toolName: string; delta: string }) => void
   onToolCallStart?: (event: ModelToolCallStartEvent) => void
   onToolCallFinish?: (event: ModelToolCallFinishEvent) => void
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void

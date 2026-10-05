@@ -584,6 +584,11 @@ function mergeConsecutiveToolCallDecks(
     if (item.kind === 'tool-call') {
       const toolCall = toolCallById.get(item.toolCallId)
       if (toolCall) {
+        if (toolCall.toolName === 'renderUi') {
+          flushDeck()
+          result.push(item)
+          continue
+        }
         const firstToolCall = toolCallById.get(collectedToolCallIds[0]!)
         // Hidden continuation requests can sit on opposite sides of a handoff fold.
         if (firstToolCall && firstToolCall.requestMessageId !== toolCall.requestMessageId) {

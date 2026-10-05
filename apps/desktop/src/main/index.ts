@@ -52,6 +52,13 @@ import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
 } from './electron/yachiyoAssetProtocol'
+import {
+  installGenerativeUiNavigationGuard,
+  installGenerativeUiResourceGuard,
+  installGenerativeUiProtocol,
+  registerGenerativeUiScheme,
+  isGenerativeUiFrameUrl
+} from './electron/generativeUiProtocol'
 
 // Override console.log/warn/error so all existing log calls persist to file.
 // Logs go to ~/Library/Logs/Yachiyo/main.log on macOS.
@@ -236,6 +243,7 @@ app.setPath('userData', resolveYachiyoDataDir())
 
 // Scheme registration must happen before `app.whenReady()` resolves.
 registerYachiyoAssetScheme()
+registerGenerativeUiScheme()
 
 function createWindow(): void {
   const windowStatePath = join(app.getPath('userData'), 'window-state.json')
@@ -270,8 +278,13 @@ function createWindow(): void {
     platform: process.platform
   })
   installEditableContextMenu(mainWindow)
+  installGenerativeUiNavigationGuard(mainWindow.webContents)
+  installGenerativeUiResourceGuard(mainWindow.webContents)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
+    if (isGenerativeUiFrameUrl(details.referrer.url) || isGenerativeUiFrameUrl(details.url)) {
+      return { action: 'deny' }
+    }
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
@@ -320,6 +333,7 @@ async function startDesktop(): Promise<void> {
 
   // The custom protocol must be installed before the renderer starts loading.
   installYachiyoAssetProtocolHandler()
+  installGenerativeUiProtocol()
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('sh.ringo.yachiyo')

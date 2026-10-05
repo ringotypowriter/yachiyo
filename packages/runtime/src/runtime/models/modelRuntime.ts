@@ -549,6 +549,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
       const finishedToolCallIds = new Set<string>()
       const toolInputProgress = new Map<string, ToolInputProgress>()
+      const toolInputNameById = new Map<string, string>()
       const toolCallContextById = new Map<string, { input: unknown; toolName: string }>()
       const toolCallFinishCallback = request.onToolCallFinish
       const emitToolCallFinish = toolCallFinishCallback
@@ -801,6 +802,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   `${llmTag} tool-input-start at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} toolName=${part.toolName} step=${nextStepNumber}`
                 )
                 toolInputProgress.set(part.id, new ToolInputProgress())
+                toolInputNameById.set(part.id, part.toolName)
                 request.onToolCallPreparing?.({
                   toolCallId: part.id,
                   toolName: part.toolName
@@ -825,6 +827,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   `${llmTag} tool-input-progress at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.id} chars=${progress.chars} deltas=${progress.deltas} step=${nextStepNumber} delta=${JSON.stringify(delta)}`
                 )
                 toolInputProgress.set(part.id, progress)
+                const toolName = toolInputNameById.get(part.id)
+                if (toolName && delta) {
+                  request.onToolInputDelta?.({ toolCallId: part.id, toolName, delta })
+                }
                 continue
               }
 
@@ -839,6 +845,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   `${llmTag} tool-input-available at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.toolCallId} toolName=${part.toolName} inputChars=${JSON.stringify(part.input)?.length ?? 0} deltaChars=${toolInputProgress.get(part.toolCallId)?.chars ?? 0} deltas=${toolInputProgress.get(part.toolCallId)?.deltas ?? 0} step=${nextStepNumber} input=${JSON.stringify(part.input)}`
                 )
                 toolInputProgress.delete(part.toolCallId)
+                toolInputNameById.delete(part.toolCallId)
                 toolCallContextById.set(part.toolCallId, {
                   input: part.input,
                   toolName: part.toolName
@@ -847,6 +854,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               }
 
               if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
+                toolInputNameById.delete(part.toolCallId)
+                toolInputProgress.delete(part.toolCallId)
                 console.info(
                   `${llmTag} tool-input-error at=${new Date().toISOString()} sessionId=${request.promptCacheKey ?? '-'} toolCallId=${part.toolCallId} toolName=${part.toolName ?? '-'} step=${nextStepNumber}`
                 )

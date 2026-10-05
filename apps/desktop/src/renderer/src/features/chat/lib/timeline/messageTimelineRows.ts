@@ -667,6 +667,7 @@ export function buildConversationGroupRows(
   const shouldSummarizeCompletedWork =
     // Keep individual rows when a summary would consume both history and live content.
     !hasHandoffBoundary &&
+    !visibleToolCalls.some((toolCall) => toolCall.toolName === 'renderUi') &&
     (input.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE) === 'work-summary' &&
     activeAssistantMessage != null &&
     activeAssistantMessage.status === 'completed' &&

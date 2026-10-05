@@ -912,3 +912,63 @@ test('blank tool input cancels the bad request and routes through automatic run 
     console.info = originalInfo
   }
 })
+
+test('tool input deltas use their input-start name and do not mix with preliminary outputs', async () => {
+  const deltas: unknown[] = []
+  const updates: unknown[] = []
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({ responses: () => ({ modelId: 'gpt-5', provider: 'openai.responses' }) }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unexpected provider')
+    },
+    streamTextImpl: (() => ({
+      stream: (async function* () {
+        yield { type: 'tool-input-start', id: 'call-1', toolName: 'renderUi' }
+        yield { type: 'tool-input-delta', id: 'call-1', delta: '{"title":"x"}' }
+        yield { type: 'tool-input-delta', id: 'unknown', delta: 'ignore' }
+        yield { type: 'tool-input-start', id: 'failed', toolName: 'renderUi' }
+        yield {
+          type: 'tool-input-error',
+          toolCallId: 'failed',
+          toolName: 'renderUi',
+          input: {},
+          error: new Error('Invalid input')
+        }
+        yield { type: 'tool-input-delta', id: 'failed', delta: 'must not preview after failure' }
+        yield {
+          type: 'tool-input-available',
+          toolCallId: 'call-1',
+          toolName: 'renderUi',
+          input: { title: 'x' }
+        }
+        yield {
+          type: 'tool-output-available',
+          toolCallId: 'call-1',
+          preliminary: true,
+          output: { ok: true }
+        }
+        yield { type: 'text-delta', text: 'done' }
+      })()
+    })) as never
+  })
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'test' }],
+    settings: {
+      providerName: 'test',
+      provider: 'openai-responses',
+      model: 'gpt-5',
+      apiKey: 'test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    onToolInputDelta: (event) => deltas.push(event),
+    onToolCallUpdate: (event) => updates.push(event.output)
+  })) {
+    chunks.push(chunk)
+  }
+  assert.deepEqual(chunks, ['done'])
+  assert.deepEqual(deltas, [{ toolCallId: 'call-1', toolName: 'renderUi', delta: '{"title":"x"}' }])
+  assert.deepEqual(updates, [{ ok: true }])
+})
