@@ -1,5 +1,5 @@
 import { build } from 'esbuild'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -8,6 +8,9 @@ const require = createRequire(import.meta.url)
 const desktopRequire = createRequire(new URL('../apps/desktop/package.json', import.meta.url))
 const { build: buildVite } = await import(desktopRequire.resolve('vite'))
 const { default: tailwindcss } = await import(desktopRequire.resolve('@tailwindcss/vite'))
+const replaySource = process.env.YACHIYO_UI_REPLAY_SOURCE
+  ? JSON.parse(await readFile(process.env.YACHIYO_UI_REPLAY_SOURCE, 'utf8'))
+  : null
 await mkdir('.yachiyo', { recursive: true })
 const directory = await mkdtemp(join(process.cwd(), '.yachiyo/generative-ui-smoke-'))
 try {
@@ -22,7 +25,10 @@ try {
         '@yachiyo/shared': join(process.cwd(), 'packages/shared/src')
       }
     },
-    define: { 'process.env.NODE_ENV': '"production"' },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __UI_REPLAY_SOURCE__: JSON.stringify(replaySource)
+    },
     build: {
       outDir: directory,
       emptyOutDir: false,

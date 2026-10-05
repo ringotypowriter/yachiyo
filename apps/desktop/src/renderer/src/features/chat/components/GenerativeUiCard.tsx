@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Code2, ExternalLink, Maximize2, Minimize2, PanelsTopLeft, RotateCcw } from 'lucide-react'
+import { Code2, ExternalLink, Maximize2, Minimize2, RotateCcw } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { EMPTY_COMPOSER_DRAFT, getComposerDraftKey } from '@renderer/app/store/useAppStore/helpers'
@@ -94,6 +94,8 @@ function GenerativeUiCardContent({
     if (!frame) return
     let connected = false
     let port: MessagePort | null = null
+    let heightTimer: ReturnType<typeof setTimeout> | undefined
+    let pendingHeight: number | undefined
     const receiveReady = (event: MessageEvent): void => {
       if (connected || event.source !== frame.contentWindow) return
       if (!event.data || typeof event.data !== 'object' || event.data.type !== 'yachiyo-ui-ready')
@@ -103,22 +105,33 @@ function GenerativeUiCardContent({
       const connectedPort = channel.port1
       port = connectedPort
       portRef.current = connectedPort
+      lastHeightAtRef.current = 0
+      const flushHeight = (): void => {
+        heightTimer = undefined
+        if (portRef.current !== connectedPort || pendingHeight === undefined) return
+        lastHeightAtRef.current = Date.now()
+        setHeight(pendingHeight)
+        pendingHeight = undefined
+      }
       connectedPort.onmessage = (message: MessageEvent): void => {
         if (portRef.current !== connectedPort) return
         const output = parseRenderUiOutput(message.data)
         if (!output) return
         const receivedAt = Date.now()
+        if (output.type === 'height') {
+          pendingHeight = output.height
+          if (heightTimer) return
+          const delay = Math.max(0, 100 - (receivedAt - lastHeightAtRef.current))
+          if (delay === 0) flushHeight()
+          else heightTimer = setTimeout(flushHeight, delay)
+          return
+        }
         if (receivedAt - burstRef.current.start >= 1000) {
           burstRef.current = { start: receivedAt, count: 0 }
         }
         if (burstRef.current.count >= 20) return
         burstRef.current.count += 1
-        if (output.type === 'height') {
-          const now = Date.now()
-          if (now - lastHeightAtRef.current < 100) return
-          lastHeightAtRef.current = now
-          setHeight(output.height)
-        } else if (output.type === 'error') {
+        if (output.type === 'error') {
           setError(output.message)
         } else {
           const now = Date.now()
@@ -140,6 +153,7 @@ function GenerativeUiCardContent({
     }
     window.addEventListener('message', receiveReady)
     return () => {
+      clearTimeout(heightTimer)
       window.removeEventListener('message', receiveReady)
       portRef.current = null
       if (port) {
@@ -226,7 +240,7 @@ function GenerativeUiCardContent({
   }
 
   const buttonClass =
-    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent transition-colors hover:bg-[rgb(var(--yachiyo-rgb-ink)/0.05)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[rgb(var(--yachiyo-rgb-accent))]'
+    'pointer-events-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent transition-colors hover:bg-[rgb(var(--yachiyo-rgb-ink)/0.05)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[rgb(var(--yachiyo-rgb-accent))]'
   const buttonStyle = { color: theme.text.muted }
   return (
     <div ref={cardRef} className="px-6 py-1" data-generative-ui-card={toolCall.id}>
@@ -241,105 +255,68 @@ function GenerativeUiCardContent({
         }}
         className={
           expanded
-            ? 'fixed inset-4 z-[210] flex h-[calc(100%-2rem)] w-[calc(100%-2rem)] max-w-none flex-col overflow-hidden p-0 backdrop:bg-black/40'
-            : 'relative m-0 block w-full max-w-none overflow-hidden p-0'
+            ? 'group/render-ui fixed inset-0 z-[210] m-0 flex h-full max-h-none w-full max-w-none flex-col overflow-hidden px-6 py-6'
+            : 'group/render-ui relative m-0 block w-full max-w-none overflow-visible p-0'
         }
         style={{
-          borderRadius: 14,
-          border: `1px solid ${theme.border.default}`,
-          background: theme.background.surface,
-          boxShadow: theme.shadow.card,
+          border: 0,
+          background: expanded ? theme.background.canvas : 'transparent',
           fontFamily: theme.font.ui
         }}
       >
         <div
-          className="flex min-h-11 items-center gap-2 px-3"
-          style={{ borderBottom: `1px solid ${theme.border.subtle}` }}
+          className={`pointer-events-none absolute right-0 top-0 z-10 flex items-center gap-0.5 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover/render-ui:opacity-100 group-focus-within/render-ui:opacity-100'}`}
         >
-          <PanelsTopLeft
-            size={14}
-            strokeWidth={1.8}
-            className="shrink-0"
-            style={{ color: theme.text.accent }}
-            aria-hidden="true"
-          />
-          <div className="min-w-0 flex-1">
-            <div
-              className="truncate"
-              style={{
-                color: theme.text.primary,
-                fontSize: 12.5,
-                fontWeight: 650,
-                letterSpacing: '-0.05px'
-              }}
-            >
-              {details.title || 'Interactive preview'}
-            </div>
-            {!completed ? (
-              <div
-                role="status"
-                style={{
-                  color: toolCall.status === 'failed' ? theme.text.danger : theme.text.placeholder,
-                  fontSize: 10.5,
-                  lineHeight: '13px'
-                }}
-              >
-                {toolCall.status === 'failed' ? 'Preview unavailable' : 'Generating preview'}
-              </div>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            className={buttonClass}
+            style={buttonStyle}
+            aria-label={expanded ? 'Close preview' : 'Expand preview'}
+            title={expanded ? 'Close preview' : 'Expand preview'}
+            onClick={toggleExpanded}
+          >
+            {expanded ? (
+              <Minimize2 size={15} strokeWidth={1.8} />
+            ) : (
+              <Maximize2 size={15} strokeWidth={1.8} />
+            )}
+          </button>
+          <button
+            type="button"
+            className={buttonClass}
+            style={
+              showSource
+                ? {
+                    ...buttonStyle,
+                    background: theme.background.accentSoft,
+                    color: theme.text.accent
+                  }
+                : buttonStyle
+            }
+            aria-label="Source"
+            title="Source"
+            aria-expanded={showSource}
+            onClick={() => setShowSource(!showSource)}
+          >
+            <Code2 size={15} strokeWidth={1.8} />
+          </button>
+          {native ? (
             <button
               type="button"
               className={buttonClass}
               style={buttonStyle}
-              aria-label={expanded ? 'Close preview' : 'Expand preview'}
-              title={expanded ? 'Close preview' : 'Expand preview'}
-              onClick={toggleExpanded}
+              aria-label="Reset preview"
+              title="Reset preview"
+              onClick={() => {
+                setPending(null)
+                setError(null)
+                setHeight(240)
+                setGeneration((n) => n + 1)
+              }}
             >
-              {expanded ? (
-                <Minimize2 size={15} strokeWidth={1.8} />
-              ) : (
-                <Maximize2 size={15} strokeWidth={1.8} />
-              )}
+              <RotateCcw size={15} strokeWidth={1.8} />
             </button>
-            <button
-              type="button"
-              className={buttonClass}
-              style={
-                showSource
-                  ? {
-                      ...buttonStyle,
-                      background: theme.background.accentSoft,
-                      color: theme.text.accent
-                    }
-                  : buttonStyle
-              }
-              aria-label="Source"
-              title="Source"
-              aria-expanded={showSource}
-              onClick={() => setShowSource(!showSource)}
-            >
-              <Code2 size={15} strokeWidth={1.8} />
-            </button>
-            {native ? (
-              <button
-                type="button"
-                className={buttonClass}
-                style={buttonStyle}
-                aria-label="Reset preview"
-                title="Reset preview"
-                onClick={() => {
-                  setPending(null)
-                  setError(null)
-                  setHeight(240)
-                  setGeneration((n) => n + 1)
-                }}
-              >
-                <RotateCcw size={15} strokeWidth={1.8} />
-              </button>
-            ) : null}
-          </div>
+          ) : null}
         </div>
         {native ? (
           <iframe
@@ -349,7 +326,7 @@ function GenerativeUiCardContent({
             src="yachiyo-ui://sandbox/"
             sandbox="allow-scripts"
             className={expanded ? 'block min-h-0 w-full flex-1 border-0' : 'block w-full border-0'}
-            style={{ ...(expanded ? {} : { height }), background: theme.background.canvas }}
+            style={{ ...(expanded ? {} : { height }), background: 'transparent' }}
           />
         ) : (
           <div className="px-3 py-4" style={{ color: theme.text.secondary, fontSize: 11 }}>
@@ -366,11 +343,7 @@ function GenerativeUiCardContent({
           </div>
         )}
         {error ? (
-          <div
-            role="alert"
-            className="px-3 py-2 text-[11px]"
-            style={{ color: theme.text.danger, borderTop: `1px solid ${theme.border.subtle}` }}
-          >
+          <div role="alert" className="px-3 py-2 text-[11px]" style={{ color: theme.text.danger }}>
             {error}
           </div>
         ) : null}
@@ -412,7 +385,7 @@ function GenerativeUiCardContent({
           </div>
         ) : null}
         {showSource ? (
-          <div className="p-3" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
+          <div className="py-2">
             <pre
               data-render-ui-source
               className="message-selectable m-0 max-h-80 overflow-auto rounded-md px-3 py-2 text-[10.5px] leading-[1.5] whitespace-pre-wrap break-words"

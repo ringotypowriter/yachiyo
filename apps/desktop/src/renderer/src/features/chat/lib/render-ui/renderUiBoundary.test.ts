@@ -7,9 +7,13 @@ test('validates and clamps iframe height', () => {
     type: 'height',
     height: 160
   })
-  assert.deepEqual(parseRenderUiOutput({ type: 'height', height: 1000 }), {
+  assert.deepEqual(parseRenderUiOutput({ type: 'height', height: 1137 }), {
     type: 'height',
-    height: 720
+    height: 1137
+  })
+  assert.deepEqual(parseRenderUiOutput({ type: 'height', height: 99999 }), {
+    type: 'height',
+    height: 1600
   })
   assert.equal(parseRenderUiOutput({ type: 'height', height: Infinity }), null)
 })

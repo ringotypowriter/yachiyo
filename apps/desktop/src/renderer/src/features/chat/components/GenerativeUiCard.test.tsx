@@ -52,6 +52,18 @@ test('Expand uses a dialog top layer inside transformed timeline without replaci
     const frame = document.querySelector('iframe')!
     const dialog = document.querySelector('dialog')!
     assert.ok(dialog, 'the card must use a native dialog to escape the transformed row')
+    assert.equal(dialog.style.border, '0', 'inline content has no card border')
+    assert.equal(
+      dialog.style.background,
+      'transparent',
+      'inline content inherits the message surface'
+    )
+    assert.equal(
+      dialog.textContent?.includes('Demo'),
+      false,
+      'title is accessibility metadata, not a titlebar'
+    )
+    assert.equal(frame.style.background, 'transparent')
     Object.assign(dialog, {
       showModal: () => {
         modalOpens += 1

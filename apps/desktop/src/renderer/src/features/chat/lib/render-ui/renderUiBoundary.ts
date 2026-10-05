@@ -4,6 +4,8 @@ export type RenderUiOutput =
   | { type: 'continueConversation'; text: string }
   | { type: 'error'; message: string }
 
+export const MAX_RENDER_UI_INLINE_HEIGHT = 1600
+
 export function appendConfirmedRenderUiText<T extends { text: string }>(
   drafts: Record<string, T>,
   key: string,
@@ -18,7 +20,10 @@ export function parseRenderUiOutput(value: unknown): RenderUiOutput | null {
   if (!value || typeof value !== 'object' || !('type' in value)) return null
   if (value.type === 'height' && 'height' in value && typeof value.height === 'number') {
     if (!Number.isFinite(value.height)) return null
-    return { type: 'height', height: Math.max(160, Math.min(720, value.height)) }
+    return {
+      type: 'height',
+      height: Math.max(160, Math.min(MAX_RENDER_UI_INLINE_HEIGHT, value.height))
+    }
   }
   if (value.type === 'openLink' && 'url' in value && typeof value.url === 'string') {
     if (value.url.length > 2048) return null

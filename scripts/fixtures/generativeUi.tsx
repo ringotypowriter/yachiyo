@@ -6,22 +6,24 @@ import { GenerativeUiCard } from '../../apps/desktop/src/renderer/src/features/c
 import { useAppStore } from '../../apps/desktop/src/renderer/src/app/store/useAppStore'
 import { AssistantMessageBubble } from '../../apps/desktop/src/renderer/src/features/chat/components/AssistantMessageBubble'
 import { DEFAULT_THEME_ID, theme } from '../../apps/desktop/src/renderer/src/theme/theme'
+import { applyThemeAttributes } from '../../apps/desktop/src/renderer/src/theme/themeRuntime'
 
 const opened: string[] = []
 window.open = (url): Window | null => {
   opened.push(String(url))
   return null
 }
-document.documentElement.dataset.yachiyoThemeVariant = 'light'
-document.documentElement.dataset.yachiyoTheme = DEFAULT_THEME_ID
+applyThemeAttributes({ themeId: DEFAULT_THEME_ID, appearance: 'light', variant: 'light' })
 
-const source = {
+const demoSource = {
   kind: 'renderUi' as const,
   title: 'Interactive counter',
   css: 'button{padding:8px 14px;border:0;border-radius:8px;background:coral;color:#111;margin:6px}#count{font-size:24px}html[data-theme="dark"]{color:#eee;background:#202020}',
-  html: '<h2>Counter</h2><p id="count">0</p><button id="increment">Increment</button><canvas id="plot" width="160" height="40"></canvas><svg width="90" height="40"><circle cx="20" cy="20" r="14" fill="coral"/></svg><script>window.__htmlAttack=true</script><img src="x" onerror="window.__htmlAttack=true"><iframe src="https://example.com"></iframe><base href="https://example.com"><meta http-equiv="refresh" content="0;url=https://example.com"><button onclick="window.__htmlAttack=true">Static</button>',
+  html: '<article><h2>Counter</h2><output id="count" data-result="counter" aria-live="polite">0</output><button id="increment">Increment</button><canvas id="plot" width="160" height="40"></canvas><svg width="90" height="40"><circle cx="20" cy="20" r="14" fill="coral"/></svg></article><script>window.__htmlAttack=true</script><img src="x" onerror="window.__htmlAttack=true"><iframe src="https://example.com"></iframe><base href="https://example.com"><meta http-equiv="refresh" content="0;url=https://example.com"><button onclick="window.__htmlAttack=true">Static</button>',
   js: 'window.__executions=(window.__executions||0)+1;document.querySelector("#increment").addEventListener("click",()=>{document.querySelector("#count").textContent=String(Number(document.querySelector("#count").textContent)+1)});const ctx=document.querySelector("canvas").getContext("2d");ctx.fillStyle="coral";ctx.fillRect(0,0,80,20);'
 }
+declare const __UI_REPLAY_SOURCE__: typeof demoSource | null
+const source = __UI_REPLAY_SOURCE__ ?? demoSource
 const record: ToolCallRecord = {
   id: 'ui-smoke',
   threadId: 'smoke',
@@ -66,9 +68,8 @@ function click(label: string): void {
 }
 
 function setFixtureTheme(theme: string): void {
-  document.documentElement.classList.toggle('dark', theme === 'dark')
-  document.documentElement.dataset.yachiyoThemeVariant = theme
-  document.documentElement.dataset.yachiyoThemeAppearance = theme
+  const variant = theme === 'dark' ? 'dark' : 'light'
+  applyThemeAttributes({ themeId: DEFAULT_THEME_ID, appearance: variant, variant })
 }
 
 export function Fixture(): React.JSX.Element {

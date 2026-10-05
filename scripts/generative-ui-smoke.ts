@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
 import electron from 'electron'
+import { MAX_RENDER_UI_INLINE_HEIGHT } from '../apps/desktop/src/renderer/src/features/chat/lib/render-ui/renderUiBoundary.ts'
 import {
   registerGenerativeUiScheme,
   installGenerativeUiProtocol,
@@ -144,7 +145,105 @@ async function run(): Promise<void> {
       'Production preload exposed to host only'
     )
     await wait('Boolean(window.__uiSmoke && document.querySelector("iframe"))')
+    if (process.env.YACHIYO_UI_REPLAY_SOURCE) {
+      await waitFrame('Boolean(document.querySelector("#amount"))')
+      assert.equal(
+        await inFrame('Boolean(document.querySelector("article #fixed"))'),
+        true,
+        'Real mortgage result nodes survive sanitization'
+      )
+      const preparing = frame().frameTreeNodeId
+      await evaluate('window.__uiSmoke.complete()')
+      await waitFrame('document.querySelectorAll("#chart path").length === 2', preparing)
+      assert.match(
+        String(await inFrame('document.querySelector("#fixed").textContent')),
+        /4,270\.16/
+      )
+      assert.equal(
+        await evaluate('document.querySelector("[role=alert]")?.textContent ?? null'),
+        null
+      )
+      await inFrame(
+        '(() => { for (const [id,value] of [["amount",500000],["rate",0],["years",10]]) document.getElementById(id).value=value; document.getElementById("years").dispatchEvent(new Event("input",{bubbles:true})); document.getElementById("month").value=60; document.getElementById("month").dispatchEvent(new Event("input",{bubbles:true})); })()'
+      )
+      assert.match(
+        String(await inFrame('document.querySelector("#fixed").textContent')),
+        /4,166\.67/
+      )
+      assert.match(
+        String(await inFrame('document.querySelector("#inspect").textContent')),
+        /250,000\.00/
+      )
+      await inFrame(
+        'document.querySelector("#amount").value=-1; document.querySelector("#amount").dispatchEvent(new Event("input",{bubbles:true}))'
+      )
+      assert.equal(await inFrame('document.querySelector("#results").hidden'), true)
+      await inFrame('document.querySelector("#reset").click()')
+      assert.match(
+        String(await inFrame('document.querySelector("#fixed").textContent')),
+        /4,270\.16/
+      )
+      assert.equal(
+        await inFrame(
+          '!document.querySelector("#results").hidden && document.querySelector("#results").getBoundingClientRect().height > 0'
+        ),
+        true
+      )
+      const originalFrame = frame().frameTreeNodeId
+      await evaluate('window.__uiSmoke.expand()')
+      await wait('Boolean(document.querySelector("dialog[aria-modal=true]"))')
+      assert.equal(
+        await evaluate(
+          'Math.abs(document.querySelector("dialog").getBoundingClientRect().width-innerWidth) < 1 && Math.abs(document.querySelector("dialog").getBoundingClientRect().height-innerHeight) < 1'
+        ),
+        true,
+        'Fullscreen fills the viewport without a framed overlay'
+      )
+      assert.equal(frame().frameTreeNodeId, originalFrame)
+      await evaluate('window.__uiSmoke.closeExpand()')
+      assert.equal(frame().frameTreeNodeId, originalFrame)
+      await waitFrame(
+        'Math.abs(innerHeight-Math.max(160,Math.ceil(Math.max(document.querySelector("#content").getBoundingClientRect().height,document.querySelector("#content").scrollHeight)))) <= 1'
+      )
+      const screenshots = join(process.cwd(), '.yachiyo/generative-ui-verification')
+      await mkdir(screenshots, { recursive: true })
+      for (const variant of ['light', 'dark']) {
+        await evaluate(`window.__uiSmoke.theme(${JSON.stringify(variant)})`)
+        await waitFrame(`document.documentElement.dataset.theme === ${JSON.stringify(variant)}`)
+        await inFrame(
+          'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+        )
+        await evaluate(
+          'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+        )
+        await writeFile(
+          join(screenshots, `mortgage-${variant}.png`),
+          (await page.webContents.capturePage()).toPNG()
+        )
+      }
+      page.setSize(480, 840)
+      await waitFrame('innerWidth <= 432')
+      await evaluate(
+        'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+      )
+      await waitFrame(
+        'document.querySelector("#content").getBoundingClientRect().height <= innerHeight'
+      )
+      await writeFile(
+        join(screenshots, 'mortgage-narrow.png'),
+        (await page.webContents.capturePage()).toPNG()
+      )
+      console.log(
+        'PASS: unchanged database mortgage source, recomputation, chart, validation and preserved fullscreen frame'
+      )
+      return
+    }
     await waitFrame('Boolean(document.querySelector("#count"))')
+    assert.equal(await inFrame('document.querySelector("output").dataset.result'), 'counter')
+    assert.equal(
+      await inFrame('document.querySelector("output").getAttribute("aria-live")'),
+      'polite'
+    )
     assert.equal(await inFrame('document.querySelector("#count")?.textContent'), '0')
     assert.equal(await inFrame('Boolean(window.__executions || window.__htmlAttack)'), false)
     assert.equal(
@@ -262,8 +361,20 @@ async function run(): Promise<void> {
     await evaluate('document.querySelector("#rogue").remove()')
     console.log('PASS: host bridge requires user confirmation and preserves draft/attachments')
 
-    await inFrame('window.yachiyoUi.reportHeight(99999)')
-    await wait('Number.parseFloat(document.querySelector("iframe").style.height) <= 720')
+    await inFrame(
+      '(() => {const probe=document.createElement("div");probe.id="height-probe";probe.style.cssText="float:left;height:400px;width:1px";document.querySelector("#content").appendChild(probe)})()'
+    )
+    await evaluate('window.__uiSmoke.theme("light")')
+    await waitFrame(
+      'document.querySelector("#height-probe").getBoundingClientRect().bottom <= innerHeight'
+    )
+    await inFrame('document.querySelector("#height-probe").remove()')
+    await waitFrame('innerHeight < 400')
+    await inFrame('window.yachiyoUi.reportHeight(99999);window.yachiyoUi.reportHeight(160)')
+    await wait('Number.parseFloat(document.querySelector("iframe").style.height) === 160')
+    await wait(
+      `Number.parseFloat(document.querySelector("iframe").style.height) <= ${MAX_RENDER_UI_INLINE_HEIGHT}`
+    )
     await evaluate('window.__uiSmoke.source()')
     await wait('window.__uiSmoke.sourceReady()')
     assert.equal(await evaluate('Boolean(window.__htmlAttack)'), false)

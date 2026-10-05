@@ -78,8 +78,8 @@ export function buildGenerativeUiShell(): { html: string; csp: string } {
 html,body{margin:0;min-height:1px}*{box-sizing:border-box}
 html{--yachiyo-rgb-ink:45 45 43;--yachiyo-rgb-surface:255 255 255;--yachiyo-rgb-text-muted:142 142 147;--yachiyo-rgb-accent:75 175 201;--yachiyo-rgb-accent-strong:42 122 149;--yachiyo-font-ui:'Avenir Next','Helvetica Neue','Segoe UI',sans-serif;color-scheme:light}
 html[data-theme=dark]{--yachiyo-rgb-ink:238 241 242;--yachiyo-rgb-surface:38 42 46;--yachiyo-rgb-text-muted:123 134 140;color-scheme:dark}
-body{font:14px/1.6 var(--yachiyo-font-ui);min-height:100vh;padding:16px 18px;overflow-wrap:anywhere;color:rgb(var(--yachiyo-rgb-ink));background:rgb(var(--yachiyo-rgb-surface))}
-button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer;border:1px solid rgb(var(--yachiyo-rgb-ink)/.1);border-radius:8px;background:rgb(var(--yachiyo-rgb-ink)/.04);padding:6px 12px}button:hover{background:rgb(var(--yachiyo-rgb-ink)/.08)}input,select,textarea{max-width:100%;border:1px solid rgb(var(--yachiyo-rgb-ink)/.12);border-radius:8px;background:transparent;padding:6px 10px}a{color:rgb(var(--yachiyo-rgb-accent-strong))}:focus-visible{outline:2px solid rgb(var(--yachiyo-rgb-accent));outline-offset:2px}h1,h2,h3{font-weight:600;line-height:1.35;margin:0 0 12px}p{margin:8px 0}img,canvas,svg{max-width:100%}#content{min-height:1px}
+body{font:14px/1.6 var(--yachiyo-font-ui);padding:0;overflow-wrap:anywhere;color:rgb(var(--yachiyo-rgb-ink));background:transparent}
+button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer;border:1px solid rgb(var(--yachiyo-rgb-ink)/.1);border-radius:8px;background:rgb(var(--yachiyo-rgb-ink)/.04);padding:6px 12px}button:hover{background:rgb(var(--yachiyo-rgb-ink)/.08)}input,select,textarea{max-width:100%;border:1px solid rgb(var(--yachiyo-rgb-ink)/.12);border-radius:8px;background:transparent;padding:6px 10px}a{color:rgb(var(--yachiyo-rgb-accent-strong))}:focus-visible{outline:2px solid rgb(var(--yachiyo-rgb-accent));outline-offset:2px}h1,h2,h3{font-weight:600;line-height:1.35;margin:0 0 12px}p{margin:8px 0}img,canvas,svg{max-width:100%}#content{display:flow-root;min-height:1px}
 </style>
 </head><body class="light"><div id="content"></div><script nonce="${nonce}">
 (() => {
@@ -92,10 +92,10 @@ button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer;bo
   let executed = false;
   let previousHtml = null;
   let previousCss = null;
-  const allowedTags = new Set('a abbr b blockquote br button canvas caption code col colgroup dd del details div dl dt em h1 h2 h3 h4 h5 h6 hr i img input label li ol option p pre s section select small span strong sub summary sup table tbody td th thead time tr u ul'.split(' '));
+  const allowedTags = new Set('a abbr address article aside b bdi bdo blockquote br button canvas caption cite code col colgroup data datalist dd del details dfn div dl dt em fieldset figcaption figure footer h1 h2 h3 h4 h5 h6 header hr i img input kbd label legend li main mark meter nav ol optgroup option output p pre progress q rp rt ruby s samp section select small span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var wbr'.split(' '));
   const svgTags = new Set('svg g path circle ellipse rect line polyline polygon text tspan defs linearGradient radialGradient stop clipPath'.split(' '));
   const svgAttrs = new Set('viewbox xmlns d fill stroke stroke-width stroke-linecap stroke-linejoin fill-rule opacity cx cy r rx ry x x1 x2 y y1 y2 width height points transform offset stop-color stop-opacity preserveaspectratio class id'.split(' '));
-  const allowedAttrs = new Set('alt aria-label checked class colspan dir disabled height id lang max min open placeholder role rowspan selected step title type value width'.split(' '));
+  const allowedAttrs = new Set('alt autocomplete checked class cols colspan datetime dir disabled for height hidden id lang list max maxlength min minlength multiple name open placeholder readonly required role rows rowspan selected size span start step tabindex title type value width'.split(' '));
   const imageUrl = (value) => /^data:image\\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(value);
   const linkUrl = (value) => {
     try { return ['https:', 'http:'].includes(new URL(value).protocol); }
@@ -129,7 +129,7 @@ button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer;bo
           const name = attr.name.toLowerCase();
           if (name.startsWith('on') || name === 'srcdoc') continue;
           if (svg) { if (svgAttrs.has(name)) safe.setAttribute(attr.name, attr.value); continue; }
-          if (name === 'style' || allowedAttrs.has(name)) safe.setAttribute(name, attr.value);
+          if (name === 'style' || allowedAttrs.has(name) || name.startsWith('aria-') || name.startsWith('data-')) safe.setAttribute(name, attr.value);
           if (name === 'href' && tag === 'a' && linkUrl(attr.value)) safe.setAttribute('href', attr.value);
           if (name === 'src' && tag === 'img' && imageUrl(attr.value)) safe.setAttribute('src', attr.value);
         }
@@ -140,7 +140,7 @@ button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer;bo
     copy(parsed.body, result);
     return result;
   }
-  function reportHeight() { api.reportHeight(Math.ceil(document.documentElement.scrollHeight)); }
+  function reportHeight() { api.reportHeight(Math.ceil(Math.max(content.getBoundingClientRect().height, content.scrollHeight))); }
   new ResizeObserver(reportHeight).observe(document.body);
   document.addEventListener('click', (event) => {
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
