@@ -1449,7 +1449,11 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     assert.ok(planMessage.content.includes(`Accepted plan file: ${planPath}`))
     const executionRequest = modelRequests.at(-1)
     assert.ok(executionRequest)
-    assert.ok(JSON.stringify(executionRequest.messages).includes(`Accepted plan file: ${planPath}`))
+    assert.ok(
+      JSON.stringify(executionRequest.messages).includes(
+        JSON.stringify(`Accepted plan file: ${planPath}`).slice(1, -1)
+      )
+    )
 
     assert.equal(accepted.thread.handoffFromThreadId, sourceThread.id)
     assert.equal(accepted.thread.workspacePath, workspacePath)
