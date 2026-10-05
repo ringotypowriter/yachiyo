@@ -1156,6 +1156,7 @@ test('YachiyoServer.acceptThreadPlanDocument runs directly in the source thread 
       )
       assert.ok(planMessage)
       assert.ok(planMessage.content.includes(planContent))
+      assert.ok(planMessage.content.includes(`Accepted plan file: ${planPath}`))
       assert.notEqual(planMessage.hidden, true)
       assert.equal(planMessage.parentMessageId, priorAssistantMessage.id)
 
@@ -1185,6 +1186,7 @@ test('YachiyoServer.acceptThreadPlanDocument runs directly in the source thread 
       assert.ok(executionContextText.includes('Hello world'))
       assert.ok(executionContextText.includes(planContent))
       assert.ok(executionContextText.includes('Execute the accepted plan.'))
+      assert.ok(executionContextText.includes(`Accepted plan file: ${planPath}`))
 
       const updatedSourceThread = storage
         .bootstrap()
@@ -1401,7 +1403,8 @@ test('YachiyoServer.acceptThreadPlanDocument tells direct execution the accepted
 })
 
 test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded with the plan document', async () => {
-  await withServer(async ({ server, storage, completeRun, workspacePathForThread }) => {
+  await withServer(async (context) => {
+    const { server, storage, completeRun, modelRequests, workspacePathForThread } = context
     const config = await server.getConfig()
     await server.saveConfig({ ...config, chat: { ...config.chat, defaultRunMode: 'explore' } })
     const sourceThread = await server.createThread()
@@ -1443,6 +1446,10 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     )
     assert.ok(planMessage)
     assert.ok(planMessage.content.includes(planContent))
+    assert.ok(planMessage.content.includes(`Accepted plan file: ${planPath}`))
+    const executionRequest = modelRequests.at(-1)
+    assert.ok(executionRequest)
+    assert.ok(JSON.stringify(executionRequest.messages).includes(`Accepted plan file: ${planPath}`))
 
     assert.equal(accepted.thread.handoffFromThreadId, sourceThread.id)
     assert.equal(accepted.thread.workspacePath, workspacePath)

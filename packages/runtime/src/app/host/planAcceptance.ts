@@ -70,7 +70,15 @@ function seedAcceptedPlanMessage(input: {
     threadId: input.thread.id,
     ...(input.thread.headMessageId ? { parentMessageId: input.thread.headMessageId } : {}),
     role: 'assistant',
-    content: `${PLAN_DOCUMENT_MARKER}\n${input.plan.content}`,
+    content: [
+      PLAN_DOCUMENT_MARKER,
+      input.plan.content,
+      '',
+      '<reminder>',
+      `Accepted plan file: ${input.plan.path}`,
+      'When delegating work from this plan, include this absolute path or the relevant plan content in the task prompt; Workers do not inherit this conversation.',
+      '</reminder>'
+    ].join('\n'),
     status: 'completed',
     createdAt: timestamp,
     ...(input.hidden ? { hidden: true } : {})
