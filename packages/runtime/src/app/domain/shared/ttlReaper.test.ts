@@ -4,6 +4,8 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
+import fs from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { createTtlReaper } from './ttlReaper.ts'
 
 function makeTempDir(): string {
@@ -24,8 +26,7 @@ describe('TtlReaper', () => {
     const reaper = createTtlReaper({ manifestPath })
     reaper.register('/some/path', 60_000)
 
-    // Give async flush a tick
-    await new Promise((r) => setTimeout(r, 50))
+    await reaper.sweep()
 
     const raw = await readFile(manifestPath, 'utf8')
     const manifest = JSON.parse(raw)
@@ -36,11 +37,11 @@ describe('TtlReaper', () => {
 
   it('register appends to existing manifest', async () => {
     const reaper = createTtlReaper({ manifestPath })
-    reaper.register('/path/a', 1000)
-    await new Promise((r) => setTimeout(r, 50))
+    reaper.register('/path/a', 60_000)
+    await reaper.sweep()
 
-    reaper.register('/path/b', 2000)
-    await new Promise((r) => setTimeout(r, 50))
+    reaper.register('/path/b', 120_000)
+    await reaper.sweep()
 
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
     assert.ok(manifest['/path/a'])
@@ -58,7 +59,6 @@ describe('TtlReaper', () => {
     })
 
     reaper.register(filePath, 1000) // 1 second TTL
-    await new Promise((r) => setTimeout(r, 50))
 
     // Advance time past TTL
     fakeTime = new Date('2025-01-01T00:01:00Z')
@@ -68,6 +68,49 @@ describe('TtlReaper', () => {
 
     // File should be gone
     await assert.rejects(() => readFile(filePath), { code: 'ENOENT' })
+  })
+
+  it('sweep waits for an in-flight registration write before reading the manifest', async (context) => {
+    const filePath = join(tempDir, 'slow-registration.txt')
+    await writeFile(filePath, 'hello')
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const realRead = fs.readFile
+    const realWrite = fs.writeFile
+    let manifestReads = 0
+    let gated = false
+    context.mock.method(fs, 'readFile', (...args: Parameters<typeof fs.readFile>) => {
+      if (args[0] === manifestPath) manifestReads += 1
+      return realRead(...args)
+    })
+    context.mock.method(fs, 'writeFile', async (...args: Parameters<typeof fs.writeFile>) => {
+      if (args[0] === manifestPath && !gated) {
+        gated = true
+        entered.resolve()
+        await release.promise
+      }
+      return realWrite(...args)
+    })
+    syncBuiltinESMExports()
+    let fakeTime = new Date('2025-01-01T00:00:00Z')
+    const reaper = createTtlReaper({ manifestPath, now: () => fakeTime })
+    let sweeping: ReturnType<typeof reaper.sweep> | undefined
+    try {
+      reaper.register(filePath, 1000)
+      await entered.promise
+      fakeTime = new Date('2025-01-01T00:01:00Z')
+      sweeping = reaper.sweep()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      assert.equal(manifestReads, 1, 'sweep must not read while the registration write is blocked')
+      release.resolve()
+      assert.deepEqual((await sweeping).deleted, [filePath])
+      await assert.rejects(() => realRead(filePath), { code: 'ENOENT' })
+    } finally {
+      release.resolve()
+      await sweeping
+      context.mock.restoreAll()
+      syncBuiltinESMExports()
+    }
   })
 
   it('sweep preserves non-expired files', async () => {
@@ -81,7 +124,6 @@ describe('TtlReaper', () => {
     })
 
     reaper.register(filePath, 3_600_000) // 1 hour TTL
-    await new Promise((r) => setTimeout(r, 50))
 
     const result = await reaper.sweep()
     assert.deepEqual(result.deleted, [])
@@ -100,7 +142,6 @@ describe('TtlReaper', () => {
 
     // Register a path that doesn't exist on disk
     reaper.register('/nonexistent/path/file.txt', 1000)
-    await new Promise((r) => setTimeout(r, 50))
 
     fakeTime = new Date('2025-01-01T01:00:00Z')
 
@@ -145,7 +186,6 @@ describe('TtlReaper', () => {
     })
 
     reaper.register(dirPath, 1000)
-    await new Promise((r) => setTimeout(r, 50))
 
     fakeTime = new Date('2025-01-01T01:00:00Z')
 

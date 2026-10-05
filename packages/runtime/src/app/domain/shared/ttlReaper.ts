@@ -65,6 +65,16 @@ export function createTtlReaper(options: TtlReaperOptions): TtlReaper {
   /** In-memory buffer of entries registered since last flush. */
   let pendingRegistrations: TtlManifest = {}
   let timer: ReturnType<typeof setInterval> | null = null
+  let manifestOperations = Promise.resolve()
+
+  function serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = manifestOperations.then(operation)
+    manifestOperations = result.then(
+      () => {},
+      () => {}
+    )
+    return result
+  }
 
   function register(absolutePath: string, ttlMs: number): void {
     pendingRegistrations[absolutePath] = {
@@ -72,7 +82,7 @@ export function createTtlReaper(options: TtlReaperOptions): TtlReaper {
       ttlMs
     }
     // Flush to disk asynchronously — fire and forget.
-    void flushRegistrations()
+    void serialize(flushRegistrations)
   }
 
   async function flushRegistrations(): Promise<void> {
@@ -92,7 +102,7 @@ export function createTtlReaper(options: TtlReaperOptions): TtlReaper {
     }
   }
 
-  async function sweep(): Promise<{ deleted: string[] }> {
+  async function sweepManifest(): Promise<{ deleted: string[] }> {
     // Flush any pending registrations first so they're visible.
     await flushRegistrations()
 
@@ -122,6 +132,10 @@ export function createTtlReaper(options: TtlReaperOptions): TtlReaper {
     }
 
     return { deleted }
+  }
+
+  function sweep(): Promise<{ deleted: string[] }> {
+    return serialize(sweepManifest)
   }
 
   function start(): void {
