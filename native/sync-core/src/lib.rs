@@ -284,6 +284,77 @@ fn strip_local_only_settings_tables(text: &str) -> String {
             output.push_str(line);
         }
     }
+    merge_codex_session_paths(&output, "")
+}
+
+// Keep the generated TOML's formatting intact so public settings hashes remain stable.
+fn settings_sections(text: &str) -> Vec<&str> {
+    let mut sections = Vec::new();
+    let mut start = 0;
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        if settings_table_header(line) && offset > start {
+            sections.push(&text[start..offset]);
+            start = offset;
+        }
+        offset += line.len();
+    }
+    sections.push(&text[start..]);
+    sections
+}
+
+fn settings_assignment<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let (name, value) = line.split_once('=')?;
+    (name.trim() == key).then(|| value.trim())
+}
+
+fn provider_setting<'a>(section: &'a str, key: &str) -> Option<&'a str> {
+    section
+        .lines()
+        .find_map(|line| settings_assignment(line, key))
+        .filter(|value| !matches!(*value, "\"\"" | "''"))
+}
+
+fn is_provider_section(section: &str) -> bool {
+    section.lines().next().is_some_and(|line| {
+        line.trim()
+            .strip_prefix("[[providers]]")
+            .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with('#'))
+    })
+}
+
+fn merge_codex_session_paths(remote_text: &str, local_text: &str) -> String {
+    let local: Vec<_> = settings_sections(local_text)
+        .into_iter()
+        .filter(|section| is_provider_section(section))
+        .collect();
+    let mut output = String::with_capacity(remote_text.len());
+    for section in settings_sections(remote_text) {
+        if !is_provider_section(section) {
+            output.push_str(section);
+            continue;
+        }
+        let matching = ["id", "name"].into_iter().find_map(|key| {
+            let value = provider_setting(section, key)?;
+            local
+                .iter()
+                .find(|local| provider_setting(local, key) == Some(value))
+        });
+        let path = matching.and_then(|local| provider_setting(local, "codexSessionPath"));
+        for (index, line) in section.split_inclusive('\n').enumerate() {
+            if settings_assignment(line, "codexSessionPath").is_none() {
+                output.push_str(line);
+            }
+            if index == 0 {
+                if let Some(path) = path {
+                    if !output.ends_with('\n') {
+                        output.push('\n');
+                    }
+                    output.push_str(&format!("codexSessionPath = {path}\n"));
+                }
+            }
+        }
+    }
     output
 }
 
@@ -303,7 +374,8 @@ fn extract_local_only_settings_tables(text: &str) -> String {
 
 fn merge_local_only_settings_tables(remote_text: &str, local_text: &str) -> String {
     let local_only = extract_local_only_settings_tables(local_text);
-    let mut merged = strip_local_only_settings_tables(remote_text);
+    let mut merged =
+        merge_codex_session_paths(&strip_local_only_settings_tables(remote_text), local_text);
     if local_only.trim().is_empty() {
         return merged;
     }
@@ -5410,6 +5482,89 @@ mod tests {
 
     fn config_with_sync_dir(theme_id: &str, sync_dir: &str) -> String {
         format!("[general]\nthemeId = \"{theme_id}\"\n\n[sync]\nsyncDir = \"{sync_dir}\"\n")
+    }
+
+    fn config_with_codex_path(path: &str, fast: bool) -> String {
+        format!("[[providers]]\nid = \"codex\"\nname = \"Codex\"\ntype = \"openai-codex\"\ncodexSessionPath = \"{path}\"\ncodexFastMode = {fast}\n\n[providers.modelList]\nenabled = [\"model\"]\n")
+    }
+
+    #[test]
+    fn codex_oauth_path_is_not_exported_or_conflicted() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home(&config_with_codex_path("/peer/auth.json", false));
+        let home_b = setup_home(&config_with_codex_path("/local/auth.json", false));
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let exported = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        assert!(exported.exported_ops > 0);
+        let published = read_ops_file(sync.path(), &device_id_of(home_a.path()), 1);
+        let settings = published
+            .iter()
+            .find(|op| op.entity_type == "settings")
+            .unwrap();
+        let exported_text = settings.payload["text"].as_str().unwrap();
+        assert!(!exported_text.contains("codexSessionPath"));
+        assert!(!exported_text.contains("/peer/"));
+
+        let home_new = setup_home("");
+        fs::remove_file(home_new.path().join(SETTINGS_FILE)).unwrap();
+        init_sync(home_new.path(), Some(sync.path()), "New").unwrap();
+        let imported = import_ops(home_new.path(), Some(sync.path())).unwrap();
+        assert_eq!(imported.pending_conflict_count, 0);
+        assert!(!fs::read_to_string(home_new.path().join(SETTINGS_FILE))
+            .unwrap()
+            .contains("codexSessionPath"));
+        let imported = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(imported.pending_conflict_count, 0);
+        assert_eq!(
+            fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap(),
+            config_with_codex_path("/local/auth.json", false)
+        );
+
+        fs::write(
+            home_a.path().join(SETTINGS_FILE),
+            config_with_codex_path("/peer/new.json", false),
+        )
+        .unwrap();
+        assert_eq!(
+            export_ops(home_a.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0
+        );
+        fs::write(
+            home_a.path().join(SETTINGS_FILE),
+            config_with_codex_path("/peer/new.json", true),
+        )
+        .unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let imported = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(imported.pending_conflict_count, 0);
+        let imported_text = fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap();
+        assert!(imported_text.contains("codexSessionPath = \"/local/auth.json\""));
+        assert!(!imported_text.contains("/peer/"));
+        assert_eq!(
+            strip_local_only_settings_tables(&imported_text),
+            strip_local_only_settings_tables(&config_with_codex_path("/local/auth.json", true))
+        );
+    }
+
+    #[test]
+    fn codex_oauth_paths_follow_provider_identity_and_ignore_legacy_peer_paths() {
+        let local = config_with_codex_path("/local/auth.json", false);
+        let remote = format!(
+            "{}\n{}",
+            config_with_codex_path("/peer/new.json", true)
+                .replace("\"codex\"", "\"new\"")
+                .replace("\"Codex\"", "\"New\""),
+            config_with_codex_path("/peer/auth.json", true).replace("\"Codex\"", "\"Renamed\"")
+        );
+        let merged = merge_local_only_settings_tables(&remote, &local);
+        assert!(!merged.contains("/peer/"));
+        assert_eq!(merged.matches("codexSessionPath").count(), 1);
+        assert!(merged.contains("codexSessionPath = \"/local/auth.json\""));
+        assert_eq!(merged.matches("codexFastMode = true").count(), 2);
+        assert!(!merge_local_only_settings_tables(&remote, "").contains("codexSessionPath"));
     }
 
     #[test]

@@ -48,6 +48,11 @@ function flattenConfig(config: unknown): Map<string, unknown> {
     isPlainObject(config) && Array.isArray(config['providers'])
       ? stripProviderCredentials(config as unknown as SettingsConfig)
       : config
+  if (isPlainObject(publicConfig) && Array.isArray(publicConfig['providers'])) {
+    for (const provider of publicConfig['providers']) {
+      delete provider.codexSessionPath
+    }
+  }
   if (isPlainObject(publicConfig)) {
     for (const key of Object.keys(publicConfig)) {
       flatten(publicConfig[key], key, out)
@@ -169,5 +174,27 @@ export function mergeSettings(
       deleteByPath(merged, path)
     }
   }
-  return merged as unknown as SettingsConfig
+  const result = merged as unknown as SettingsConfig
+  return selections['providers'] === 'remote'
+    ? preserveLocalCodexSessionPaths(local, result)
+    : result
+}
+
+/** OAuth session files are device-local, even when the provider configuration is synced. */
+export function preserveLocalCodexSessionPaths(
+  local: SettingsConfig,
+  remote: SettingsConfig
+): SettingsConfig {
+  return {
+    ...remote,
+    providers: remote.providers.map((provider) => {
+      const stored =
+        local.providers.find((entry) => entry.id && entry.id === provider.id) ??
+        local.providers.find((entry) => entry.name === provider.name)
+      const next = { ...provider }
+      delete next.codexSessionPath
+      if (stored?.codexSessionPath) next.codexSessionPath = stored.codexSessionPath
+      return next
+    })
+  }
 }

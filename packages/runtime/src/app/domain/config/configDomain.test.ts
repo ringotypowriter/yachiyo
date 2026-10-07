@@ -21,6 +21,44 @@ test('resolveRunModeEnabledToolsForInput preserves internal tool presets', () =>
   )
 })
 
+test('applySyncedConfig preserves local Codex OAuth paths and drops peer paths for new providers', () => {
+  const provider = {
+    id: 'codex',
+    name: 'Codex',
+    type: 'openai-codex' as const,
+    apiKey: '',
+    baseUrl: '',
+    codexSessionPath: '/local/auth.json',
+    modelList: { enabled: ['model'], disabled: [] }
+  }
+  let config: SettingsConfig = { ...DEFAULT_SETTINGS_CONFIG, providers: [provider] }
+  const domain = new YachiyoServerConfigDomain({
+    settingsStore: {
+      read: () => config,
+      write: (next) => {
+        config = next
+        return true
+      }
+    },
+    emit: () => {}
+  })
+  const synced = domain.applySyncedConfig({
+    ...config,
+    providers: [
+      {
+        ...provider,
+        name: 'Renamed Codex',
+        codexFastMode: true,
+        codexSessionPath: '/peer/auth.json'
+      },
+      { ...provider, id: 'new-codex', name: 'New Codex', codexSessionPath: '/peer/new.json' }
+    ]
+  })
+  assert.equal(synced.providers[0].codexSessionPath, '/local/auth.json')
+  assert.equal(synced.providers[0].codexFastMode, true)
+  assert.equal(synced.providers[1].codexSessionPath, undefined)
+})
+
 test('saveToolPreferences ignores deprecated global tool preferences', () => {
   let config: SettingsConfig = {
     ...DEFAULT_SETTINGS_CONFIG,

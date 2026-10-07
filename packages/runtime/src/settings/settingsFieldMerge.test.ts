@@ -3,6 +3,51 @@ import { describe, it } from 'node:test'
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
 import { diffSettings, diffSettingsForResolution, mergeSettings } from './settingsFieldMerge.ts'
 
+const codexProvider = {
+  id: 'codex-local',
+  name: 'Codex',
+  type: 'openai-codex' as const,
+  apiKey: '',
+  baseUrl: '',
+  codexSessionPath: '/local/auth.json',
+  modelList: { enabled: ['model'], disabled: [] }
+}
+
+it('ignores Codex OAuth path differences while syncing other provider settings', () => {
+  const local = config({ providers: [codexProvider] })
+  const remote = config({
+    providers: [{ ...codexProvider, codexSessionPath: '/remote/auth.json' }]
+  })
+  assert.deepEqual(diffSettings(local, remote), [])
+  delete remote.providers[0].codexSessionPath
+  assert.deepEqual(diffSettings(local, remote), [])
+  remote.providers[0].codexFastMode = true
+  assert.deepEqual(
+    diffSettings(local, remote).map(({ path }) => path),
+    ['providers']
+  )
+})
+
+it('keeps OAuth paths attached to local provider identities during a remote merge', () => {
+  const local = config({ providers: [codexProvider] })
+  const remote = config({
+    providers: [
+      { ...codexProvider, id: 'new', name: 'New Codex', codexSessionPath: '/remote/new.json' },
+      {
+        ...codexProvider,
+        name: 'Renamed Codex',
+        codexFastMode: true,
+        codexSessionPath: '/remote/auth.json'
+      }
+    ]
+  })
+  const merged = mergeSettings(local, remote, { providers: 'remote' })
+  assert.equal(merged.providers[0].codexSessionPath, undefined)
+  assert.equal(merged.providers[1].codexSessionPath, '/local/auth.json')
+  assert.equal(merged.providers[1].codexFastMode, true)
+  assert.equal(remote.providers[1].codexSessionPath, '/remote/auth.json')
+})
+
 function config(partial: Record<string, unknown>): SettingsConfig {
   return partial as unknown as SettingsConfig
 }

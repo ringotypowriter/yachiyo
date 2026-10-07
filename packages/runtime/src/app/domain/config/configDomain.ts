@@ -28,6 +28,7 @@ import {
   type SettingsWriteOptions
 } from '../../../settings/settingsStore.ts'
 import type { EmitServerEvent } from '../shared/shared.ts'
+import { preserveLocalCodexSessionPaths } from '../../../settings/settingsFieldMerge.ts'
 
 export interface WebSearchSettingsDeps {
   importBrowserSession?: (
@@ -184,7 +185,9 @@ export class YachiyoServerConfigDomain {
   }
 
   applySyncedConfig(input: SettingsConfig): SettingsConfig {
-    return this.persistConfig(input, { providerCredentials: 'preserve' })
+    return this.persistConfig(preserveLocalCodexSessionPaths(this.readConfig(), input), {
+      providerCredentials: 'preserve'
+    })
   }
 
   getSettings(): ProviderSettings {
