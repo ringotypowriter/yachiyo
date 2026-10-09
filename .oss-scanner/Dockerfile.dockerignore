@@ -1,0 +1,24 @@
+# Use a clean checkout as the context. Never copy machine state into the image.
+.git
+**/node_modules
+**/dist
+**/out
+**/target
+**/.build
+**/.env
+**/.env.*
+**/.yachiyo
+**/.codex
+**/.aws
+**/.ssh
+**/.gnupg
+**/.DS_Store
+**/*.p12
+**/*.tsbuildinfo
+**/.eslintcache
+.pnpm-store
+.claude/settings.local.json
+.alma
+.alma-snapshots
+tmp
+other_resources

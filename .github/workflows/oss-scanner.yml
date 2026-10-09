@@ -1,0 +1,41 @@
+name: OSS Scanner environment
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.oss-scanner/**'
+      - '.github/workflows/oss-scanner.yml'
+      - '.node-version'
+      - '.npmrc'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'apps/**/package.json'
+      - 'packages/**/package.json'
+      - 'native/**'
+      - 'patches/**'
+      - 'scripts/**'
+      - 'apps/desktop/electron.vite.config.ts'
+      - 'apps/desktop/pdfPreviewAssets.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oss-scanner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build prepared image with dependencies online
+        run: docker build --progress plain -f .oss-scanner/Dockerfile -t yachiyo-oss-scanner .
+      - name: Test with network disabled and no host mounts
+        run: docker run --rm --init --network none yachiyo-oss-scanner bash .oss-scanner/test-offline.sh
