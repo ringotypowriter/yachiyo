@@ -25,6 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global pnpm@10.30.3
 
+# Debian's login profile replaces PATH, hiding Cargo and temporary CLI fixtures
+# injected by tests. Preserve the caller's PATH in this audit-only image.
+RUN sed -i '1i _YACHIYO_SCANNER_INHERITED_PATH=$PATH' /etc/profile \
+    && printf '\nexport PATH="$_YACHIYO_SCANNER_INHERITED_PATH"\nunset _YACHIYO_SCANNER_INHERITED_PATH\n' >> /etc/profile
+
 # Scanner contract: include the source and all test fixtures at /src.
 COPY . /src
 WORKDIR /src
@@ -35,6 +40,7 @@ RUN test "$(node -p process.arch)" = x64 \
     && test "$(node --version)" = "v$(cat .node-version)" \
     && test "pnpm@$(pnpm --version)" = "$(node -p 'require("./package.json").packageManager')" \
     && pnpm install --frozen-lockfile \
+    && node --experimental-strip-types --test packages/runtime/src/channels/group/groupProbeClaudeCode.test.ts \
     && cargo fetch --locked --manifest-path native/sync-core/Cargo.toml \
     && cargo fetch --locked --manifest-path native/process-host/Cargo.toml \
     && pnpm build \

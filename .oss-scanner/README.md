@@ -22,7 +22,9 @@ Its online build installs locked workspace dependencies, downloads Electron and 
 prepares Electron-ABI native modules, builds `sync-core`/`process-host` and the desktop bundles,
 and retains the Cargo registries, build artifacts and test dependencies. Native compilation
 happens only inside the disposable image; it does not rebuild the host checkout's dependencies.
-The image is an audit/development environment, not a distributable desktop release.
+The image is an audit/development environment, not a distributable desktop release. Login shells
+retain inherited `PATH` so Cargo and temporary CLI fixtures remain discoverable; no real Claude CLI
+is required by those fixtures.
 
 The offline script fails on any failed suite and runs:
 
