@@ -29,6 +29,7 @@ final class ThreadViewController: UIViewController {
     private let loadingSpinner = UIActivityIndicatorView(style: .medium)
     private let retryButton = UIButton(type: .system)
     private let titleLabel = UILabel()
+    private let tasksButton = UIButton(type: .system)
     private let subtitleLabel = UILabel()
     private var cancellables: Set<AnyCancellable> = []
     private var isFollowingBottom = true
@@ -115,7 +116,7 @@ final class ThreadViewController: UIViewController {
         let stack = UIStackView(arrangedSubviews: [titleLabel, loadingStatus])
         stack.axis = .vertical
         stack.alignment = .center
-        stack.widthAnchor.constraint(equalToConstant: 230).isActive = true
+        stack.widthAnchor.constraint(lessThanOrEqualToConstant: 230).isActive = true
         titleLabel.lineBreakMode = .byTruncatingTail
         navigationItem.titleView = stack
         let menu = UIBarButtonItem(image: .lucide("ellipsis"), menu: UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
@@ -123,7 +124,18 @@ final class ThreadViewController: UIViewController {
         }]))
         menu.accessibilityIdentifier = "thread.menu"
         menu.accessibilityLabel = String(localized: "More")
-        navigationItem.rightBarButtonItem = menu
+        tasksButton.accessibilityIdentifier = "thread.tasks"
+        tasksButton.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        tasksButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        tasksButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            let sheet = UINavigationController(rootViewController: TasksViewController(tasks: thread.taskStore))
+            sheet.sheetPresentationController?.detents = [.medium(), .large()]
+            sheet.sheetPresentationController?.prefersGrabberVisible = true
+            present(sheet, animated: true)
+        }, for: .touchUpInside)
+        navigationItem.rightBarButtonItems = [menu, UIBarButtonItem(customView: tasksButton)]
+        updateTasksButton()
     }
 
     private func configureMessageList() {
@@ -287,7 +299,25 @@ final class ThreadViewController: UIViewController {
         ])
     }
 
+    private func updateTasksButton() {
+        let tasks = thread.taskStore
+        let count = tasks.activeCount
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = .lucide(count > 0 ? "activity" : "square-terminal")
+        configuration.title = count > 0 ? String(count) : nil
+        configuration.imagePadding = 5
+        configuration.baseForegroundColor = tasks.isLive && count > 0 ? .yachiyo(.accent) : .secondaryLabel
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+        tasksButton.configuration = configuration
+        tasksButton.accessibilityLabel = "Tasks"
+        tasksButton.accessibilityValue = tasks.isLive ? "\(count) running" : "Not live"
+    }
+
     private func observe() {
+        thread.taskStore.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateTasksButton() }
+            .store(in: &cancellables)
         thread.$outboundState.combineLatest(thread.$replyState)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateChrome() }

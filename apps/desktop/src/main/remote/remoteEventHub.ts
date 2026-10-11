@@ -45,6 +45,7 @@ interface BufferedEvent {
 type PendingEntry =
   | { kind: 'delta'; event: DeltaEvent }
   | { kind: 'tool'; event: ToolUpdatedEvent; json: string }
+  | { kind: 'tasks'; event: Extract<RemoteEvent, { type: 'tasks.changed' }> }
 
 interface ActiveMessage {
   id: string
@@ -657,6 +658,20 @@ export class RemoteEventHub {
       case 'tool.updated':
         this.translateToolUpdate(event)
         return
+      case 'background-task.log-append':
+      case 'subagent.progress':
+      case 'subagent.toolCall':
+      case 'subagent.updated':
+      case 'subagent.message':
+      case 'subagent.snapshot.ready':
+        // These can arrive at streaming frequency. Only the thread ID is needed to refetch
+        // tasks, so retain one invalidation per thread per window (never the private payload).
+        this.pending.set(`tasks:${event.threadId}`, {
+          kind: 'tasks',
+          event: { type: 'tasks.changed', threadId: event.threadId }
+        })
+        this.scheduleFlush()
+        return
     }
 
     const translated = this.translateOrdered(event)
@@ -748,8 +763,11 @@ export class RemoteEventHub {
         return [
           { type: 'todo.updated', threadId: event.threadId, items: projectTodoItems(event.items) }
         ]
-      // Subagent and background-task events are not forwarded: `tasks.changed` has no consumer
-      // on the phone, which reads `tasks.list` on demand.
+      case 'background-task.started':
+      case 'background-task.completed':
+      case 'subagent.started':
+      case 'subagent.finished':
+        return [{ type: 'tasks.changed', threadId: event.threadId }]
       default:
         return []
     }
@@ -985,7 +1003,8 @@ export class RemoteEventHub {
     this.pending.clear()
     for (const entry of entries) {
       if (entry.kind === 'delta') this.append({ ...entry.event })
-      else this.appendTool(entry.event, entry.json)
+      else if (entry.kind === 'tool') this.appendTool(entry.event, entry.json)
+      else this.append(entry.event)
     }
     const summaries = [...this.pendingSummaries]
     this.pendingSummaries.clear()

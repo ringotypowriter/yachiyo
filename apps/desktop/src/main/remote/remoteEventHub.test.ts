@@ -256,14 +256,40 @@ test('running tool output is coalesced per call, deduplicated, and ordered befor
   hub.stop()
 })
 
-test('subagent and background task activity is not forwarded', async () => {
+test('background task transitions and subagent status invalidate only the subscribed thread', async () => {
   const { hub, source } = createHub()
   const { pushes, subscription } = collect(hub, ['t1'])
   await subscribe(subscription)
-  source.emit({ type: 'subagent.progress', threadId: 't1' })
+  source.emit({ type: 'background-task.started', threadId: 't2' })
   source.emit({ type: 'background-task.started', threadId: 't1' })
+  source.emit({ type: 'subagent.started', threadId: 't1' })
+  source.emit({ type: 'subagent.finished', threadId: 't1' })
+  source.emit({ type: 'background-task.completed', threadId: 't1' })
+  assert.deepEqual(
+    events(pushes),
+    Array.from({ length: 4 }, () => ({ type: 'tasks.changed', threadId: 't1' }))
+  )
+  hub.stop()
+})
+
+test('high-frequency task logs and subagent updates coalesce per thread without leaking task data', async () => {
+  const { hub, source } = createHub()
+  const { pushes, subscription } = collect(hub, ['t1'])
+  await subscribe(subscription)
+  for (let i = 0; i < 1000; i++) {
+    source.emit({ type: 'background-task.log-append', threadId: 't1', lines: [`secret-${i}`] })
+    source.emit({ type: 'subagent.progress', threadId: 't1', chunk: `private-${i}` })
+    source.emit({ type: 'subagent.updated', threadId: 't2' })
+  }
+  assert.deepEqual(pushes, [], 'invalidation waits for the coalescing window')
   hub.flush()
-  assert.deepEqual(pushes, [])
+  assert.deepEqual(events(pushes), [{ type: 'tasks.changed', threadId: 't1' }])
+  source.emit({ type: 'background-task.log-append', threadId: 't1', lines: ['last'] })
+  source.emit({ type: 'background-task.completed', threadId: 't1' })
+  assert.deepEqual(
+    events(pushes),
+    Array.from({ length: 3 }, () => ({ type: 'tasks.changed', threadId: 't1' }))
+  )
   hub.stop()
 })
 

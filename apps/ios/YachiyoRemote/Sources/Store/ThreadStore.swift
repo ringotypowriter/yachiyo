@@ -28,6 +28,7 @@ final class ThreadStore: ChatMessageSource {
 
     let desktopId: String
     let threadId: String
+    let taskStore: RemoteTaskStore
     private let store: RemoteStore
     // Include misses: remote-only images must not trigger disk reads on every streaming delta.
     private var imageData: [String: Data] = [:]
@@ -125,6 +126,14 @@ final class ThreadStore: ChatMessageSource {
         self.desktopId = desktopId
         self.threadId = threadId
         self.store = store
+        taskStore = RemoteTaskStore {
+            guard let link = store.link(for: desktopId), link.state == .online,
+                  await link.waitForWatch(threadId: threadId), !Task.isCancelled else {
+                throw URLError(.notConnectedToInternet)
+            }
+            let result: RemoteTasksListOutput = try await store.call(desktopId, "tasks.list", ThreadRefInput(threadId: threadId))
+            return result.tasks
+        }
         summary = store.summary(desktopId: desktopId, threadId: threadId)
         rebuild(scrolling: false)
         // The history file is read off the main thread; reloads wait for it (see reloadIfNeeded).
@@ -146,11 +155,13 @@ final class ThreadStore: ChatMessageSource {
             .sink { [weak self] state in
                 guard let self, isOpen else { return }
                 if state == .online {
+                    taskStore.resume()
                     // An earlier-history failure while disconnected is retryable again.
                     earlierLoadFailedCursor = nil
                     updateEarlierHistory()
                     Task { await self.reloadIfNeeded() }
                 } else {
+                    taskStore.suspend()
                     if loadToken != nil || planReadToken != nil { needsReload = true }
                     planReadToken = nil
                     loadToken = nil; isLoading = false; eventsDuringLoad.removeAll()
@@ -215,10 +226,12 @@ final class ThreadStore: ChatMessageSource {
         guard !Task.isCancelled else { return }
         isOpen = true
         store.setOpenThread(desktopId: desktopId, threadId: threadId)
+        if store.link(for: desktopId)?.state == .online { taskStore.resume() }
         await reloadIfNeeded()
     }
 
     func close() {
+        taskStore.suspend()
         deltaRebuildTask?.cancel()
         deltaRebuildTask = nil
         isOpen = false
@@ -234,6 +247,7 @@ final class ThreadStore: ChatMessageSource {
     }
 
     private func invalidate() {
+        taskStore.refresh()
         needsReload = true
         store.dirtyThread(desktopId: desktopId, threadId: threadId)
         if loadToken != nil { reloadAgain = true }
@@ -549,9 +563,12 @@ final class ThreadStore: ChatMessageSource {
                 if !isReplayingLoadEvents { invalidate() }
             }
             rebuild(scrolling: false)
+        case .tasksChanged:
+            if !isReplayingLoadEvents { taskStore.invalidate() }
         case .threadInvalidated:
             if !isReplayingLoadEvents { invalidate() }
         case .threadRemoved:
+            taskStore.suspend()
             planReadToken = nil
             imageData.removeAll()
             missingImages.removeAll()

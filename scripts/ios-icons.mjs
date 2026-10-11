@@ -59,6 +59,7 @@ export const IOS_ICONS = [
   'ellipsis',
   'inbox',
   'clock',
+  'activity',
   'circle-check',
   'circle-x',
   // Tool calls

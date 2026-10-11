@@ -10,6 +10,7 @@ import type { ModelRuntime, ModelStreamRequest } from '../../../../runtime/model
  * Commands in the latest user message:
  * - `ask: <question>` — calls askUser with Yes/No choices and replies with the answer.
  * - `tool: <text>` — reports a completed bash-like tool call before replying.
+ * - `background: <text>` — launches a fixed background command for live task UI acceptance.
  * - `slow: <text>` — streams 40 chunks `slowChunkDelayMs` apart (50 ms by default), so
  *   steer/cancel can land mid-run.
  * - In Plan Mode, writes the plan document and calls exitPlanMode.
@@ -75,11 +76,14 @@ async function runTool(
     request.onToolCallFinish?.({ toolCall, success: true, output })
     return output
   }
-  const output = await definition.execute(input, {
+  let output = await definition.execute(input, {
     toolCallId: toolCall.toolCallId,
     messages: [],
     abortSignal: request.signal
   })
+  if (output && typeof output === 'object' && Symbol.asyncIterator in output) {
+    for await (const value of output as AsyncIterable<unknown>) output = value
+  }
   request.onToolCallFinish?.({ toolCall, success: true, output })
   return output
 }
@@ -131,6 +135,18 @@ export function createScriptedModelRuntime(options: ScriptedModelOptions = {}): 
 
       if (/^tool:/i.test(text)) {
         await runTool(request, 'bash', { command: 'echo scripted' })
+      }
+
+      if (/^background:/i.test(text)) {
+        await runTool(request, 'bash', {
+          command:
+            "printf 'Preparing build\\n'; sleep 12; printf 'Checking artifacts\\n'; sleep 12; printf 'Build verified\\n'",
+          description: 'Verify the mobile build',
+          background: true,
+          timeout: 60
+        })
+        yield 'The build is running in the background.'
+        return
       }
 
       const slow = /^slow:/i.test(text)

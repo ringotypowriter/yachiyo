@@ -24,7 +24,69 @@ final class RemoteSmokeTests: XCTestCase {
             XCUIDevice.shared.orientation = .landscapeLeft
         }
         app.launchArguments += ["-YachiyoPairingURL", url]
+        if name.contains("testBackgroundTaskLiveStatusAndOutput") { app.launchArguments += ["-YachiyoThemeOverride", "gobyou"] }
         app.launch()
+    }
+
+    func testBackgroundTaskLiveStatusAndOutput() throws {
+        continueAfterPairing()
+        // Existing simulators can retain other desktops; explicitly select this fixture.
+        let url = try XCTUnwrap(ProcessInfo.processInfo.environment["YACHIYO_PAIRING_URL"])
+        let encoded = try XCTUnwrap(URLComponents(string: url)?.queryItems?.first { $0.name == "d" }?.value)
+            .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let data = try XCTUnwrap(Data(base64Encoded: encoded + String(repeating: "=", count: (4 - encoded.count % 4) % 4)))
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let desktopId = try XCTUnwrap(payload["remoteDeviceId"] as? String)
+        app.terminate()
+        app.launchArguments = ["-YachiyoThemeOverride", "gobyou", "-YachiyoRoute", "inbox", "-inboxDesktopId", desktopId]
+        app.launch()
+        let list = app.collectionViews["inbox.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 30))
+        let first = list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'inbox.thread.'")).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        first.tap()
+        let tasksButton = app.buttons["thread.tasks"]
+        XCTAssertTrue(tasksButton.waitForExistence(timeout: 15))
+        tasksButton.tap()
+        XCTAssertTrue(app.otherElements.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "tasks.empty", "No tasks yet")).firstMatch.waitForExistence(timeout: 15))
+        app.buttons["Done"].tap()
+
+        send("background: mobile task")
+        let active = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1 running'"), object: tasksButton)
+        XCTAssertEqual(XCTWaiter.wait(for: [active], timeout: 30), .completed)
+        let responseFinished = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element("composer.stop"))
+        XCTAssertEqual(XCTWaiter.wait(for: [responseFinished], timeout: 10), .completed)
+        XCTAssertEqual(tasksButton.value as? String, "1 running")
+        let entry = XCTAttachment(screenshot: app.screenshot())
+        entry.name = "background-task-entry"
+        entry.lifetime = .keepAlways
+        add(entry)
+        // The response finishes while the process continues; the task entry stays visible.
+        XCTAssertTrue(tasksButton.isHittable)
+        tasksButton.tap()
+        let task = app.tables["tasks.list"].cells.matching(NSPredicate(format: "identifier BEGINSWITH 'tasks.task.'")).firstMatch
+        XCTAssertTrue(task.waitForExistence(timeout: 15))
+        let shelf = XCTAttachment(screenshot: app.screenshot())
+        shelf.name = "background-tasks-running"
+        shelf.lifetime = .keepAlways
+        add(shelf)
+        task.tap()
+        let output = app.textViews["tasks.output"]
+        XCTAssertTrue(output.waitForExistence(timeout: 10))
+        let finished = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS 'Completed' AND value CONTAINS 'Build verified'"), object: output)
+        XCTAssertEqual(XCTWaiter.wait(for: [finished], timeout: 60), .completed)
+        let detail = XCTAttachment(screenshot: app.screenshot())
+        detail.name = "background-task-completed"
+        detail.lifetime = .keepAlways
+        add(detail)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["Done"].tap()
+        XCTAssertEqual(tasksButton.value as? String, "0 running")
+        // Reopen hydrates the completed task even without another task event.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        first.tap()
+        tasksButton.tap()
+        XCTAssertTrue(app.staticTexts["Completed · Background command"].waitForExistence(timeout: 15))
     }
 
     func testPairChatAnswerSteerStopAndStartThread() throws {

@@ -102,6 +102,41 @@ test('remote projections never contain provider credentials', async () => {
   })
 })
 
+test('background tasks project user cancellation and errors without log tails', async () => {
+  await withFakeDesktop(async ({ server, ops }) => {
+    const thread = await server.createThread()
+    server.listBackgroundTasks = async () => [
+      {
+        taskId: 'cancelled-task',
+        threadId: thread.id,
+        command: 'sleep 1',
+        logPath: '/tmp/missing-cancelled.log',
+        startedAt: '2026-09-22T00:00:00.000Z',
+        status: 'failed',
+        cancelledByUser: true
+      },
+      {
+        taskId: 'failed-task',
+        threadId: thread.id,
+        command: 'false',
+        logPath: '/tmp/missing-failed.log',
+        startedAt: '2026-09-22T00:00:00.000Z',
+        status: 'failed',
+        error: 'Process failed without a log'
+      }
+    ]
+
+    const { tasks } = await ops['host.remote.listTasks']({ threadId: thread.id })
+    assert.deepEqual(
+      tasks.map((task) => ({ state: task.state, progress: task.progress })),
+      [
+        { state: 'cancelled', progress: undefined },
+        { state: 'failed', progress: 'Process failed without a log' }
+      ]
+    )
+  })
+})
+
 test('models, essentials, and appearance are projected from settings', async () => {
   await withFakeDesktop(async ({ ops }) => {
     const { models } = await ops['host.remote.listSelectableModels']()

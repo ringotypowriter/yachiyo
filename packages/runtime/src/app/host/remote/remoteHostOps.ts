@@ -523,12 +523,14 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
         id: task.taskId,
         kind: 'background',
         title: task.description ?? task.command,
-        state: task.status,
+        state: task.cancelledByUser ? 'cancelled' : task.status,
         startedAt: task.startedAt,
         ...(task.finishedAt ? { updatedAt: task.finishedAt } : {}),
         ...(task.recentLogTail?.length
           ? { progress: task.recentLogTail.join('\n').slice(-4096) }
-          : {})
+          : task.error
+            ? { progress: task.error.slice(0, 4096) }
+            : {})
       })
     )
     return { tasks: [...subagents, ...background] }
