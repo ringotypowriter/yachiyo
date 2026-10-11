@@ -4,6 +4,42 @@ import XCTest
 
 @MainActor
 final class ToolHintViewTests: XCTestCase {
+    func testSummaryEntireRowHitsDisclosureIncludingStatusAndWhitespace() throws {
+        let deck = ToolHintView()
+        for states: [ToolCallState] in [[.succeeded], [.running], [.running, .failed]] {
+            let calls = states.enumerated().map { index, state in
+                ToolCallContentPart(id: "call\(index)", toolName: "read", state: state,
+                                    deckSummary: index == 0 ? "Checking project files" : nil)
+            }
+            for expanded in [false, true] {
+                let height = ToolHintView.height(width: 320, callCount: calls.count, isExpanded: expanded,
+                                                hasDeckSummary: true, isSummaryExpanded: expanded)
+                deck.frame = CGRect(x: 0, y: 0, width: 320 + MessageListView.listRowInsets.horizontal,
+                                    height: height + MessageListView.listRowInsets.bottom)
+                deck.configure(calls: calls, selectedID: expanded ? calls[0].id : nil,
+                               isSummaryExpanded: expanded)
+                deck.layoutIfNeeded()
+                let summary = try XCTUnwrap(view("toolDeck.summary.call0", in: deck) as? UIButton)
+                for x: CGFloat in [1, 10, 24, 36, 47, 100, 300, 319] {
+                    for y in [summary.frame.minY + 1, summary.frame.midY, summary.frame.maxY - 1] {
+                        let point = deck.contentView.convert(CGPoint(x: x, y: y), to: deck)
+                        XCTAssertTrue(deck.hitTest(point, with: nil) === summary,
+                                      "Summary must own its whole row at \(x), \(y), states: \(states)")
+                    }
+                }
+                if expanded {
+                    for id in ["toolDeck.call.call0", "toolDeck.details.call0"] {
+                        let control = try XCTUnwrap(view(id, in: deck) as? UIControl)
+                        let point = control.convert(CGPoint(x: control.bounds.midX, y: control.bounds.midY), to: deck)
+                        let hit = deck.hitTest(point, with: nil)
+                        XCTAssertFalse(hit === summary, "Summary must not intercept neighboring controls")
+                        if control.isEnabled { XCTAssertTrue(hit === control) }
+                    }
+                }
+            }
+        }
+    }
+
     func testArrivingSummaryKeepsAnAlreadySelectedToolVisible() throws {
         let call = ToolCallContentPart(id: "read", toolName: "read", parameters: "Read notes", state: .succeeded)
         let deck = ToolHintView()

@@ -9,6 +9,7 @@ final class ToolHintView: MessageListRowView {
     private final class SummaryButton: UIButton {
         let summaryLabel = UILabel()
         let chevron = UIImageView()
+        var statusWidth: CGFloat = 28
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -33,15 +34,17 @@ final class ToolHintView: MessageListRowView {
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            let iconWidth = min(16, bounds.width)
-            let textWidth = max(0, bounds.width - iconWidth - 8)
+            let textStart = min(statusWidth, bounds.width)
+            let availableWidth = bounds.width - textStart
+            let iconWidth = min(16, availableWidth)
+            let textWidth = max(0, availableWidth - iconWidth - 8)
             let textHeight = min(bounds.height, ceil(summaryLabel.font.lineHeight * 2))
             let isRTL = effectiveUserInterfaceLayoutDirection == .rightToLeft
-            summaryLabel.frame = CGRect(x: isRTL ? bounds.width - textWidth : 0,
+            summaryLabel.frame = CGRect(x: isRTL ? bounds.width - textWidth : textStart,
                                         y: (bounds.height - textHeight) / 2,
                                         width: textWidth, height: textHeight)
             summaryLabel.preferredMaxLayoutWidth = textWidth
-            chevron.frame = CGRect(x: isRTL ? 0 : bounds.width - iconWidth,
+            chevron.frame = CGRect(x: isRTL ? textStart : bounds.width - iconWidth,
                                    y: (bounds.height - 16) / 2, width: iconWidth, height: 16)
         }
     }
@@ -200,12 +203,13 @@ final class ToolHintView: MessageListRowView {
         overflowButton.addAction(UIAction { [weak self] _ in self?.onToggleAll?() }, for: .touchUpInside)
         overflowButton.accessibilityIdentifier = "toolDeck.overflow"
         contentView.addSubview(summaryButton)
-        contentView.addSubview(activityIndicator)
-        contentView.addSubview(stateImageView)
+        summaryButton.addSubview(activityIndicator)
+        summaryButton.addSubview(stateImageView)
         stateImageView.contentMode = .scaleAspectFit
         stateImageView.isAccessibilityElement = false
         activityIndicator.isAccessibilityElement = false
-        contentView.addSubview(runningImageView)
+        activityIndicator.isUserInteractionEnabled = false
+        summaryButton.addSubview(runningImageView)
         runningImageView.contentMode = .scaleAspectFit
         runningImageView.tintColor = .secondaryLabel
         runningImageView.isAccessibilityElement = false
@@ -382,10 +386,11 @@ final class ToolHintView: MessageListRowView {
         }
         detailButton.frame = layout.detailFrame
         let showsBothStates = calls.contains { $0.state == .running } && calls.contains { $0.state == .failed }
-        activityIndicator.frame = CGRect(x: 0, y: iconHeight + (summaryHeight - 20) / 2, width: 20, height: 20)
+        activityIndicator.frame = CGRect(x: 0, y: (summaryHeight - 20) / 2, width: 20, height: 20)
         runningImageView.frame = activityIndicator.frame.insetBy(dx: 2, dy: 2)
         stateImageView.frame = activityIndicator.frame.offsetBy(dx: showsBothStates ? 20 : 0, dy: 0).insetBy(dx: 2, dy: 2)
-        let summaryX: CGFloat = showsBothStates ? 48 : 28
-        summaryButton.frame = CGRect(x: summaryX, y: iconHeight, width: max(0, width - summaryX), height: summaryHeight)
+        summaryButton.statusWidth = showsBothStates ? 48 : 28
+        summaryButton.frame = CGRect(x: 0, y: iconHeight, width: width, height: summaryHeight)
+        summaryButton.setNeedsLayout()
     }
 }
