@@ -6,7 +6,7 @@ import { parseHTML } from 'linkedom'
 import { useComposerPrediction } from './useComposerPrediction'
 
 // Exercise the hook against a real React input, with only the provider boundary faked.
-test('debounces, rejects stale responses, accepts right arrow and suppresses dismissed drafts', async (t) => {
+test('predicts only for empty input, accepts whole instructions and rejects stale context', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
   const originals = new Map<string, PropertyDescriptor | undefined>()
@@ -19,18 +19,19 @@ test('debounces, rejects stale responses, accepts right arrow and suppresses dis
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true })
   }
-  const requests: { text: string; resolve: (text: string) => void }[] = []
+  const requests: { threadId: string; resolve: (text: string) => void }[] = []
   Object.assign(window, {
     api: {
       yachiyo: {
-        predictComposer: ({ text }: { text: string }) => {
-          if (!text) return Promise.resolve('')
-          return new Promise<string>((resolve) => requests.push({ text, resolve }))
+        predictComposer: ({ threadId }: { threadId?: string }) => {
+          if (!threadId) return Promise.resolve('')
+          return new Promise<string>((resolve) => requests.push({ threadId, resolve }))
         }
       }
     }
   })
-  let value = 'Write'
+  let value = ''
+  let threadId: string | null = 'thread-one'
   let enabled = true
   let contextKey = 'one'
   let hook!: ReturnType<typeof useComposerPrediction>
@@ -40,7 +41,7 @@ test('debounces, rejects stale responses, accepts right arrow and suppresses dis
       value,
       enabled,
       contextKey,
-      textareaRef: ref,
+      threadId,
       setValue: (next) => {
         value = next
       }
@@ -55,7 +56,6 @@ test('debounces, rejects stale responses, accepts right arrow and suppresses dis
     await act(async () => root.render(<Input />))
     const textarea = document.querySelector('textarea')!
     Object.assign(textarea, { value, selectionStart: value.length, selectionEnd: value.length })
-    await act(async () => hook.refreshSelection())
   }
   const key = (name: string): Parameters<typeof hook.handleKeyDown>[0] =>
     ({
@@ -73,43 +73,58 @@ test('debounces, rejects stale responses, accepts right arrow and suppresses dis
     await act(async () => t.mock.timers.tick(499))
     assert.equal(requests.length, 0)
     await act(async () => t.mock.timers.tick(1))
-    assert.equal(requests[0].text, 'Write')
-    value = 'Read'
+    assert.equal(requests[0].threadId, 'thread-one')
+    value = 'My own instruction'
     await render()
-    await act(async () => requests[0].resolve(' stale'))
+    await act(async () => requests[0].resolve('Old suggestion'))
     assert.equal(hook.text, '')
+    await act(async () => t.mock.timers.tick(1000))
+    assert.equal(requests.length, 1, 'typing must never trigger continuation requests')
+    value = ''
+    await render()
     await act(async () => t.mock.timers.tick(500))
-    await act(async () => requests[1].resolve(' a book'))
-    assert.equal(hook.text, ' a book')
+    await act(async () => requests[1].resolve('Add a regression test.'))
+    assert.equal(hook.text, 'Add a regression test.')
+    assert.equal(value, '', 'prediction is not yet draft text')
     await act(async () => {
       assert.equal(hook.handleKeyDown(key('ArrowRight')), true)
     })
-    assert.equal(value, 'Read a book')
+    assert.equal(value, 'Add a regression test.')
+    await render()
+    value = ''
+    contextKey = 'new-reply'
     await render()
     await act(async () => t.mock.timers.tick(500))
-    await act(async () => requests[2].resolve(' today'))
+    await act(async () => requests[2].resolve('Run the focused tests.'))
     await act(async () => {
       hook.handleKeyDown(key('Escape'))
     })
     assert.equal(hook.text, '')
+    value = 'Typing'
+    await render()
+    value = ''
     await render()
     await act(async () => t.mock.timers.tick(1000))
-    assert.equal(requests.length, 3)
-    value = 'Draft'
+    assert.equal(requests.length, 3, 'dismissal lasts until the conversation changes')
+    contextKey = 'newer-reply'
     await render()
+    await act(async () => t.mock.timers.tick(500))
+    threadId = 'thread-two'
+    contextKey = 'other-thread'
+    await render()
+    await act(async () => requests[3].resolve('Wrong thread'))
+    assert.equal(hook.text, '')
     await act(async () => t.mock.timers.tick(500))
     enabled = false
     await render()
-    await act(async () => requests[3].resolve(' hidden'))
+    await act(async () => requests[4].resolve('While running'))
     assert.equal(hook.text, '')
     enabled = true
-    contextKey = 'two'
+    threadId = null
+    contextKey = 'new-chat'
     await render()
-    await act(async () => t.mock.timers.tick(500))
-    contextKey = 'three'
-    await render()
-    await act(async () => requests[4].resolve(' wrong thread'))
-    assert.equal(hook.text, '')
+    await act(async () => t.mock.timers.tick(1000))
+    assert.equal(requests.length, 5, 'new chats have no context to predict from')
   } finally {
     await act(async () => root.unmount())
     for (const [key, descriptor] of originals) {

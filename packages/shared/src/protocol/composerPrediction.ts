@@ -1,5 +1,5 @@
 export interface ComposerPredictionInput {
   sessionId: string
-  /** Empty text cancels the pending prediction for this composer. */
-  text: string
+  /** Omit the thread to cancel the pending prediction for this composer. */
+  threadId?: string
 }

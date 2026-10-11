@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { predictionRemainder, resolvePredictionKey } from './composerPrediction.ts'
+import { resolvePredictionKey } from './composerPrediction.ts'
 
 const event = {
   key: 'Tab',
@@ -11,9 +11,9 @@ const event = {
   isComposing: false,
   keyCode: 9
 }
-test('Tab and right arrow accept only at an unselected end caret', () => {
-  assert.equal(resolvePredictionKey(event, 4, 4, 4), 'accept')
-  assert.equal(resolvePredictionKey({ ...event, key: 'ArrowRight' }, 4, 4, 4), 'accept')
+test('Tab and right arrow accept only an empty input', () => {
+  assert.equal(resolvePredictionKey(event, 0, 0, 0), 'accept')
+  assert.equal(resolvePredictionKey({ ...event, key: 'ArrowRight' }, 0, 0, 0), 'accept')
   assert.equal(resolvePredictionKey(event, 3, 4, 4), null)
   assert.equal(resolvePredictionKey(event, 3, 3, 4), null)
   assert.equal(resolvePredictionKey({ ...event, key: 'Enter' }, 4, 4, 4), null)
@@ -27,14 +27,12 @@ test('native modifier and IME behavior is preserved', () => {
     { isComposing: true },
     { keyCode: 229 }
   ]) {
-    assert.equal(resolvePredictionKey({ ...event, ...override }, 4, 4, 4), null)
+    assert.equal(resolvePredictionKey({ ...event, ...override }, 0, 0, 0), null)
   }
-  assert.equal(resolvePredictionKey({ ...event, key: 'Escape' }, 4, 4, 4), 'dismiss')
-  assert.equal(resolvePredictionKey({ ...event, key: 'Escape', isComposing: true }, 4, 4, 4), null)
+  assert.equal(resolvePredictionKey({ ...event, key: 'Escape' }, 0, 0, 0), 'dismiss')
+  assert.equal(resolvePredictionKey({ ...event, key: 'Escape', isComposing: true }, 0, 0, 0), null)
 })
-test('matching typing consumes the suggestion, divergent drafts discard it', () => {
-  assert.equal(predictionRemainder('write', ' a test', 'write a'), ' test')
-  assert.equal(predictionRemainder('write', ' a test', 'write a test'), '')
-  assert.equal(predictionRemainder('write', ' a test', 'write code'), '')
-  assert.equal(predictionRemainder('write', ' a test', 'writ'), '')
+test('nonempty input is never treated as a continuation target', () => {
+  assert.equal(resolvePredictionKey(event, 4, 4, 4), null)
+  assert.equal(resolvePredictionKey({ ...event, key: 'ArrowRight' }, 4, 4, 4), null)
 })

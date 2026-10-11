@@ -73,7 +73,7 @@ function PredictionText({ text }: { text: string }): JSX.Element | null {
         color: theme.text.muted,
         opacity: 0.65,
         whiteSpace: 'pre-wrap',
-        wordBreak: 'break-all'
+        overflowWrap: 'anywhere'
       }}
     >
       {text}
@@ -88,8 +88,7 @@ const ComposerOverlayLine = memo(function ComposerOverlayLine({
   primaryColor,
   accentColor,
   validatedFileTags,
-  validThingSlugs,
-  prediction = ''
+  validThingSlugs
 }: {
   text: string
   offset: number
@@ -98,7 +97,6 @@ const ComposerOverlayLine = memo(function ComposerOverlayLine({
   accentColor: string
   validatedFileTags: string[]
   validThingSlugs: ReadonlySet<string>
-  prediction?: string
 }): JSX.Element {
   return (
     <div>
@@ -111,7 +109,6 @@ const ComposerOverlayLine = memo(function ComposerOverlayLine({
         validatedFileTags,
         validThingSlugs
       )}
-      <PredictionText text={prediction} />
     </div>
   )
 })
@@ -774,7 +771,9 @@ export function ComposerView(props: any): React.JSX.Element {
                 letterSpacing: '0.04em'
               }}
             >
-              {overlayLineTexts ? (
+              {prediction.text ? (
+                <PredictionText text={prediction.text} />
+              ) : overlayLineTexts ? (
                 (() => {
                   const elements: React.ReactNode[] = []
                   let charOffset = 0
@@ -783,11 +782,6 @@ export function ComposerView(props: any): React.JSX.Element {
                     elements.push(
                       <ComposerOverlayLine
                         key={i}
-                        prediction={
-                          i === overlayLineTexts.length - 1 && !composerValue.endsWith('\n')
-                            ? prediction.text
-                            : ''
-                        }
                         text={lineText}
                         offset={charOffset}
                         selection={overlaySelRange}
@@ -807,9 +801,7 @@ export function ComposerView(props: any): React.JSX.Element {
                   if (composerValue.endsWith('\n')) {
                     elements.push(
                       <div key="trailing-nl">
-                        {prediction.text ? (
-                          <PredictionText text={prediction.text} />
-                        ) : overlaySelRange && overlaySelRange[1] > charOffset ? (
+                        {overlaySelRange && overlaySelRange[1] > charOffset ? (
                           <span style={{ backgroundColor: SELECTION_BG }}>{'\u200b'}</span>
                         ) : (
                           '\u200b'
@@ -820,16 +812,13 @@ export function ComposerView(props: any): React.JSX.Element {
                   return elements
                 })()
               ) : (
-                <>
-                  {renderComposerTextHighlights(
-                    composerValue,
-                    theme.text.primary,
-                    theme.text.accent,
-                    validatedFileTags,
-                    validThingSlugs
-                  )}
-                  <PredictionText text={prediction.text} />
-                </>
+                renderComposerTextHighlights(
+                  composerValue,
+                  theme.text.primary,
+                  theme.text.accent,
+                  validatedFileTags,
+                  validThingSlugs
+                )
               )}
             </div>
             <SmoothCaretOverlay
@@ -854,14 +843,17 @@ export function ComposerView(props: any): React.JSX.Element {
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               onKeyDown={handleKeyDown}
-              onSelect={prediction.refreshSelection}
               onPointerUp={clearGoalX}
               onPaste={handlePaste}
               onScroll={handleTextareaScroll}
               onFocus={() => setIsTextareaFocused(true)}
               onBlur={() => setIsTextareaFocused(false)}
               placeholder={
-                isConfigured ? placeholderText : t('chat.composer.notConfiguredPlaceholder')
+                prediction.text
+                  ? ''
+                  : isConfigured
+                    ? placeholderText
+                    : t('chat.composer.notConfiguredPlaceholder')
               }
               rows={1}
               className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed message-selectable composer-textarea-pretext"

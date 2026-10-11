@@ -481,7 +481,11 @@ export class YachiyoServer {
       readToolModelSettings: () => this.configDomain.readToolModelSettings()
     })
     this.auxiliaryGeneration = auxiliaryGeneration
-    this.composerPrediction = createComposerPredictionService(auxiliaryGeneration)
+    this.composerPrediction = createComposerPredictionService({
+      auxiliary: auxiliaryGeneration,
+      storage: this.storage,
+      isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId)
+    })
     this.imageToTextServiceInstance = createImageToTextService({
       auxService: auxiliaryGeneration,
       resolveSettings: () => {

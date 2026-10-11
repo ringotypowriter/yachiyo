@@ -525,14 +525,15 @@ export function Composer({
   })
   const prediction = useComposerPrediction({
     value: composerValue,
-    textareaRef,
+    threadId: activeThreadId,
     setValue: setComposerValue,
-    contextKey: activeThreadId ?? NEW_THREAD_DRAFT_KEY,
+    contextKey: `${activeThreadId}:${activeThread?.headMessageId}:${activeThread?.updatedAt}:${runStatus}`,
     enabled:
-      isTextareaFocused &&
+      !hasActiveRun &&
+      !threadIsBusy &&
+      !editingMessage &&
+      draftImages.length + draftFiles.length === 0 &&
       !isComposing &&
-      !showSlashCommandPopup &&
-      fileMentionQuery === null &&
       !modelSelectorOpen &&
       !reasoningSelectorOpen &&
       !skillsSelectorOpen &&
@@ -927,7 +928,6 @@ export function Composer({
     resizeTextarea({ forceScrollToBottom: force })
   }, [composerValue, resizeTextarea])
 
-  // Keep draft line breaks stable; the view appends ghost text after the final laid-out line.
   useLayoutEffect(() => {
     const textarea = textareaRef.current
     if (!textarea || !composerValue) {
