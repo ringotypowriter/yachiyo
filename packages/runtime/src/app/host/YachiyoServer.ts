@@ -225,6 +225,11 @@ import {
 import { searchYachiyoWorkspaceFiles } from './workspaceSearch.ts'
 import { compactThreadWithHandoff, createThreadWithHandoffWorkspace } from './threadHandoff.ts'
 import { translateWithRuntime } from './translate.ts'
+import {
+  createComposerPredictionService,
+  type ComposerPredictionService
+} from './composerPrediction.ts'
+import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
 import { openThreadWorkspacePath, pruneUnusedTemporaryWorkspaces } from './workspaces.ts'
 import { bootstrapYachiyoServer } from './bootstrap.ts'
 import { downloadRemoteImageAndBuildReplacementEvent } from './remoteImages.ts'
@@ -312,6 +317,7 @@ export class YachiyoServer {
   >()
   private readonly activeChannelGroupHistoryClears = new Set<string>()
   private readonly retiredGroupProbeThreadIdsByGroup = new Map<string, Set<string>>()
+  private readonly composerPrediction: ComposerPredictionService
   private readonly auxiliaryGeneration: AuxiliaryGenerationService
   private readonly createModelRuntimeFn: () => ModelRuntime
   private readonly memoryService: MemoryService
@@ -475,6 +481,7 @@ export class YachiyoServer {
       readToolModelSettings: () => this.configDomain.readToolModelSettings()
     })
     this.auxiliaryGeneration = auxiliaryGeneration
+    this.composerPrediction = createComposerPredictionService(auxiliaryGeneration)
     this.imageToTextServiceInstance = createImageToTextService({
       auxService: auxiliaryGeneration,
       resolveSettings: () => {
@@ -702,6 +709,7 @@ export class YachiyoServer {
   async close(): Promise<void> {
     const errors: unknown[] = []
     const disposers: Array<() => void | Promise<void>> = [
+      () => this.composerPrediction.dispose(),
       () => this.ttlReaper.stop(),
       () => this.sentinelManager.dispose(),
       () => this.runDomain.close(),
@@ -2347,6 +2355,10 @@ export class YachiyoServer {
 
   getUsageStats(input: UsageStatsInput): UsageStatsResponse {
     return this.storage.getUsageStats(input)
+  }
+
+  predictComposer(input: ComposerPredictionInput): Promise<string> {
+    return this.composerPrediction.predict(input)
   }
 
   async translateStream(

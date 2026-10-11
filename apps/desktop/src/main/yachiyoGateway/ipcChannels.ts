@@ -130,6 +130,7 @@ export const IPC_CHANNELS = {
   markThreadAsRead: 'yachiyo:mark-thread-as-read',
   openSkillsFolder: 'yachiyo:open-skills-folder',
   answerToolQuestion: 'yachiyo:answer-tool-question',
+  predictComposer: 'yachiyo:predict-composer',
   translate: 'yachiyo:translate',
   jotdownList: 'yachiyo:jotdown-list',
   jotdownLoad: 'yachiyo:jotdown-load',

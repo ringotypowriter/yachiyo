@@ -1,3 +1,4 @@
+import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
 import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
 import type { RemotePairingInfo, RemoteStatusResult } from '@yachiyo/shared/remote/command'
@@ -213,6 +214,7 @@ declare global {
         cancelRun: (input: { runId: string }) => Promise<void>
         withdrawPendingSteer: (input: { threadId: string }) => Promise<void>
         answerToolQuestion: (input: AnswerToolQuestionInput) => Promise<void>
+        predictComposer: (input: ComposerPredictionInput) => Promise<string>
         translate: (input: TranslateInput) => Promise<TranslateResult>
         onTranslateDelta: (listener: (delta: string) => void) => () => void
 

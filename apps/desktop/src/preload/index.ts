@@ -1,3 +1,4 @@
+import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
 import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
@@ -262,6 +263,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:withdraw-pending-steer', input),
     answerToolQuestion: (input: AnswerToolQuestionInput) =>
       ipcRenderer.invoke('yachiyo:answer-tool-question', input),
+    predictComposer: (input: ComposerPredictionInput): Promise<string> =>
+      ipcRenderer.invoke('yachiyo:predict-composer', input),
     translate: (input: TranslateInput): Promise<TranslateResult> =>
       ipcRenderer.invoke('yachiyo:translate', input),
     onTranslateDelta: (listener: (delta: string) => void): (() => void) => {

@@ -58,6 +58,7 @@ import {
 } from './Composer/composerStopState.ts'
 import { useComposerCompletions } from './Composer/useComposerCompletions.ts'
 import { useComposerInputHandlers } from './Composer/useComposerInputHandlers.ts'
+import { useComposerPrediction } from './Composer/useComposerPrediction.ts'
 
 const THREAD_WORKSPACE_CANDIDATES_STORAGE_PREFIX = 'yachiyo:thread-workspace-candidates:'
 
@@ -522,6 +523,23 @@ export function Composer({
     workspaceHintPinned,
     workspaceSelectorOpen
   })
+  const prediction = useComposerPrediction({
+    value: composerValue,
+    textareaRef,
+    setValue: setComposerValue,
+    contextKey: activeThreadId ?? NEW_THREAD_DRAFT_KEY,
+    enabled:
+      isTextareaFocused &&
+      !isComposing &&
+      !showSlashCommandPopup &&
+      fileMentionQuery === null &&
+      !modelSelectorOpen &&
+      !reasoningSelectorOpen &&
+      !skillsSelectorOpen &&
+      !toolSelectorOpen &&
+      !workspaceSelectorOpen &&
+      config?.toolModel?.mode !== 'disabled'
+  })
   const runBackendSwitch = useCallback(async (action: () => Promise<void>): Promise<void> => {
     setIsBackendSwitchPending(true)
     try {
@@ -834,16 +852,7 @@ export function Composer({
     return null
   })()
 
-  /**
-   * Autogrow uses height:auto to measure — that briefly expands the box and browsers often reset
-   * scrollTop. Without restoring scroll (or max-scroll when the user was at the bottom), the
-   * viewport jumps to the top while selection stays at the end → fake caret and highlight misalign.
-   *
-   * When the field is already capped at max height and content still overflows, **do not** set
-   * height:auto again: WebKit can report a stale/wrong scrollHeight for one frame and the last
-   * logical line (e.g. trailing newline) never scrolls into view. Keep a fixed height and read
-   * scrollHeight directly (no padding workaround).
-   */
+  // Preserve scroll while measuring height; keep capped fields fixed to avoid stale WebKit metrics.
   const resizeTextarea = useCallback((options?: { forceScrollToBottom?: boolean }) => {
     const element = textareaRef.current
     if (!element) {
@@ -918,10 +927,7 @@ export function Composer({
     resizeTextarea({ forceScrollToBottom: force })
   }, [composerValue, resizeTextarea])
 
-  // Compute pretext layout lines for overlay rendering. Runs after resizeTextarea
-  // so the textarea has its final clientWidth/height. Both the overlay and
-  // SmoothCaretOverlay use the same pretext engine, ensuring the visible text
-  // wraps at exactly the positions pretext uses for caret positioning.
+  // Keep draft line breaks stable; the view appends ghost text after the final laid-out line.
   useLayoutEffect(() => {
     const textarea = textareaRef.current
     if (!textarea || !composerValue) {
@@ -1398,6 +1404,7 @@ export function Composer({
       composerValue={composerValue}
       composerInputRef={composerInputRef}
       overlayRef={overlayRef}
+      prediction={prediction}
       overlayLineTexts={overlayLayout?.lines ?? null}
       overlaySelRange={overlaySelRange}
       textareaRef={textareaRef}
@@ -1405,7 +1412,9 @@ export function Composer({
       setIsTextareaFocused={setIsTextareaFocused}
       handleInput={handleInput}
       setIsComposing={setIsComposing}
-      handleKeyDown={handleKeyDown}
+      handleKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (!prediction.handleKeyDown(event)) handleKeyDown(event)
+      }}
       handlePaste={handlePaste}
       handleTextareaScroll={handleTextareaScroll}
       isConfigured={isConfigured}

@@ -65,6 +65,22 @@ const MODE_ICON_MAP: Record<string, React.ElementType> = {
   chat: MessageSquare
 }
 
+function PredictionText({ text }: { text: string }): JSX.Element | null {
+  return text ? (
+    <span
+      data-composer-prediction
+      style={{
+        color: theme.text.muted,
+        opacity: 0.65,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-all'
+      }}
+    >
+      {text}
+    </span>
+  ) : null
+}
+
 const ComposerOverlayLine = memo(function ComposerOverlayLine({
   text,
   offset,
@@ -72,7 +88,8 @@ const ComposerOverlayLine = memo(function ComposerOverlayLine({
   primaryColor,
   accentColor,
   validatedFileTags,
-  validThingSlugs
+  validThingSlugs,
+  prediction = ''
 }: {
   text: string
   offset: number
@@ -81,6 +98,7 @@ const ComposerOverlayLine = memo(function ComposerOverlayLine({
   accentColor: string
   validatedFileTags: string[]
   validThingSlugs: ReadonlySet<string>
+  prediction?: string
 }): JSX.Element {
   return (
     <div>
@@ -93,6 +111,7 @@ const ComposerOverlayLine = memo(function ComposerOverlayLine({
         validatedFileTags,
         validThingSlugs
       )}
+      <PredictionText text={prediction} />
     </div>
   )
 })
@@ -142,6 +161,7 @@ export function ComposerView(props: any): React.JSX.Element {
     composerValue,
     composerInputRef,
     overlayRef,
+    prediction,
     overlayLineTexts,
     overlaySelRange,
     textareaRef,
@@ -754,51 +774,63 @@ export function ComposerView(props: any): React.JSX.Element {
                 letterSpacing: '0.04em'
               }}
             >
-              {overlayLineTexts
-                ? (() => {
-                    const elements: React.ReactNode[] = []
-                    let charOffset = 0
-                    for (let i = 0; i < overlayLineTexts.length; i++) {
-                      const lineText = overlayLineTexts[i]
-                      elements.push(
-                        <ComposerOverlayLine
-                          key={i}
-                          text={lineText}
-                          offset={charOffset}
-                          selection={overlaySelRange}
-                          primaryColor={theme.text.primary}
-                          accentColor={theme.text.accent}
-                          validatedFileTags={validatedFileTags}
-                          validThingSlugs={validThingSlugs}
-                        />
-                      )
-                      charOffset += lineText.length
-                      // Skip consumed hard-break chars (\r\n or \n) between lines
-                      if (charOffset < composerValue.length && composerValue[charOffset] === '\r')
-                        charOffset++
-                      if (charOffset < composerValue.length && composerValue[charOffset] === '\n')
-                        charOffset++
-                    }
-                    if (composerValue.endsWith('\n')) {
-                      elements.push(
-                        <div key="trailing-nl">
-                          {overlaySelRange && overlaySelRange[1] > charOffset ? (
-                            <span style={{ backgroundColor: SELECTION_BG }}>{'\u200b'}</span>
-                          ) : (
-                            '\u200b'
-                          )}
-                        </div>
-                      )
-                    }
-                    return elements
-                  })()
-                : renderComposerTextHighlights(
+              {overlayLineTexts ? (
+                (() => {
+                  const elements: React.ReactNode[] = []
+                  let charOffset = 0
+                  for (let i = 0; i < overlayLineTexts.length; i++) {
+                    const lineText = overlayLineTexts[i]
+                    elements.push(
+                      <ComposerOverlayLine
+                        key={i}
+                        prediction={
+                          i === overlayLineTexts.length - 1 && !composerValue.endsWith('\n')
+                            ? prediction.text
+                            : ''
+                        }
+                        text={lineText}
+                        offset={charOffset}
+                        selection={overlaySelRange}
+                        primaryColor={theme.text.primary}
+                        accentColor={theme.text.accent}
+                        validatedFileTags={validatedFileTags}
+                        validThingSlugs={validThingSlugs}
+                      />
+                    )
+                    charOffset += lineText.length
+                    // Skip consumed hard-break chars (\r\n or \n) between lines
+                    if (charOffset < composerValue.length && composerValue[charOffset] === '\r')
+                      charOffset++
+                    if (charOffset < composerValue.length && composerValue[charOffset] === '\n')
+                      charOffset++
+                  }
+                  if (composerValue.endsWith('\n')) {
+                    elements.push(
+                      <div key="trailing-nl">
+                        {prediction.text ? (
+                          <PredictionText text={prediction.text} />
+                        ) : overlaySelRange && overlaySelRange[1] > charOffset ? (
+                          <span style={{ backgroundColor: SELECTION_BG }}>{'\u200b'}</span>
+                        ) : (
+                          '\u200b'
+                        )}
+                      </div>
+                    )
+                  }
+                  return elements
+                })()
+              ) : (
+                <>
+                  {renderComposerTextHighlights(
                     composerValue,
                     theme.text.primary,
                     theme.text.accent,
                     validatedFileTags,
                     validThingSlugs
                   )}
+                  <PredictionText text={prediction.text} />
+                </>
+              )}
             </div>
             <SmoothCaretOverlay
               textareaRef={textareaRef}
@@ -814,10 +846,15 @@ export function ComposerView(props: any): React.JSX.Element {
             <textarea
               ref={textareaRef}
               value={composerValue}
+              aria-autocomplete="inline"
+              aria-description={
+                prediction.text ? 'Tab or Right Arrow to accept; Escape to dismiss.' : undefined
+              }
               onChange={handleInput}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               onKeyDown={handleKeyDown}
+              onSelect={prediction.refreshSelection}
               onPointerUp={clearGoalX}
               onPaste={handlePaste}
               onScroll={handleTextareaScroll}

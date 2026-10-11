@@ -1,3 +1,4 @@
+import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
 import {
   app,
   BrowserWindow,
@@ -148,14 +149,9 @@ import { registerProviderBackupHandlers } from './providerBackupHandlers.ts'
 import type { AppUpdateController } from '../electron/appUpdateController.ts'
 
 /**
- * Phase 1.5 of the runtime process extraction: renderer-facing handlers call
- * the server through an in-process loopback RPC proxy whose transport
- * structured-clones every message, so any payload that could not cross a real
- * MessagePort boundary fails now — before the runtime moves out of this
- * process. Methods excluded here stay on the live server: live-object getters
- * and the two calls served by the rpc:event / rpc:progress channels instead of
- * plain dispatch. (The browser-automation surface lives on a main-owned
- * service now — see browserAutomation() below.)
+ * Renderer-facing handlers use clone-safe RPC. Live-object getters and calls
+ * using rpc:event / rpc:progress are excluded from plain dispatch.
+ * Browser automation remains on the main-owned service.
  */
 type RpcSafeYachiyoServer = Omit<
   YachiyoServer,
@@ -1362,6 +1358,10 @@ export function registerYachiyoGateway(options: {
     IPC_CHANNELS.downloadRemoteImageForMessage,
     (input: { threadId: string; messageId: string; url: string }) =>
       rpc().downloadRemoteImageForMessage(input)
+  )
+
+  handleYachiyoIpc(IPC_CHANNELS.predictComposer, (input: ComposerPredictionInput) =>
+    rpc().predictComposer(input)
   )
 
   ipcMain.removeHandler(IPC_CHANNELS.translate)
