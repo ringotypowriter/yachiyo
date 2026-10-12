@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ResponsesWebSocketStreamError } from '../providers/responsesWebSocket.ts'
+import { isRetryableRunError } from './runtimeErrors.ts'
 import {
   createAiSdkModelRuntime,
   fetchModels,
@@ -315,13 +317,15 @@ test('streamReply retries on retryable error and succeeds', async () => {
   ])
 
   const retryEvents: Array<{ attempt: number; maxAttempts: number }> = []
+  const retryErrors: unknown[] = []
   const chunks: string[] = []
   for await (const chunk of runtime.streamReply({
     messages: [{ role: 'user', content: 'hi' }],
     settings: defaultSettings,
     signal: new AbortController().signal,
-    onRetry: (attempt, maxAttempts) => {
+    onRetry: (attempt, maxAttempts, _delay, error) => {
       retryEvents.push({ attempt, maxAttempts })
+      retryErrors.push(error)
     }
   })) {
     chunks.push(chunk)
@@ -333,6 +337,11 @@ test('streamReply retries on retryable error and succeeds', async () => {
   assert.equal(retryEvents[0].attempt, 1)
   assert.equal(retryEvents[1].attempt, 2)
   assert.equal(retryEvents[0].maxAttempts, 10)
+  assert.deepEqual(
+    retryErrors,
+    [err, err],
+    'HTTP status and provider metadata survive retry notices'
+  )
   assert.deepEqual(sleepCalls, [1000, 2000])
 })
 
@@ -1136,4 +1145,88 @@ test('patchReasoningSignatures copies anthropic metadata to providerOptions for 
       ]
     }
   ])
+})
+
+for (const committed of [false, true]) {
+  test(`WebSocket disconnect exposes the real reason to logs and recovery (committed: ${committed})`, async () => {
+    const cause = new ResponsesWebSocketStreamError(
+      'Responses websocket closed before response.completed (code=1011, reason=upstream restarting)'
+    )
+    const sdkError = Object.assign(new Error('Failed to process successful response', { cause }), {
+      statusCode: 200,
+      isRetryable: false
+    })
+    const { runtime, defaultSettings, getCallCount, sleepCalls } = createFullStreamRetryRuntime([
+      {
+        streamEvents: [
+          ...(committed ? [{ type: 'text-delta', textDelta: 'Partial answer' }] : []),
+          { type: 'error', error: sdkError }
+        ]
+      },
+      { streamEvents: [{ type: 'text-delta', textDelta: 'Recovered answer' }] }
+    ])
+    const errors: string[] = []
+    const retries: unknown[] = []
+    const chunks: string[] = []
+    const originalError = console.error
+    console.error = (...args) => errors.push(args.join(' '))
+    try {
+      const consume = async (): Promise<void> => {
+        for await (const chunk of runtime.streamReply({
+          messages: [{ role: 'user', content: 'hi' }],
+          settings: defaultSettings,
+          signal: new AbortController().signal,
+          onRetry: (_attempt, _max, _delay, error) => retries.push(error)
+        }))
+          chunks.push(chunk)
+      }
+      if (committed) {
+        await assert.rejects(consume, (error: unknown) => {
+          assert.ok(isRetryableRunError(error))
+          assert.equal(error.message, cause.message)
+          return true
+        })
+        assert.deepEqual(chunks, ['Partial answer'])
+        assert.equal(getCallCount(), 1)
+        assert.deepEqual(sleepCalls, [])
+        assert.ok(errors.some((line) => line.includes('handing off to run recovery')))
+        assert.ok(errors.every((line) => !line.includes('giving up')))
+      } else {
+        await consume()
+        assert.deepEqual(chunks, ['Recovered answer'])
+        assert.equal(getCallCount(), 2)
+        assert.deepEqual(sleepCalls, [1000])
+        assert.equal((retries[0] as Error).message, cause.message)
+      }
+      assert.ok(
+        errors.some((line) => line.includes('1011') && line.includes('upstream restarting'))
+      )
+    } finally {
+      console.error = originalError
+    }
+  })
+}
+
+test('persistent WebSocket failures exhaust the bounded request retry budget with capped backoff', async () => {
+  const cause = new ResponsesWebSocketStreamError('Responses websocket stream idle timeout')
+  const { runtime, defaultSettings, getCallCount, sleepCalls } = createRetryTestRuntime(
+    Array.from({ length: 10 }, () => ({ error: cause }))
+  )
+  await assert.rejects(
+    async () => {
+      for await (const chunk of runtime.streamReply({
+        messages: [{ role: 'user', content: 'hi' }],
+        settings: defaultSettings,
+        signal: new AbortController().signal
+      }))
+        void chunk
+    },
+    (error: unknown) => {
+      assert.ok(isRetryableRunError(error))
+      assert.equal(error.message, cause.message)
+      return true
+    }
+  )
+  assert.equal(getCallCount(), 10)
+  assert.deepEqual(sleepCalls, [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000])
 })

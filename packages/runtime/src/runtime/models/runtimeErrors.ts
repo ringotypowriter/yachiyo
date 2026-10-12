@@ -113,15 +113,32 @@ export function isContextWindowExceededError(error: unknown): boolean {
   return isContextWindowExceededRecord(error)
 }
 
-function findWebSocketStreamError(error: unknown): ResponsesWebSocketStreamError | undefined {
+function findStreamTransportError(error: unknown): object | undefined {
+  const record = error as { statusCode?: unknown; status?: unknown; message?: unknown } | null
+  const status = record?.statusCode ?? record?.status
+  // The SDK marks response-body read failures non-retryable because HTTP already
+  // succeeded. Only unwrap that known envelope, not arbitrary parsing/logic errors.
+  const responseReadFailure =
+    typeof status === 'number' &&
+    status >= 200 &&
+    status < 300 &&
+    /^Failed to process successful response\b/.test(readErrorString(record?.message))
   const seen = new Set<object>()
   let current = error
   while (current && typeof current === 'object' && !seen.has(current)) {
     if (current instanceof ResponsesWebSocketStreamError) return current
+    if (responseReadFailure && current !== error && isDirectTransientTransportError(current)) {
+      return current
+    }
     seen.add(current)
     current = (current as { cause?: unknown }).cause
   }
   return undefined
+}
+
+/** Expose body-read failures without discarding metadata on ordinary HTTP errors. */
+export function unwrapResponseStreamError(error: unknown): unknown {
+  return findStreamTransportError(error) ?? error
 }
 
 /**
@@ -133,11 +150,11 @@ function findWebSocketStreamError(error: unknown): ResponsesWebSocketStreamError
  * errors never enter the retry path by accident.
  */
 export function isTransientTransportError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
+  return Boolean(findStreamTransportError(error)) || isDirectTransientTransportError(error)
+}
 
-  // The WS adapter forbids SDK-level replay, but its transport failure (even
-  // when wrapped by the SDK as HTTP 200) can recover via a run checkpoint.
-  if (findWebSocketStreamError(error)) return true
+function isDirectTransientTransportError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
 
   const explicit = (error as { isRetryable?: unknown }).isRetryable
   if (typeof explicit === 'boolean') return explicit
@@ -230,7 +247,9 @@ export function toRunBoundaryError(error: unknown): unknown {
     return new ContextWindowExceededRunError(message || 'Context window exceeded', { cause: error })
   }
   if (!isTransientTransportError(error)) return error
-  const wsError = findWebSocketStreamError(error)
-  const message = wsError?.message ?? (error instanceof Error ? error.message : String(error))
+  const streamError = findStreamTransportError(error)
+  const message =
+    readErrorString((streamError as { message?: unknown } | undefined)?.message) ||
+    (error instanceof Error ? error.message : String(error))
   return new RetryableRunError(message, { cause: error })
 }

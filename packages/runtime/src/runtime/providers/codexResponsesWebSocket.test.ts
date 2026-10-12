@@ -5,6 +5,7 @@ import test from 'node:test'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { createOpenAI } from '@ai-sdk/openai'
 import { streamText } from 'ai'
+import { createAiSdkModelRuntime } from '../models/modelRuntime.ts'
 
 import { CodexWebSocketPool, createCodexWebSocketFetch } from './codexResponsesWebSocket.ts'
 import { createResponsesWebSocketFetch } from './responsesWebSocket.ts'
@@ -873,3 +874,176 @@ for (const firstEvent of [false, true]) {
     }
   })
 }
+
+for (const failure of ['before-event', 'after-event', 'idle'] as const) {
+  test(`stream ${failure} failure uses HTTP on recovery, then probes WebSocket after cooldown`, async () => {
+    let now = 0
+    const server = await startServer((socket, _frame, index) => {
+      if (index > 0) {
+        socket.send(event('response.completed'))
+        return
+      }
+      if (failure !== 'before-event') socket.send(event('response.created'))
+      if (failure !== 'idle') socket.close(1011, 'upstream restarting')
+    })
+    const pool = new CodexWebSocketPool(() => now)
+    const calls: string[] = []
+    const options = {
+      sessionId: 'recover-over-http',
+      pool,
+      webSocketUrl: server.url,
+      streamIdleTimeoutMs: 30,
+      fallbackCooldownMs: 100
+    }
+    const fetch = createCodexWebSocketFetch(recordingFetch(calls), options)
+    try {
+      await assert.rejects(
+        async () => {
+          await (await fetch(HTTP_URL, post({}))).text()
+        },
+        (error: Error) => {
+          assert.match(
+            error.message,
+            failure === 'idle' ? /idle timeout.*30/ : /1011.*upstream restarting/
+          )
+          return true
+        }
+      )
+      assert.equal(calls.length, 0, 'the failed generation must not be replayed by the adapter')
+      // Recovery creates a fresh model/fetch instance but shares the transport pool.
+      const recoveryFetch = createCodexWebSocketFetch(recordingFetch(calls), options)
+      assert.equal(await (await recoveryFetch(HTTP_URL, post({}))).text(), 'http-fallback')
+      assert.equal(server.frames.length, 1)
+      now = 100
+      assert.match(await (await recoveryFetch(HTTP_URL, post({}))).text(), /response.completed/)
+      assert.equal(server.frames.length, 2)
+      assert.equal(calls.length, 1)
+    } finally {
+      pool.closeAll()
+      await server.close()
+    }
+  })
+}
+
+test('real SDK runtime recovers a WebSocket drop and an HTTP body drop before completing over HTTP', async () => {
+  const created = event('response.created', {
+    response: { id: 'resp_recovery', created_at: 1, model: 'gpt-test' }
+  })
+  const server = await startServer((socket) => {
+    socket.send(created)
+    socket.close(1011, 'upstream restarting')
+  })
+  const pool = new CodexWebSocketPool()
+  let httpAttempts = 0
+  const http = createServer((_request, response) => {
+    httpAttempts++
+    response.writeHead(200, { 'content-type': 'text/event-stream' })
+    response.write(`data: ${created}\n\n`)
+    if (httpAttempts === 1) {
+      response.write('data: ', () => response.destroy())
+      return
+    }
+    const frames = [
+      event('response.output_item.added', {
+        output_index: 0,
+        item: { type: 'message', id: 'msg_recovery' }
+      }),
+      event('response.output_text.delta', { item_id: 'msg_recovery', delta: 'Recovered answer' }),
+      event('response.output_item.done', {
+        output_index: 0,
+        item: { type: 'message', id: 'msg_recovery' }
+      }),
+      event('response.completed', { response: {} })
+    ]
+    response.end(frames.map((frame) => `data: ${frame}\n\n`).join(''))
+  })
+  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
+  const address = http.address()
+  if (!address || typeof address === 'string') throw new Error('no HTTP address')
+  const delays: number[] = []
+  const reasons: string[] = []
+  const errors: unknown[][] = []
+  const originalError = console.error
+  console.error = (...args) => {
+    errors.push(args)
+  }
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: (options) =>
+      createOpenAI({
+        ...options,
+        baseURL: `http://127.0.0.1:${address.port}`,
+        fetch: createCodexWebSocketFetch(globalThis.fetch, {
+          sessionId: 'real-sdk-recovery',
+          pool,
+          webSocketUrl: server.url
+        })
+      }),
+    sleepImpl: async (ms) => {
+      delays.push(ms)
+    }
+  })
+  try {
+    let text = ''
+    for await (const delta of runtime.streamReply({
+      messages: [{ role: 'user', content: 'Recover this request.' }],
+      settings: {
+        providerName: 'fixture',
+        provider: 'openai-codex',
+        model: 'gpt-test',
+        apiKey: 'fixture',
+        baseUrl: ''
+      },
+      signal: new AbortController().signal,
+      onRetry: (_attempt, _max, _delay, error) => {
+        reasons.push((error as Error).message)
+      }
+    }))
+      text += delta
+    assert.equal(text, 'Recovered answer')
+    assert.equal(server.frames.length, 1, 'the failed WS generation was not replayed on WebSocket')
+    assert.equal(httpAttempts, 2)
+    assert.deepEqual(delays, [1000, 2000])
+    assert.match(reasons[0], /1011.*upstream restarting/)
+    assert.equal(reasons.length, 2)
+    assert.ok(reasons.every((reason) => !reason.includes('Failed to process successful response')))
+    assert.ok(
+      errors.every((args) =>
+        args.every((value) => !String(value).includes('Failed to process successful response'))
+      )
+    )
+  } finally {
+    console.error = originalError
+    pool.closeAll()
+    await server.close()
+    http.closeAllConnections()
+    await new Promise<void>((resolve, reject) =>
+      http.close((error) => (error ? reject(error) : resolve()))
+    )
+  }
+})
+
+test('requests queued behind a failed stream respect its HTTP cooldown', async () => {
+  const server = await startServer((socket, _frame, index) => {
+    socket.send(index === 0 ? event('response.created') : event('response.completed'))
+  })
+  const pool = new CodexWebSocketPool()
+  const calls: string[] = []
+  const fetch = createCodexWebSocketFetch(recordingFetch(calls), {
+    sessionId: 'queued-recovery',
+    pool,
+    webSocketUrl: server.url
+  })
+  try {
+    const first = await fetch(HTTP_URL, post({}))
+    const failed = assert.rejects(first.text(), /1011/)
+    const queued = fetch(HTTP_URL, post({}))
+    server.sockets[0].close(1011, 'upstream restarting')
+    await failed
+    assert.equal(await (await queued).text(), 'http-fallback')
+    assert.equal(server.frames.length, 1)
+    assert.equal(calls.length, 1)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})

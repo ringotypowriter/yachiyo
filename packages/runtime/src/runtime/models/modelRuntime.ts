@@ -38,7 +38,8 @@ import type { RuntimeProviderOptions } from '../providers/shared.ts'
 import {
   isContextWindowExceededError,
   isTransientTransportError,
-  toRunBoundaryError
+  toRunBoundaryError,
+  unwrapResponseStreamError
 } from './runtimeErrors.ts'
 /** Disable AI SDK's built-in retry — we handle retries ourselves. */
 const SDK_MAX_RETRIES = 0
@@ -644,6 +645,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           const result = resolvedDependencies.streamTextImpl({
             abortSignal: AbortSignal.any([request.signal, inputAbort.signal]),
             maxRetries: SDK_MAX_RETRIES,
+            // fullStream errors are thrown below and logged once at our boundary,
+            // after unwrapping transport causes instead of the SDK's HTTP 200 envelope.
+            onError: () => {},
             messages: preparedMessages,
             model: createLanguageModel(
               settings,
@@ -1071,7 +1075,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             throw error
           }
 
-          const errorLogMessage = formatErrorForLog(error)
+          const boundaryError = toRunBoundaryError(error)
+          const diagnosticError = unwrapResponseStreamError(error)
+          const errorLogMessage = formatErrorForLog(diagnosticError)
           console.error(
             `${llmTag} error provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${errorLogMessage}`
           )
@@ -1152,20 +1158,23 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             attempt >= RETRY_MAX_ATTEMPTS ||
             !isTransientTransportError(error)
           ) {
+            const outcome = isTransientTransportError(error)
+              ? 'handing off to run recovery'
+              : 'giving up'
             console.error(
-              `${llmTag} giving up provider=${provider} model=${model} attempt=${attempt} committed=${streamCommitted} totalDurationMs=${Date.now() - startedAt}`
+              `${llmTag} ${outcome} provider=${provider} model=${model} attempt=${attempt} committed=${streamCommitted} totalDurationMs=${Date.now() - startedAt}`
             )
             // Wrap transient transport errors into the typed retry contract so
             // the outer run-execution recovery path can decide via instanceof,
             // not via a second round of shape matching. Non-transient errors
             // (auth, validation, bugs) pass through unchanged.
-            throw toRunBoundaryError(error)
+            throw boundaryError
           }
 
           console.warn(
             `${llmTag} retrying attempt=${attempt}/${RETRY_MAX_ATTEMPTS} delayMs=${retryDelay}: ${errorLogMessage}`
           )
-          request.onRetry?.(attempt, RETRY_MAX_ATTEMPTS, retryDelay, error)
+          request.onRetry?.(attempt, RETRY_MAX_ATTEMPTS, retryDelay, diagnosticError)
 
           await resolvedDependencies.sleepImpl(retryDelay, request.signal)
           retryDelay = Math.min(retryDelay * 2, RETRY_MAX_DELAY_MS)

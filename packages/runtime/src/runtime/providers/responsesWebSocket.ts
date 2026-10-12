@@ -7,7 +7,8 @@ import {
 
 /** Shared Responses WebSocket transport, exposed as SSE for the AI SDK.
  * Codex routing metadata is enabled only by the Codex adapter.
- * Only failures before sending response.create may fall back to HTTP.
+ * Only pre-send failures may fall back within a request. Stream failures
+ * switch subsequent recovery requests to HTTP without replaying the failed one.
  */
 
 const OPENAI_BETA_HEADER_VALUE = 'responses_websockets=2026-02-06'
@@ -39,7 +40,7 @@ export interface ResponsesWebSocketFetchOptions {
   streamIdleTimeoutMs?: number
   /** Close a socket that has served no request for this long. */
   idleCloseMs?: number
-  /** After a failed handshake, use plain HTTP for this long. */
+  /** After a transport failure, use plain HTTP for this long. */
   fallbackCooldownMs?: number
   /** Override the socket endpoint (tests). Defaults to the request URL with a ws(s) scheme. */
   webSocketUrl?: string
@@ -64,6 +65,7 @@ class ResponsesWebSocketClosedError extends Error {
 
 /** Prevent SDK-level replay; run recovery may resume from a checkpoint. */
 export class ResponsesWebSocketStreamError extends Error {
+  override readonly name = 'ResponsesWebSocketStreamError'
   readonly isRetryable = false
 }
 
@@ -145,6 +147,7 @@ interface StreamRequest {
   /** Turn state known before the request; the callback reports newer values. */
   turnState?: string
   onTurnState: (turnState: string) => void
+  onTransportFailure: (error: ResponsesWebSocketStreamError) => void
 }
 
 /**
@@ -334,6 +337,12 @@ class ResponsesWebSocketConnection {
         if (finished) return
         flushArguments()
         finished = true
+        if (error instanceof ResponsesWebSocketStreamError) {
+          // Set cooldown before releasing queued requests or exposing the error.
+          // Recovery owns the next request; never replay this generation here.
+          request.onTransportFailure(error)
+          this.terminate()
+        }
         detach()
         if (streamStarted) {
           controller?.error(error)
@@ -355,7 +364,11 @@ class ResponsesWebSocketConnection {
         idleTimer = setTimeout(() => {
           flushArguments()
           diagnostic('stream_idle_timeout', ` idleTimeoutMs=${request.streamIdleTimeoutMs}`)
-          fail(new ResponsesWebSocketStreamError('Responses websocket stream idle timeout'))
+          fail(
+            new ResponsesWebSocketStreamError(
+              `Responses websocket stream idle timeout after ${request.streamIdleTimeoutMs}ms (last event: ${lastEventType})`
+            )
+          )
           this.terminate()
         }, request.streamIdleTimeoutMs)
       }
@@ -468,11 +481,14 @@ class ResponsesWebSocketConnection {
           resetIdle()
         }
       }
-      const onClose = (code: number): void => {
+      const onClose = (code: number, reason: Buffer): void => {
         flushArguments()
-        diagnostic('socket_close', ` closeCode=${code}`)
+        const closeReason = reason.toString('utf8')
+        diagnostic('socket_close', ` closeCode=${code} closeReason=${JSON.stringify(closeReason)}`)
         fail(
-          new ResponsesWebSocketStreamError('Responses websocket closed before response.completed')
+          new ResponsesWebSocketStreamError(
+            `Responses websocket closed before response.completed (code=${code}, reason=${JSON.stringify(closeReason || 'no close reason received')}, last event: ${lastEventType})`
+          )
         )
       }
       const onSocketError = (error: Error): void => {
@@ -727,6 +743,12 @@ export function createResponsesWebSocketFetch(
         turnState,
         onTurnState: (value) => {
           if (options.codex) rememberTurnState(value)
+        },
+        onTransportFailure: (error) => {
+          pool.disableFor(key, fallbackCooldownMs)
+          console.warn(
+            `${LOG_TAG} recovery will use HTTP key=${key} cooldownMs=${fallbackCooldownMs}: ${error.message}`
+          )
         }
       })
     }
@@ -737,6 +759,10 @@ export function createResponsesWebSocketFetch(
         stream = await streamOnce()
       } catch (error) {
         if (!(error instanceof ResponsesWebSocketClosedError)) throw error
+        if (init.signal?.aborted) throw abortError(init.signal)
+        // A queued request may have passed the initial cooldown check before
+        // the preceding stream failed. It has not sent anything yet.
+        if (pool.isDisabled(key)) return baseFetch(input, init)
         // The pooled socket died between requests (e.g. the backend's 60 minute
         // connection limit): reconnect once before giving up on the transport.
         console.info(`${LOG_TAG} reconnecting key=${key}: ${error.message}`)

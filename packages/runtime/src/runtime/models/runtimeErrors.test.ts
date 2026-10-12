@@ -293,3 +293,32 @@ test('toRunBoundaryError wraps transient errors and preserves non-transient ones
   const alreadyWrapped = new RetryableRunError('already wrapped')
   assert.equal(toRunBoundaryError(alreadyWrapped), alreadyWrapped)
 })
+
+for (const cause of [
+  Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }),
+  Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })
+]) {
+  test(`SDK HTTP 200 stream wrapper preserves recoverable ${cause.code} cause`, () => {
+    const error = Object.assign(
+      new Error('Failed to process successful response', {
+        cause: new Error('body reader failed', { cause })
+      }),
+      { statusCode: 200, isRetryable: false }
+    )
+    assert.equal(isTransientTransportError(error), true)
+    const recovered = toRunBoundaryError(error)
+    assert.ok(isRetryableRunError(recovered))
+    assert.equal(recovered.message, cause.message)
+    assert.equal(recovered.cause, error)
+  })
+}
+
+test('unrelated errors with nested network causes retain explicit non-retryable semantics', () => {
+  const error = Object.assign(
+    new Error('Invalid response schema', {
+      cause: Object.assign(new Error('socket closed'), { code: 'ECONNRESET' })
+    }),
+    { statusCode: 200, isRetryable: false }
+  )
+  assert.equal(isTransientTransportError(error), false)
+})

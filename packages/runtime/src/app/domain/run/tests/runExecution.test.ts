@@ -11,7 +11,8 @@ import { executeServerRun } from '../execution/executeServerRun.ts'
 import { mergeRunUsage } from '../execution/runUsage.ts'
 import { formatDateLine } from '../../../../runtime/context/queryReminder.ts'
 import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
-import { RetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
+import { RetryableRunError, toRunBoundaryError } from '../../../../runtime/models/runtimeErrors.ts'
+import { ResponsesWebSocketStreamError } from '../../../../runtime/providers/responsesWebSocket.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type { ModelMessage, ModelRuntime, ModelUsage } from '../../../../runtime/models/types.ts'
@@ -2280,6 +2281,154 @@ test('executeServerRun persists reasoning effort in recovery checkpoints', async
     assert.equal(result.kind, 'recovering')
     assert.equal(checkpoints.at(-1)?.reasoningEffort, 'high')
     assert.equal(checkpoints.at(-1)?.runTrigger, 'local')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('executeServerRun resumes a websocket disconnect after committed text and a completed tool without replay', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-websocket-run-recovery-'))
+  const thread: ThreadRecord = {
+    id: 'thread-websocket-recovery',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-websocket-recovery',
+    threadId: thread.id,
+    role: 'user',
+    content: 'read the file and answer',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const checkpoints: RunRecoveryCheckpoint[] = []
+  const toolCalls = new Map<string, ToolCallRecord>()
+  let toolStarts = 0
+  let toolFinishes = 0
+  let failureError: string | undefined
+  let completedAssistantMessage: MessageRecord | undefined
+  let streamLeg = 0
+  const disconnect = new ResponsesWebSocketStreamError(
+    'Responses websocket closed before response.completed (code=1011)'
+  )
+  const sdkError = Object.assign(
+    new Error('Failed to process successful response (HTTP 200)', { cause: disconnect }),
+    { statusCode: 200, isRetryable: false }
+  )
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    upsertRunRecoveryCheckpoint: (checkpoint) => {
+      checkpoints.push(checkpoint)
+    },
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: (toolCall) => {
+      toolStarts++
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    updateToolCall: (toolCall) => {
+      if (toolCall.status === 'completed') toolFinishes++
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    listThreadToolCalls: () => [...toolCalls.values()],
+    completeRun: ({ assistantMessage }) => {
+      completedAssistantMessage = assistantMessage
+    },
+    cancelRun: () => {},
+    failRun: (run) => {
+      failureError = run.error
+    },
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    loadThreadToolCalls: () => [...toolCalls.values()],
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        streamLeg++
+        if (streamLeg === 1) {
+          yield 'Before tool. '
+          const toolCall = {
+            type: 'tool-call',
+            dynamic: true,
+            toolCallId: 'tc-once',
+            toolName: 'read',
+            input: { path: 'once.txt' }
+          }
+          request.onToolCallStart?.({ toolCall } as never)
+          request.onToolCallFinish?.({
+            output: {
+              content: [{ type: 'text', text: 'file contents' }],
+              details: {},
+              metadata: {}
+            },
+            success: true,
+            toolCall
+          } as never)
+          throw toRunBoundaryError(sdkError)
+        }
+
+        const recoveredPrompt = JSON.stringify(request.messages)
+        assert.match(recoveredPrompt, /Before tool/)
+        assert.match(recoveredPrompt, /tc-once/)
+        assert.match(recoveredPrompt, /Do not repeat completed tool calls/)
+        // The provider may repeat the partial text, but run output must not.
+        yield 'Before tool. After tool.'
+      }
+    })
+  }
+  const runInput = {
+    enabledTools: ['read' as const],
+    runMode: 'auto' as const,
+    inactivityTimeoutMs: 30_000,
+    runTrigger: 'local' as const,
+    runId: 'run-websocket-recovery',
+    thread,
+    requestMessageId: requestMessage.id,
+    abortController: new AbortController(),
+    updateHeadOnComplete: true,
+    previousEnabledTools: null,
+    previousRunMode: null
+  }
+
+  try {
+    const first = await executeServerRun(deps, runInput)
+    assert.equal(first.kind, 'recovering', failureError)
+    if (first.kind !== 'recovering') return
+    assert.equal(first.checkpoint.content, 'Before tool. ')
+    assert.equal(first.checkpoint.lastError, disconnect.message)
+    assert.equal(first.checkpoint.recoveryAttempts, 1)
+    assert.match(JSON.stringify(first.checkpoint.responseMessages), /file contents/)
+    assert.equal(checkpoints.at(-1)?.lastError, disconnect.message)
+    assert.equal(toolCalls.get('tc-once')?.status, 'completed')
+    assert.equal(toolStarts, 1)
+    assert.equal(toolFinishes, 1)
+    assert.equal(
+      events.filter((event) => (event as { type?: string }).type === 'run.retrying').length,
+      1
+    )
+
+    const resumed = await executeServerRun(deps, {
+      ...runInput,
+      abortController: new AbortController(),
+      recoveryCheckpoint: first.checkpoint
+    })
+    assert.equal(resumed.kind, 'completed', failureError)
+    assert.equal(streamLeg, 2)
+    assert.equal(completedAssistantMessage?.id, first.checkpoint.assistantMessageId)
+    assert.equal(completedAssistantMessage?.content, 'Before tool. After tool.')
+    assert.equal(toolCalls.get('tc-once')?.status, 'completed')
+    assert.equal(toolStarts, 1)
+    assert.equal(toolFinishes, 1)
+    assert.equal(failureError, undefined)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
