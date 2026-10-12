@@ -2,7 +2,7 @@ name: Nightly
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 15 * * *' # 23:00 Beijing time (UTC+8)
   workflow_dispatch:
     inputs:
       platform:
