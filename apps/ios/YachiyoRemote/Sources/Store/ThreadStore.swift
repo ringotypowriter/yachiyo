@@ -478,6 +478,14 @@ final class ThreadStore: ChatMessageSource {
             guard let messageId = event.messageId else { return }
             observeRun(event.runId)
             beginStreaming(messageId, runId: event.runId)
+            if let snapshot = event.message {
+                streamingText[messageId] = snapshot.content
+                streamingReasoning[messageId] = snapshot.reasoning ?? ""
+                streamingBlocks[messageId] = snapshot.textBlocks ?? []
+                streamingContentOrder[messageId] = snapshot.contentOrder ?? snapshot.textBlocks?.map(\.id) ?? []
+                // The next delta belongs to a new block, even if the snapshot ends in text.
+                nextStreamingBlock.insert(messageId)
+            }
             if let parent = event.parentMessageId { streamingParent[messageId] = parent }
             scheduleDeltaRebuild()
         case .messageDelta:

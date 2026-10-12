@@ -1061,16 +1061,16 @@ public struct RemoteEvent: Codable, Equatable, Sendable {
     public let runId: String?
     public let status: RemoteRunStatus?
     public let appearance: RemoteAppearance?
+    public let message: RemoteMessage?
     public let messageId, parentMessageId: String?
     public let delta: String?
-    public let message: RemoteMessage?
     public let queuedFollowUps: [RemoteMessage]?
     public let summaryOnly: Bool?
     public let toolCall: RemoteToolCall?
     public let items: [RemoteTodoItem]?
     public let attempt, maxAttempts: Int?
 
-    public init(summary: RemoteThreadSummary?, threadId: String?, type: RemoteEventType, reason: RemoteEventReason?, error: String?, runId: String?, status: RemoteRunStatus?, appearance: RemoteAppearance?, messageId: String?, parentMessageId: String?, delta: String?, message: RemoteMessage?, queuedFollowUps: [RemoteMessage]?, summaryOnly: Bool?, toolCall: RemoteToolCall?, items: [RemoteTodoItem]?, attempt: Int?, maxAttempts: Int?) {
+    public init(summary: RemoteThreadSummary?, threadId: String?, type: RemoteEventType, reason: RemoteEventReason?, error: String?, runId: String?, status: RemoteRunStatus?, appearance: RemoteAppearance?, message: RemoteMessage?, messageId: String?, parentMessageId: String?, delta: String?, queuedFollowUps: [RemoteMessage]?, summaryOnly: Bool?, toolCall: RemoteToolCall?, items: [RemoteTodoItem]?, attempt: Int?, maxAttempts: Int?) {
         self.summary = summary
         self.threadId = threadId
         self.type = type
@@ -1079,10 +1079,10 @@ public struct RemoteEvent: Codable, Equatable, Sendable {
         self.runId = runId
         self.status = status
         self.appearance = appearance
+        self.message = message
         self.messageId = messageId
         self.parentMessageId = parentMessageId
         self.delta = delta
-        self.message = message
         self.queuedFollowUps = queuedFollowUps
         self.summaryOnly = summaryOnly
         self.toolCall = toolCall

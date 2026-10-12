@@ -203,6 +203,8 @@ export interface MessageStartedEvent extends RunEvent {
   type: 'message.started'
   messageId: string
   parentMessageId?: string
+  /** Replacement state for this message before subsequent streaming deltas. */
+  message?: MessageRecord
 }
 
 export interface MessageDeltaEvent extends RunEvent {

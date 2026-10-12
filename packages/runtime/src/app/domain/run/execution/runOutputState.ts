@@ -60,7 +60,7 @@ export function createRunOutputState(input: {
   let textBlocks: MessageTextBlockRecord[] = input.recoveryCheckpoint?.textBlocks
     ? [...input.recoveryCheckpoint.textBlocks]
     : []
-  let shouldStartNewTextBlock = textBlocks.length === 0
+  let shouldStartNewTextBlock = true
   let duplicateTextPrefix = input.recoveryCheckpoint?.content ?? ''
   let pendingDuplicateText = ''
   let recoveryResponseMessages: RecoveryResponseMessage[] =

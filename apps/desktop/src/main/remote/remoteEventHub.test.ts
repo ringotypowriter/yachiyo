@@ -331,6 +331,48 @@ test('active snapshots accumulate raw text and reasoning before delta coalescing
   hub.stop()
 })
 
+test('message start forwards a replacement snapshot and subsequent deltas form a new block', async () => {
+  const { hub, source } = createHub()
+  const { pushes, subscription } = collect(hub, ['t1'])
+  await subscribe(subscription)
+  source.emit(delta('m1', 'stale'))
+  hub.flush()
+  source.emit({
+    type: 'message.started',
+    threadId: 't1',
+    runId: 'r1',
+    messageId: 'm1',
+    message: {
+      id: 'm1',
+      threadId: 't1',
+      role: 'assistant',
+      content: 'kept',
+      reasoning: 'retained',
+      textBlocks: [{ id: 'prior', content: 'kept', createdAt: '2026-09-22T00:00:00.000Z' }],
+      status: 'streaming',
+      createdAt: '2026-09-22T00:00:00.000Z'
+    }
+  })
+  source.emit(delta('m1', 'new'))
+  hub.flush()
+  const started = pushes
+    .flatMap((push) =>
+      push.type === 'event'
+        ? [push.event]
+        : push.type === 'batch'
+          ? push.items.map((item) => item.event)
+          : []
+    )
+    .find((event) => event.type === 'message.started')
+  assert.equal(started?.message?.content, 'kept')
+  assert.equal(started?.message?.reasoning, 'retained')
+  assert.deepEqual(
+    hub.snapshotMessages('t1', 'r1')[0]?.textBlocks?.map((block) => block.content),
+    ['kept', 'new']
+  )
+  hub.stop()
+})
+
 test('active snapshot starts a new text block after a tool call', () => {
   const { hub, source } = createHub()
   source.emit(delta('m1', 'Before'))
@@ -345,6 +387,55 @@ test('active snapshot starts a new text block after a tool call', () => {
     'tool-1',
     'm1-text-1'
   ])
+  hub.stop()
+})
+
+test('replacement snapshot preserves interleaved tools for live and reconnecting phones', async () => {
+  const { hub, source } = createHub()
+  const { pushes, subscription } = collect(hub, ['t1'])
+  await subscribe(subscription)
+  source.emit(delta('m1', 'first'))
+  source.emit(toolUpdate('tool-1', 'running'))
+  source.emit(delta('m1', 'second'))
+  source.emit(toolUpdate('tool-2', 'running'))
+  source.emit(delta('m1', 'discarded'))
+  source.emit({
+    type: 'message.started',
+    threadId: 't1',
+    runId: 'r1',
+    messageId: 'm1',
+    message: {
+      id: 'm1',
+      threadId: 't1',
+      role: 'assistant',
+      content: 'firstsecond',
+      textBlocks: [
+        { id: 'persisted-1', content: 'first', createdAt: '2026-09-22T00:00:00.000Z' },
+        { id: 'persisted-2', content: 'second', createdAt: '2026-09-22T00:00:00.000Z' }
+      ],
+      status: 'streaming',
+      createdAt: '2026-09-22T00:00:00.000Z'
+    }
+  })
+  const started = events(pushes).find((event) => event.type === 'message.started')
+  assert.deepEqual((started?.message as { contentOrder?: string[] })?.contentOrder, [
+    'persisted-1',
+    'tool-1',
+    'persisted-2',
+    'tool-2'
+  ])
+  source.emit(delta('m1', 'fresh'))
+  assert.deepEqual(hub.snapshotMessages('t1', 'r1')[0]?.contentOrder, [
+    'persisted-1',
+    'tool-1',
+    'persisted-2',
+    'tool-2',
+    'm1-text-2'
+  ])
+  assert.deepEqual(
+    hub.snapshotMessages('t1', 'r1')[0]?.textBlocks?.map((block) => block.content),
+    ['first', 'second', 'fresh']
+  )
   hub.stop()
 })
 

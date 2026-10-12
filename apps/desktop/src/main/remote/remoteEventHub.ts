@@ -607,7 +607,10 @@ export class RemoteEventHub {
             const last = message.textBlocks.at(-1)
             if (last && !message.nextTextBlock) last.content += event.delta
             else {
-              const id = `${message.id}-text-${message.textBlocks.length}`
+              let index = message.textBlocks.length
+              while (message.textBlocks.some((block) => block.id === `${message.id}-text-${index}`))
+                index++
+              const id = `${message.id}-text-${index}`
               message.textBlocks.push({
                 id,
                 content: event.delta,
@@ -731,17 +734,71 @@ export class RemoteEventHub {
             error: event.error
           }
         ]
-      case 'message.started':
-        this.ensureActiveMessage(event)
+      case 'message.started': {
+        if (event.message) {
+          const active = this.ensureActiveMessage(event)
+          const snapshot = projectMessage(event.message)
+          const previousTextIds = active.textBlocks.map((block) => block.id)
+          const previousOrder = [...active.contentOrder]
+          active.content = snapshot?.content ?? ''
+          active.reasoning = snapshot?.reasoning ?? ''
+          active.textBlocks = snapshot?.textBlocks?.map((block) => ({ ...block })) ?? []
+          // Runtime block IDs need not match the IDs synthesized by the live stream. Align
+          // surviving blocks by position in their text sequence, retaining tools at the same
+          // boundaries rather than moving every tool behind the replacement text.
+          const ordered = snapshot?.contentOrder ? [...snapshot.contentOrder] : []
+          if (!snapshot?.contentOrder) {
+            for (const id of previousOrder) {
+              const textIndex = previousTextIds.indexOf(id)
+              const mapped = textIndex < 0 ? id : active.textBlocks[textIndex]?.id
+              if (mapped && !ordered.includes(mapped)) ordered.push(mapped)
+            }
+          }
+          for (const block of active.textBlocks) {
+            if (!ordered.includes(block.id)) ordered.push(block.id)
+          }
+          // If response messages provided an explicit order, still retain live tool records
+          // omitted by the response transcript (e.g. an in-flight call).
+          for (const [index, id] of previousOrder.entries()) {
+            if (!active.seenToolCallIds.has(id) || ordered.includes(id)) continue
+            const next = previousOrder
+              .slice(index + 1)
+              .map((later) => {
+                const textIndex = previousTextIds.indexOf(later)
+                return textIndex < 0 ? later : active.textBlocks[textIndex]?.id
+              })
+              .find((later) => later && ordered.includes(later))
+            if (next) ordered.splice(ordered.indexOf(next), 0, id)
+            else ordered.push(id)
+          }
+          active.contentOrder = ordered
+          active.nextTextBlock = true
+          active.createdAt = event.message.createdAt
+          active.parentMessageId = event.message.parentMessageId ?? event.parentMessageId
+        } else this.ensureActiveMessage(event)
+        const active = this.activeMessages
+          .get(event.threadId)
+          ?.get(event.runId)
+          ?.get(event.messageId)
+        const projected = event.message ? projectMessage(event.message) : null
         return [
           {
             type: 'message.started',
             threadId: event.threadId,
             runId: event.runId,
             messageId: event.messageId,
-            ...(event.parentMessageId ? { parentMessageId: event.parentMessageId } : {})
+            ...(event.parentMessageId ? { parentMessageId: event.parentMessageId } : {}),
+            ...(projected && active
+              ? {
+                  message: {
+                    ...projected,
+                    contentOrder: [...active.contentOrder]
+                  }
+                }
+              : {})
           }
         ]
+      }
       case 'message.completed': {
         this.activeMessages.get(event.threadId)?.get(event.runId)?.delete(event.message.id)
         const message = projectMessage(event.message)

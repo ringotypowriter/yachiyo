@@ -62,6 +62,7 @@ import { handleAbortedRun } from './runAbortHandling.ts'
 import { handleCompletedRun } from './runCompletionHandling.ts'
 import { extractRetryErrorMessage, handleRunFailure } from './runFailureHandling.ts'
 import { createRunOutputState } from './runOutputState.ts'
+import { rewindRecoveryOutput } from './recoveryOutput.ts'
 import { createRunToolSet } from './runToolSetFactory.ts'
 import { createRunToolLifecycleState } from './runToolLifecycleState.ts'
 import {
@@ -214,6 +215,17 @@ export async function executeServerRun(
   deps: RunExecutionDeps,
   input: ExecuteRunInput
 ): Promise<ExecuteRunResult> {
+  const restoredToolCalls = input.recoveryCheckpoint
+    ? restorePersistedRunToolCalls(deps.loadThreadToolCalls, input.thread.id, input.runId)
+    : new Map<string, ToolCallRecord>()
+  if (input.recoveryCheckpoint) {
+    input = {
+      ...input,
+      recoveryCheckpoint: rewindRecoveryOutput(input.recoveryCheckpoint, [
+        ...restoredToolCalls.values()
+      ])
+    }
+  }
   const perfCollector = createRunPerfCollector(input.runId)
   const instrumentedCreateToolCall = (toolCall: ToolCallRecord): void => {
     const t0 = performance.now()
@@ -228,9 +240,6 @@ export async function executeServerRun(
   const settings = deps.readSettings()
   const recoveryCheckpoint = input.recoveryCheckpoint
   const messageId = recoveryCheckpoint?.assistantMessageId ?? deps.createId()
-  const restoredToolCalls = recoveryCheckpoint
-    ? restorePersistedRunToolCalls(deps.loadThreadToolCalls, input.thread.id, input.runId)
-    : new Map<string, ToolCallRecord>()
   const toolLifecycle = createRunToolLifecycleState({
     initialToolCalls: restoredToolCalls,
     priorToolFailLoopSteers: input.priorToolFailLoopSteers
@@ -434,15 +443,28 @@ export async function executeServerRun(
     deps.onExecutionPhaseChange?.(phase)
   }
 
-  if (!recoveryCheckpoint) {
-    deps.emit<MessageStartedEvent>({
-      type: 'message.started',
-      threadId: input.thread.id,
-      runId: input.runId,
-      messageId,
-      parentMessageId: input.requestMessageId
-    })
-  }
+  deps.emit<MessageStartedEvent>({
+    type: 'message.started',
+    threadId: input.thread.id,
+    runId: input.runId,
+    messageId,
+    parentMessageId: input.requestMessageId,
+    ...(recoveryCheckpoint
+      ? {
+          message: {
+            id: messageId,
+            threadId: input.thread.id,
+            parentMessageId: input.requestMessageId,
+            role: 'assistant' as const,
+            status: 'streaming' as const,
+            content: recoveryCheckpoint.content,
+            reasoning: recoveryCheckpoint.reasoning,
+            textBlocks: recoveryCheckpoint.textBlocks,
+            createdAt: recoveryCheckpoint.createdAt
+          }
+        }
+      : {})
+  })
   persistRecoveryCheckpoint()
 
   let snapshotTracker: SnapshotTracker | null = input.snapshotTracker ?? null

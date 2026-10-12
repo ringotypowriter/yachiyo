@@ -59,3 +59,21 @@ test('recovered content is preserved and extended by new deltas', () => {
   assert.equal(state.getContent(), 'recovered prefix and the rest')
   assert.equal(state.getSnapshot().bufferLength, 'recovered prefix and the rest'.length)
 })
+
+test('a recovered generation starts a new text block after preserved tool commentary', () => {
+  const state = createRunOutputState({
+    deps: { createId: () => 'new-block', timestamp: () => '2026-10-12T00:00:00.000Z' },
+    recoveryCheckpoint: {
+      ...buildCheckpoint('Before tool. '),
+      textBlocks: [
+        { id: 'old-block', content: 'Before tool. ', createdAt: '2026-07-19T00:00:00.000Z' }
+      ]
+    },
+    toolCalls: []
+  })
+  state.appendTextDelta('After tool.')
+  assert.deepEqual(
+    state.getSnapshot().textBlocks.map((block) => block.content),
+    ['Before tool. ', 'After tool.']
+  )
+})

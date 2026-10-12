@@ -563,12 +563,13 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
 
   if (event.type === 'message.started') {
     const nextMessage: Message = {
+      ...event.message,
       id: event.messageId,
       threadId: event.threadId,
-      parentMessageId: event.parentMessageId,
+      parentMessageId: event.message?.parentMessageId ?? event.parentMessageId,
       role: 'assistant',
-      content: '',
-      textBlocks: [],
+      content: event.message?.content ?? '',
+      textBlocks: event.message?.textBlocks ?? [],
       status: 'streaming',
       createdAt: event.timestamp
     }

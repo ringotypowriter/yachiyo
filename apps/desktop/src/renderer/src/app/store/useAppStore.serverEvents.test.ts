@@ -1339,6 +1339,93 @@ test('applyServerEvent starts a new assistant text block after a tool update', (
   )
 })
 
+test('message.started with snapshot replaces stale text and keeps tools before new deltas', () => {
+  resetStore()
+  const send = (
+    event: Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0]
+  ): void => useAppStore.getState().applyServerEvent(event)
+  const base = {
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'message-1'
+  }
+  send({ ...base, type: 'message.started', eventId: 'start-1' })
+  send({ ...base, type: 'message.delta', eventId: 'delta-1', delta: 'stale' })
+  send({
+    ...base,
+    type: 'tool.updated',
+    eventId: 'tool-1',
+    toolCall: {
+      id: 'tool-1',
+      threadId: 'thread-1',
+      runId: 'run-1',
+      toolName: 'bash',
+      status: 'running',
+      inputSummary: 'pwd',
+      startedAt: TIMESTAMP
+    }
+  })
+  send({
+    ...base,
+    type: 'message.started',
+    eventId: 'start-2',
+    message: {
+      id: 'message-1',
+      threadId: 'thread-1',
+      role: 'assistant',
+      content: '',
+      reasoning: '',
+      textBlocks: [],
+      status: 'streaming',
+      createdAt: TIMESTAMP
+    }
+  })
+  assert.equal(useAppStore.getState().messages['thread-1']?.[0]?.content, '')
+  assert.equal(useAppStore.getState().messages['thread-1']?.[0]?.reasoning, '')
+  send({ ...base, type: 'message.delta', eventId: 'delta-2', delta: 'fresh' })
+  assert.deepEqual(
+    useAppStore.getState().messages['thread-1']?.[0]?.textBlocks?.map((block) => block.content),
+    ['fresh']
+  )
+  assert.equal(useAppStore.getState().toolCalls['thread-1']?.length, 1)
+})
+
+test('message.started restores nonempty snapshot reasoning and starts another text block', () => {
+  resetStore()
+  const base = {
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    messageId: 'message-1'
+  } as const
+  useAppStore.getState().applyServerEvent({
+    ...base,
+    type: 'message.started',
+    eventId: 'start-1',
+    message: {
+      id: 'message-1',
+      threadId: 'thread-1',
+      role: 'assistant',
+      content: 'saved',
+      reasoning: 'thought',
+      textBlocks: [{ id: 'saved-block', content: 'saved', createdAt: TIMESTAMP }],
+      status: 'streaming',
+      createdAt: TIMESTAMP
+    }
+  })
+  useAppStore
+    .getState()
+    .applyServerEvent({ ...base, type: 'message.delta', eventId: 'delta-1', delta: 'next' })
+  const message = useAppStore.getState().messages['thread-1']?.[0]
+  assert.equal(message?.content, 'savednext')
+  assert.equal(message?.reasoning, 'thought')
+  assert.deepEqual(
+    message?.textBlocks?.map((block) => block.content),
+    ['saved', 'next']
+  )
+})
+
 test('selectModel ignores changes while a run is active', async () => {
   resetStore()
 

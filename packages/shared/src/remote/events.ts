@@ -53,7 +53,8 @@ export const remoteEventSchema = z
       threadId: idSchema,
       runId: idSchema,
       messageId: idSchema,
-      parentMessageId: idSchema.optional()
+      parentMessageId: idSchema.optional(),
+      message: remoteMessageSchema.optional()
     }),
     z.object({
       type: z.literal('message.delta'),

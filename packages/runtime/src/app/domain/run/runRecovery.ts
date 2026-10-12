@@ -567,16 +567,17 @@ export function buildRecoveryContinuationPrompt(toolCalls: ToolCallRecord[]): st
     )
 
   if (interruptedToolLines.length === 0) {
-    return 'The previous assistant response was interrupted by a recoverable transport failure. Continue the same task from the preserved assistant work above. Do not repeat completed tool calls unless you need fresh information. Continue from the partial answer instead of restarting it.'
+    return 'The previous assistant response was interrupted by a recoverable transport failure. The unfinished generation has been discarded. Continue the same task from the preserved assistant work above. Do not repeat completed tool calls unless you need fresh information. Write the missing answer afresh; do not repeat preserved text or try to complete an interrupted sentence.'
   }
 
   return [
     'The previous assistant response was interrupted by a recoverable transport failure.',
+    'The unfinished generation has been discarded.',
     'Continue the same task from the preserved assistant work above.',
     'Do not repeat completed tool calls unless you need fresh information.',
     'These tool calls were interrupted before they finished, so treat them as unfinished work rather than completed facts:',
     ...interruptedToolLines,
-    'Continue from the partial answer instead of restarting it.'
+    'Write the missing answer afresh; do not repeat preserved text or try to complete an interrupted sentence.'
   ].join('\n')
 }
 

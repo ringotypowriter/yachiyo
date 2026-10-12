@@ -2373,6 +2373,7 @@ test('executeServerRun resumes a websocket disconnect after committed text and a
             success: true,
             toolCall
           } as never)
+          yield '出处：[《精选版 日本国语大辞典》'
           throw toRunBoundaryError(sdkError)
         }
 
@@ -2380,8 +2381,8 @@ test('executeServerRun resumes a websocket disconnect after committed text and a
         assert.match(recoveredPrompt, /Before tool/)
         assert.match(recoveredPrompt, /tc-once/)
         assert.match(recoveredPrompt, /Do not repeat completed tool calls/)
-        // The provider may repeat the partial text, but run output must not.
-        yield 'Before tool. After tool.'
+        assert.doesNotMatch(recoveredPrompt, /精选版/)
+        yield '出处：《精选版 日本国语大辞典》，词条说明。'
       }
     })
   }
@@ -2403,7 +2404,7 @@ test('executeServerRun resumes a websocket disconnect after committed text and a
     const first = await executeServerRun(deps, runInput)
     assert.equal(first.kind, 'recovering', failureError)
     if (first.kind !== 'recovering') return
-    assert.equal(first.checkpoint.content, 'Before tool. ')
+    assert.equal(first.checkpoint.content, 'Before tool. 出处：[《精选版 日本国语大辞典》')
     assert.equal(first.checkpoint.lastError, disconnect.message)
     assert.equal(first.checkpoint.recoveryAttempts, 1)
     assert.match(JSON.stringify(first.checkpoint.responseMessages), /file contents/)
@@ -2424,11 +2425,101 @@ test('executeServerRun resumes a websocket disconnect after committed text and a
     assert.equal(resumed.kind, 'completed', failureError)
     assert.equal(streamLeg, 2)
     assert.equal(completedAssistantMessage?.id, first.checkpoint.assistantMessageId)
-    assert.equal(completedAssistantMessage?.content, 'Before tool. After tool.')
+    assert.equal(
+      completedAssistantMessage?.content,
+      'Before tool. 出处：《精选版 日本国语大辞典》，词条说明。'
+    )
+    const starts = events.filter(
+      (event) => (event as { type: string }).type === 'message.started'
+    ) as Array<{ message?: MessageRecord }>
+    assert.equal(starts.length, 2)
+    assert.equal(starts[1].message?.content, 'Before tool. ')
+    assert.equal(starts[1].message?.status, 'streaming')
     assert.equal(toolCalls.get('tc-once')?.status, 'completed')
     assert.equal(toolStarts, 1)
     assert.equal(toolFinishes, 1)
     assert.equal(failureError, undefined)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('repeated text-only disconnects replace the failed generation instead of appending it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-text-recovery-'))
+  const thread: ThreadRecord = {
+    id: 'thread-text-recovery',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-10-12T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'request-text-recovery',
+    threadId: thread.id,
+    role: 'user',
+    content: 'Explain this term',
+    status: 'completed',
+    createdAt: thread.updatedAt
+  }
+  const events: unknown[] = []
+  const baseDeps = createRunContextDeps({ events, messages: [requestMessage], workspacePath: root })
+  let leg = 0
+  let completed: MessageRecord | undefined
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage: {
+      ...baseDeps.storage,
+      upsertRunRecoveryCheckpoint: () => {},
+      deleteRunRecoveryCheckpoint: () => {},
+      completeRun: ({ assistantMessage }) => {
+        completed = assistantMessage
+      },
+      updateRunSnapshot: () => {}
+    },
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        leg++
+        assert.ok(!JSON.stringify(request.messages).includes('Interrupted source'))
+        if (leg < 3) {
+          request.onReasoningDelta?.(`Interrupted reasoning ${leg}`)
+          yield `Interrupted source ${leg}: [`
+          throw new RetryableRunError('Connection interrupted')
+        }
+        yield 'The complete answer. Source: dictionary.'
+      }
+    })
+  }
+  const input = {
+    enabledTools: [],
+    runMode: 'auto' as const,
+    inactivityTimeoutMs: 30_000,
+    runTrigger: 'local' as const,
+    runId: 'run-text-recovery',
+    thread,
+    requestMessageId: requestMessage.id,
+    abortController: new AbortController(),
+    updateHeadOnComplete: true,
+    previousEnabledTools: null,
+    previousRunMode: null
+  }
+  try {
+    const first = await executeServerRun(deps, input)
+    assert.equal(first.kind, 'recovering')
+    if (first.kind !== 'recovering') return
+    const second = await executeServerRun(deps, { ...input, recoveryCheckpoint: first.checkpoint })
+    assert.equal(second.kind, 'recovering')
+    if (second.kind !== 'recovering') return
+    assert.equal(second.checkpoint.content, 'Interrupted source 2: [')
+    const third = await executeServerRun(deps, { ...input, recoveryCheckpoint: second.checkpoint })
+    assert.equal(third.kind, 'completed')
+    assert.equal(completed?.content, 'The complete answer. Source: dictionary.')
+    assert.equal(completed?.reasoning, undefined)
+    assert.doesNotMatch(JSON.stringify(completed?.responseMessages), /Interrupted/)
+    const restarts = events.filter(
+      (event) => (event as { type: string }).type === 'message.started'
+    ) as Array<{ message?: MessageRecord }>
+    assert.equal(restarts.length, 3)
+    assert.equal(restarts[1].message?.content, '')
+    assert.equal(restarts[2].message?.content, '')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
