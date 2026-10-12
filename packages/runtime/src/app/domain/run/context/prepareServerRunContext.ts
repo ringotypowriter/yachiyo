@@ -593,7 +593,7 @@ export async function prepareServerRunContext(
                       JSON.stringify(runningBackgroundTasks)
                   ]
                 : []),
-              ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
+              ...(input.channelHint?.trim() ? [input.channelHint.trim()] : []),
               ...(isLocalRunTrigger && !minimalPrompt
                 ? [
                     'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'

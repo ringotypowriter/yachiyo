@@ -1,3 +1,4 @@
+import type { ToolSet } from 'ai'
 import type {
   BootstrapPayload,
   ComposerReasoningSelection,
@@ -22,6 +23,8 @@ interface PreparedQueuedFollowUpStart {
   createdAt: string
   enabledSkillNames?: string[]
   runMode: RunModeId
+  channelHint?: string
+  extraTools?: ToolSet
   runTrigger: SendChatRunTrigger
   reasoningEffort?: ComposerReasoningSelection
   requestMessageId: string
@@ -35,6 +38,8 @@ interface PreparedQueuedFollowUpStart {
 export interface QueuedFollowUpRequestDraft {
   enabledSkillNames?: string[]
   runMode: RunModeId
+  channelHint?: string
+  extraTools?: ToolSet
   runTrigger: SendChatRunTrigger
   reasoningEffort?: ComposerReasoningSelection
   userMessage: MessageRecord
@@ -266,6 +271,8 @@ function cloneQueuedFollowUpRequestDraft(
       ? { enabledSkillNames: [...draft.enabledSkillNames] }
       : {}),
     runMode: draft.runMode,
+    ...(draft.channelHint !== undefined ? { channelHint: draft.channelHint } : {}),
+    ...(draft.extraTools ? { extraTools: { ...draft.extraTools } } : {}),
     runTrigger: draft.runTrigger,
     ...(draft.reasoningEffort !== undefined ? { reasoningEffort: draft.reasoningEffort } : {}),
     userMessage: draft.userMessage
@@ -325,6 +332,8 @@ function prepareQueuedFollowUpStart(
   return {
     createdAt: timestamp,
     enabledSkillNames: draft.enabledSkillNames,
+    channelHint: draft.channelHint,
+    extraTools: draft.extraTools,
     runMode: normalizeRunModeId(thread.runMode ?? DEFAULT_RUN_MODE_ID),
     runTrigger: draft.runTrigger,
     ...(draft.reasoningEffort !== undefined ? { reasoningEffort: draft.reasoningEffort } : {}),
@@ -409,6 +418,8 @@ function activatePreparedQueuedFollowUp(
 
   context.startActiveRun({
     enabledSkillNames: prepared.enabledSkillNames,
+    channelHint: prepared.channelHint,
+    extraTools: prepared.extraTools,
     runMode: prepared.runMode,
     runTrigger: prepared.runTrigger,
     reasoningEffort: prepared.reasoningEffort,

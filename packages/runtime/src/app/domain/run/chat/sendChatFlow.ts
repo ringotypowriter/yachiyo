@@ -175,6 +175,8 @@ export async function sendChatFlow(
           content,
           enabledSkillNames,
           runMode,
+          channelHint: input.channelHint,
+          extraTools: input.extraTools as ToolSet | undefined,
           runTrigger,
           reasoningEffort,
           images: enrichedImages,
@@ -194,6 +196,8 @@ export async function sendChatFlow(
           content,
           enabledSkillNames,
           runMode,
+          channelHint: input.channelHint,
+          extraTools: input.extraTools as ToolSet | undefined,
           runTrigger,
           reasoningEffort,
           images: enrichedImages,
@@ -227,6 +231,8 @@ export async function sendChatFlow(
         content,
         enabledSkillNames,
         runMode,
+        channelHint: input.channelHint,
+        extraTools: input.extraTools as ToolSet | undefined,
         runTrigger,
         reasoningEffort,
         images: enrichedImages,
@@ -436,6 +442,8 @@ function queueFollowUp(
     content: string
     enabledSkillNames?: string[]
     runMode: RunModeId
+    channelHint?: string
+    extraTools?: ToolSet
     runTrigger: SendChatRunTrigger
     reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
@@ -511,6 +519,8 @@ function queueFollowUp(
           ? { enabledSkillNames: input.enabledSkillNames }
           : {}),
         runMode: input.runMode,
+        channelHint: input.channelHint,
+        extraTools: input.extraTools,
         runTrigger: input.runTrigger,
         ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
         userMessage: hiddenMessage
@@ -543,6 +553,11 @@ function queueFollowUp(
   const queuedDraft = {
     ...createQueuedFollowUpRequestDraft({
       runMode: queuedRunMode,
+      channelHint: input.channelHint ?? previousQueuedDraft?.channelHint,
+      extraTools:
+        previousQueuedDraft?.extraTools || input.extraTools
+          ? { ...previousQueuedDraft?.extraTools, ...input.extraTools }
+          : undefined,
       ...(queuedEnabledSkillNames !== undefined
         ? { enabledSkillNames: queuedEnabledSkillNames }
         : {}),
@@ -582,6 +597,8 @@ function createQueuedFollowUpRequestDraft(
 ): QueuedFollowUpRequestDraft {
   return {
     runMode: input.runMode,
+    ...(input.channelHint !== undefined ? { channelHint: input.channelHint } : {}),
+    ...(input.extraTools ? { extraTools: { ...input.extraTools } } : {}),
     ...(input.enabledSkillNames !== undefined
       ? { enabledSkillNames: [...input.enabledSkillNames] }
       : {}),

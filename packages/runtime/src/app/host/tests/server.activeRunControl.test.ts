@@ -3,6 +3,8 @@ import { access, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
+import { tool } from 'ai'
+import { z } from 'zod'
 import { YachiyoServer } from '../YachiyoServer.ts'
 import type { ModelStreamRequest } from '../../../runtime/models/types.ts'
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
@@ -1153,4 +1155,106 @@ test('YachiyoServer emits a replacement snapshot when a queued follow-up is repa
       })
     }
   )
+})
+
+for (const visibleFollowUp of ['none', 'before', 'after'] as const) {
+  test(`YachiyoServer preserves queued schedule reporting tools with visible follow-up ${visibleFollowUp}`, async () => {
+    const requests: ModelStreamRequest[] = []
+    const blocked = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    let reported = false
+    const reportScheduleResult = tool({
+      description: 'Record the scheduled task result.',
+      inputSchema: z.object({ status: z.literal('success') }),
+      execute: async () => {
+        reported = true
+        return 'Recorded'
+      }
+    })
+
+    await withServer(
+      async ({ server, completeRun, waitForEvent }) => {
+        await upsertWorkProvider(server)
+        const thread = await server.createThread()
+        const first = await server.sendChat({ threadId: thread.id, content: 'Audit history' })
+        await waitForEvent('run.created')
+        await blocked.promise
+        try {
+          if (visibleFollowUp === 'before') {
+            await server.sendChat({
+              threadId: thread.id,
+              content: 'Finish the audit',
+              mode: 'follow-up'
+            })
+          }
+          const queued = await server.sendChat({
+            threadId: thread.id,
+            content: '[Worker result] Audit complete',
+            mode: 'follow-up',
+            hidden: true,
+            channelHint: 'Scheduled audit: call reportScheduleResult when done.',
+            extraTools: { reportScheduleResult }
+          })
+          assert.equal(queued.kind, 'active-run-follow-up')
+          if (visibleFollowUp === 'after') {
+            await server.sendChat({
+              threadId: thread.id,
+              content: 'Finish the audit',
+              mode: 'follow-up'
+            })
+          }
+        } finally {
+          release.resolve()
+        }
+        await completeRun(first.runId)
+        const next = (await waitForEvent('run.created')) as { runId: string }
+        await completeRun(next.runId)
+        assert.equal(requests[1]?.tools?.reportScheduleResult, reportScheduleResult)
+        assert.equal(reported, true)
+        assert.ok(JSON.stringify(requests[1]?.messages).includes('Scheduled audit:'))
+      },
+      {
+        createModelRuntime: () => ({
+          async *streamReply(request) {
+            requests.push(request)
+            if (requests.length === 1) {
+              blocked.resolve()
+              await release.promise
+              yield 'Audit workers are still running.'
+              return
+            }
+            const report = request.tools?.reportScheduleResult as
+              | typeof reportScheduleResult
+              | undefined
+            if (report?.execute) {
+              await report.execute(
+                { status: 'success' },
+                {
+                  toolCallId: 'report-1',
+                  context: {},
+                  messages: [],
+                  abortSignal: request.signal
+                }
+              )
+            }
+            yield 'Audit complete.'
+          }
+        })
+      }
+    )
+  })
+}
+
+test('YachiyoServer supplies schedule completion instructions to local runs', async () => {
+  await withServer(async ({ server, completeRun, modelRequests }) => {
+    await upsertWorkProvider(server)
+    const thread = await server.createThread()
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Audit history',
+      channelHint: 'Scheduled audit: call reportScheduleResult when done.'
+    })
+    await completeRun(accepted.runId)
+    assert.ok(JSON.stringify(modelRequests[0]?.messages).includes('Scheduled audit:'))
+  })
 })
