@@ -120,3 +120,28 @@ test('recovery removes trailing text even when a provider keeps it in the tool-c
   assert.equal(recovered.textBlocks?.[0].content, 'Before. ')
   assert.equal(recovered.responseMessages?.length, 2)
 })
+
+test('structured legacy checkpoints rebuild missing display blocks for retained commentary', () => {
+  const recovered = rewindRecoveryOutput(
+    {
+      ...checkpoint,
+      content: 'Before tool. Interrupted answer',
+      responseMessages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Before tool. ' },
+            { type: 'tool-call', toolCallId: tool.id, toolName: tool.toolName, input: {} }
+          ]
+        },
+        { role: 'assistant', content: [{ type: 'text', text: 'Interrupted answer' }] }
+      ]
+    },
+    [tool]
+  )
+  assert.deepEqual(
+    recovered.textBlocks?.map((block) => block.content),
+    ['Before tool. ']
+  )
+  assert.deepEqual(rewindRecoveryOutput(recovered, [tool]), recovered)
+})

@@ -460,6 +460,7 @@ export async function executeServerRun(
             content: recoveryCheckpoint.content,
             reasoning: recoveryCheckpoint.reasoning,
             textBlocks: recoveryCheckpoint.textBlocks,
+            responseMessages: recoveryCheckpoint.responseMessages,
             createdAt: recoveryCheckpoint.createdAt
           }
         }

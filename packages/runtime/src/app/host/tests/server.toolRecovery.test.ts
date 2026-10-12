@@ -332,7 +332,7 @@ async function withServer(
   }
 }
 
-test('YachiyoServer preserves assistant-tool-assistant ordering across recovery', async () => {
+test('YachiyoServer preserves completed assistant-tool ordering while replacing the interrupted tail', async () => {
   const requests: ModelStreamRequest[] = []
   let attempt = 0
 
@@ -360,11 +360,11 @@ test('YachiyoServer preserves assistant-tool-assistant ordering across recovery'
 
       assert.equal(requests.length, 2)
       const recoveryMessages = requests[1]?.messages ?? []
-      const trailingAssistantIndex = recoveryMessages.findIndex(
+      const preservedAssistantIndex = recoveryMessages.findIndex(
         (message) =>
           message.role === 'assistant' &&
           Array.isArray(message.content) &&
-          message.content.some((part) => part.type === 'text' && part.text === 'After tool. ')
+          message.content.some((part) => part.type === 'text' && part.text === 'Before tool. ')
       )
       const toolResultIndex = recoveryMessages.findIndex(
         (message) =>
@@ -388,12 +388,12 @@ test('YachiyoServer preserves assistant-tool-assistant ordering across recovery'
       )
 
       assert.notEqual(toolResultIndex, -1)
-      assert.notEqual(trailingAssistantIndex, -1)
+      assert.notEqual(preservedAssistantIndex, -1)
+      assert.doesNotMatch(JSON.stringify(recoveryMessages), /After tool\./)
       assert.notEqual(continuationPromptIndex, -1)
       assert.ok(
-        toolResultIndex < trailingAssistantIndex &&
-          trailingAssistantIndex < continuationPromptIndex,
-        'recovery should preserve the assistant text that happened after the tool result'
+        preservedAssistantIndex < toolResultIndex && toolResultIndex < continuationPromptIndex,
+        'recovery should preserve completed commentary and tools before requesting a new answer'
       )
     },
     {

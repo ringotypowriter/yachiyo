@@ -421,16 +421,8 @@ test('YachiyoServer bootstrap resumes an interrupted run from its persisted reco
 
       assert.equal(bootstrap.latestRunsByThread['thread-1']?.status, 'completed')
       assert.equal(resumedRequests.length, 1)
-      assert.ok(
-        resumedRequests[0]?.messages.some(
-          (message) =>
-            message.role === 'assistant' &&
-            Array.isArray(message.content) &&
-            message.content.length === 1 &&
-            message.content[0]?.type === 'text' &&
-            message.content[0]?.text === 'After tool. '
-        )
-      )
+      assert.doesNotMatch(JSON.stringify(resumedRequests[0]?.messages), /After tool\./)
+      assert.match(JSON.stringify(resumedRequests[0]?.messages), /Before tool\./)
       assert.ok(
         resumedRequests[0]?.messages.some(
           (message) =>
@@ -441,7 +433,11 @@ test('YachiyoServer bootstrap resumes an interrupted run from its persisted reco
             )
         )
       )
-      assert.equal(finalAssistant?.content, 'Before tool. After tool. Final answer.')
+      assert.equal(finalAssistant?.content, 'Before tool. Final answer.')
+      assert.equal(
+        finalAssistant?.textBlocks?.map((block) => block.content).join(''),
+        finalAssistant?.content
+      )
     } finally {
       waiter.close()
       await resumedServer.close()

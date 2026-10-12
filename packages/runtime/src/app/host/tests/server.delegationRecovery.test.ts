@@ -830,7 +830,8 @@ test('YachiyoServer keeps recovered response history when the provider retries m
           }>
         | undefined
 
-      assert.equal(finalAssistant?.content, 'Recovered prefix. Continued. After retry.')
+      assert.equal(finalAssistant?.content, 'Continued. After retry.')
+      assert.doesNotMatch(JSON.stringify(responseMessages), /Recovered prefix/)
       assert.ok(
         responseMessages?.some(
           (message) =>

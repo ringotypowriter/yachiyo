@@ -747,7 +747,7 @@ test('YachiyoServer recovers a committed transport failure and resumes from pres
   )
 })
 
-test('YachiyoServer preserves fresh continuation text when a recovered run does not replay the prefix', async () => {
+test('YachiyoServer replaces interrupted text with fresh output when recovery does not replay it', async () => {
   let attempt = 0
 
   await withServer(
@@ -778,10 +778,7 @@ test('YachiyoServer preserves fresh continuation text when a recovered run does 
           message.role === 'assistant' && message.parentMessageId === accepted.userMessage.id
       )
 
-      assert.equal(
-        finalAssistant?.content,
-        'Checking the workspace. Continuing from the saved work.'
-      )
+      assert.equal(finalAssistant?.content, 'Continuing from the saved work.')
     },
     {
       createModelRuntime: () => ({

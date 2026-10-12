@@ -2435,6 +2435,7 @@ test('executeServerRun resumes a websocket disconnect after committed text and a
     assert.equal(starts.length, 2)
     assert.equal(starts[1].message?.content, 'Before tool. ')
     assert.equal(starts[1].message?.status, 'streaming')
+    assert.match(JSON.stringify(starts[1].message?.responseMessages), /tc-once/)
     assert.equal(toolCalls.get('tc-once')?.status, 'completed')
     assert.equal(toolStarts, 1)
     assert.equal(toolFinishes, 1)

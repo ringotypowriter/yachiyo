@@ -36,6 +36,16 @@ export function rewindRecoveryOutput(
     remaining -= text.length
     return text ? [{ ...block, content: text }] : []
   })
+  if (content && textBlocks.length === 0) {
+    for (const part of parts) {
+      if (part.type !== 'text' || !part.text) continue
+      textBlocks.push({
+        id: `${checkpoint.assistantMessageId}-recovery-${textBlocks.length}`,
+        content: part.text,
+        createdAt: checkpoint.createdAt
+      })
+    }
+  }
 
   return {
     ...checkpoint,
