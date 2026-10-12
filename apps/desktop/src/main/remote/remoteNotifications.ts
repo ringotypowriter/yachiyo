@@ -46,6 +46,7 @@ export class RemoteNotifications {
 
   private async deliver(event: YachiyoServerEvent): Promise<void> {
     if (this.stopped || event.type !== 'run.completed' || event.recap === true) return
+    if (event.sentinel === 'active') return
     const run = `${event.threadId}:${event.runId}`
     if (this.completedRuns.has(run)) return
     this.completedRuns.add(run)

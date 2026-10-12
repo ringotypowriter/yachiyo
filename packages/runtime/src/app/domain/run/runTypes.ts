@@ -39,7 +39,7 @@ import type { ThingDomain } from '../things/thingDomain.ts'
 
 export type RunExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user' | 'terminal'
 
-export type InternalSendChatInput = SendChatInput
+export type InternalSendChatInput = SendChatInput & { sentinelWake?: boolean }
 
 export const CONTEXT_HANDOFF_CONTINUATION_STEER =
   'Context was checkpointed; continue the same task from the handoff summary without repeating completed tool calls.'

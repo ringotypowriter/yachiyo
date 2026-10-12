@@ -1,7 +1,7 @@
 import type { AppLanguage, ToolCallDisplayMode, UpdateChannel } from './protocol/appPreferences.ts'
 import type { ToolCallDetailsSnapshot } from './protocol/toolDetails.ts'
 import type { TodoItemRecord } from './protocol/events.ts'
-import type { ThingMentionResolution } from './protocol/things.ts'
+import type { MessageTurnContext } from './protocol/threadData.ts'
 import type { GroupProbeHeadlessAdapterConfig } from './protocol/groupProbeAdapters.ts'
 
 export * from './protocol/appPreferences.ts'
@@ -576,19 +576,6 @@ export function withThreadCapabilities<T extends object>(
     ...thread,
     capabilities: deriveThreadCapabilities(thread.runtimeBinding, thread.syncOriginDeviceId)
   }
-}
-
-/** Per-turn injected context (reminder, memory) persisted for lossless replay. */
-export interface MessageTurnContext {
-  reminder?: string
-  memoryEntries?: string[]
-  activityText?: string
-  enabledTools?: ToolCallName[]
-  enabledSkillNames?: string[]
-  runMode?: RunModeId
-  thingMentions?: ThingMentionResolution[]
-  /** Hidden user-message origin for timeline grouping. */
-  hiddenRequestKind?: 'steer' | 'follow-up'
 }
 
 export interface MessageRecord {

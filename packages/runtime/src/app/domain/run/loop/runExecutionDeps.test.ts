@@ -4,12 +4,14 @@ import test from 'node:test'
 import { DEFAULT_SETTINGS_CONFIG } from '../../../../settings/settingsStore.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type {
+  MessageRecord,
   ProviderSettings,
   RunModeId,
   ThreadRecord,
   TodoItemRecord,
   ToolCallName
 } from '@yachiyo/shared/protocol'
+import { createThreadSentinelManager } from '../../sentinel/threadSentinelManager.ts'
 import type { BackgroundTaskRunContext, RunState } from '../runTypes.ts'
 import { buildRunExecutionDeps, type RunExecutionDepsContext } from './runExecutionDeps.ts'
 
@@ -173,6 +175,8 @@ test('run execution deps preserve bundled REPL runtime dependencies', () => {
 function setupRunExecutionDeps(
   initialThread: ThreadRecord,
   overrides: {
+    requestMessage?: MessageRecord
+    sentinelManager?: ReturnType<typeof createThreadSentinelManager>
     requireThread?: (threadId: string) => ThreadRecord
     jsReplWorkerPath?: string | URL
     pyReplRunnerPath?: string | URL
@@ -231,7 +235,9 @@ function setupRunExecutionDeps(
   } as unknown as MemoryService
   const context = {
     deps: {
+      sentinelManager: overrides.sentinelManager,
       storage: {
+        getMessage: () => overrides.requestMessage,
         getThread: overrides.requireThread ?? (() => initialThread),
         updateThread: overrides.updateThread ?? (() => {})
       },
@@ -296,3 +302,50 @@ function setupRunExecutionDeps(
     })
   }
 }
+
+test('sentinel completion snapshots current state and leaves ordinary runs unchanged', () => {
+  const thread = { id: 'thread-1', title: 'Thread', updatedAt: NOW }
+  const sentinelManager = createThreadSentinelManager({
+    now: () => Date.parse(NOW),
+    setTimer: () => 1,
+    clearTimer: () => {},
+    emit: () => {},
+    wakeThread: async () => {}
+  })
+  sentinelManager.set({
+    threadId: thread.id,
+    goal: 'Wait',
+    stopCondition: 'Done',
+    intervalMinutes: 1
+  })
+  const requestMessage = {
+    id: 'request-1',
+    threadId: thread.id,
+    role: 'user',
+    content: 'Check',
+    status: 'completed',
+    createdAt: NOW,
+    turnContext: { sentinelWake: true }
+  } as MessageRecord
+  const { executionDeps, emittedEvents } = setupRunExecutionDeps(thread, {
+    requestMessage,
+    sentinelManager
+  })
+  const completion = { type: 'run.completed' as const, threadId: thread.id, runId: 'run-1' }
+  executionDeps.emit(completion)
+  assert.deepEqual(emittedEvents.at(-1), { ...completion, sentinel: 'active' })
+  sentinelManager.clear(thread.id)
+  executionDeps.emit(completion)
+  assert.deepEqual(emittedEvents.at(-1), { ...completion, sentinel: 'cleared' })
+  sentinelManager.set({
+    threadId: thread.id,
+    goal: 'Wait again',
+    stopCondition: 'Done',
+    intervalMinutes: 1
+  })
+  executionDeps.emit(completion)
+  assert.deepEqual(emittedEvents.at(-1), { ...completion, sentinel: 'active' })
+  const ordinary = setupRunExecutionDeps(thread, { sentinelManager })
+  ordinary.executionDeps.emit(completion)
+  assert.deepEqual(ordinary.emittedEvents, [completion])
+})

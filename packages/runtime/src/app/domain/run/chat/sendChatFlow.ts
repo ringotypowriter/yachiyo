@@ -108,7 +108,8 @@ export async function sendChatFlow(
     threadId: thread.id
   })
 
-  return runDebouncedSendChat(context, debounceKey, thread.id, async () => {
+  const requestKey = input.sentinelWake ? null : debounceKey
+  return runDebouncedSendChat(context, requestKey, thread.id, async () => {
     if (!hasMessagePayload({ content, images, attachments: input.attachments })) {
       throw new Error('Cannot send an empty message.')
     }
@@ -150,6 +151,7 @@ export async function sendChatFlow(
     if (!activeRunId) {
       return startFreshRun(context, {
         content,
+        sentinelWake: input.sentinelWake,
         enabledSkillNames,
         runMode,
         previousRunMode: input.previousRunMode,
@@ -251,6 +253,7 @@ function startFreshRun(
   context: SendChatFlowContext,
   input: {
     content: string
+    sentinelWake?: boolean
     enabledSkillNames?: string[]
     runMode: RunModeId
     previousRunMode?: RunModeId
@@ -296,7 +299,12 @@ function startFreshRun(
     threadId: input.thread.id,
     timestamp,
     hidden: input.hidden,
-    turnContext: createHiddenRequestTurnContext(input.hidden ? 'follow-up' : undefined)
+    turnContext: input.sentinelWake
+      ? {
+          ...createHiddenRequestTurnContext(input.hidden ? 'follow-up' : undefined),
+          sentinelWake: true
+        }
+      : createHiddenRequestTurnContext(input.hidden ? 'follow-up' : undefined)
   })
   const threadWithoutRecap = { ...input.thread }
   if (!input.hidden) delete threadWithoutRecap.recapText

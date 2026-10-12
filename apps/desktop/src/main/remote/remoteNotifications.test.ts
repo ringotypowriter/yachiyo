@@ -345,3 +345,15 @@ test('one failing phone does not release other in-flight response readers during
     assert.equal(await store.pushToken(second.record.pairingId), 'b'.repeat(64))
   })
 })
+
+for (const sentinel of ['active', 'cleared'] as const) {
+  test(`sentinel completion ${sentinel} only pushes when cleared`, async () => {
+    await harness(async ({ notifications, requests }) => {
+      await notifications.handle({ ...event(), sentinel } as YachiyoServerEvent)
+      await notifications.handle({ ...event(), sentinel } as YachiyoServerEvent)
+      assert.equal(requests.length, sentinel === 'cleared' ? 1 : 0)
+      await notifications.handle(event('ordinary-run'))
+      assert.equal(requests.length, sentinel === 'cleared' ? 2 : 1)
+    })
+  })
+}

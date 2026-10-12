@@ -877,3 +877,23 @@ test('YachiyoServer queues a steer that lands while the prior run is terminalizi
     }
   )
 })
+
+test('sentinel wake origin survives turn context preparation and reaches completion', async () => {
+  await withServer(async ({ server, storage, waitForEvent }) => {
+    await server.upsertProvider({
+      name: 'test',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: { enabled: ['gpt-5'], disabled: [] }
+    })
+    const thread = await server.createThread()
+    const input = { threadId: thread.id, content: 'Check progress', sentinelWake: true }
+    const accepted = await server.sendChat(input)
+    assertAcceptedHasUserMessage(accepted)
+    assert.equal(accepted.userMessage.turnContext?.sentinelWake, true)
+    const completion = (await waitForEvent('run.completed')) as Record<string, unknown>
+    assert.equal(storage.getMessage(accepted.userMessage.id)?.turnContext?.sentinelWake, true)
+    assert.equal(completion.sentinel, 'cleared')
+  })
+})

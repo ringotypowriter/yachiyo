@@ -1,3 +1,6 @@
+import type { RunModeId, ToolCallName } from '../protocol.ts'
+import type { ThingMentionResolution } from './things.ts'
+
 /**
  * Reading and writing one thread: which slice of it to read, and the plan
  * document attached to it.
@@ -38,4 +41,19 @@ export type AcceptThreadPlanDocumentMode = 'direct' | 'handoff'
 export interface AcceptThreadPlanDocumentInput {
   threadId: string
   mode?: AcceptThreadPlanDocumentMode
+}
+
+/** Per-turn injected context (reminder, memory) persisted for lossless replay. */
+export interface MessageTurnContext {
+  /** This request was submitted by the conversation sentinel. */
+  sentinelWake?: boolean
+  reminder?: string
+  memoryEntries?: string[]
+  activityText?: string
+  enabledTools?: ToolCallName[]
+  enabledSkillNames?: string[]
+  runMode?: RunModeId
+  thingMentions?: ThingMentionResolution[]
+  /** Hidden user-message origin for timeline grouping. */
+  hiddenRequestKind?: 'steer' | 'follow-up'
 }

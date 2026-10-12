@@ -530,6 +530,7 @@ export class YachiyoServer {
         await this.sendChat({
           threadId,
           content,
+          sentinelWake: true,
           enabledSkillNames: wakeContext?.enabledSkillNames,
           runMode: wakeContext?.runMode,
           reasoningEffort: wakeContext?.reasoningEffort,

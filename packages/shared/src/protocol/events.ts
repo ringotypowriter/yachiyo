@@ -106,6 +106,8 @@ export interface RunUsageUpdatedEvent extends RunEvent {
 
 export interface RunCompletedEvent extends RunEvent {
   type: 'run.completed'
+  /** Sentinel state at completion, only for sentinel-triggered runs. */
+  sentinel?: 'active' | 'cleared'
   lastCompletionTokens?: number
   recap?: boolean
   promptTokens?: number

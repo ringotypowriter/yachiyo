@@ -65,7 +65,19 @@ export function buildRunExecutionDeps(
     storage: input.storage,
     createId: deps.createId,
     timestamp: deps.timestamp,
-    emit: input.emit,
+    emit: (event) => {
+      if (
+        event.type === 'run.completed' &&
+        input.storage.getMessage(input.loopInput.requestMessageId)?.turnContext?.sentinelWake
+      ) {
+        input.emit({
+          ...event,
+          sentinel: deps.sentinelManager?.get(input.currentThread.id) ? 'active' : 'cleared'
+        })
+        return
+      }
+      input.emit(event)
+    },
     createModelRuntime: deps.createModelRuntime,
     auxiliaryGeneration: deps.auxiliaryGeneration,
     processBroker: deps.processBroker,
