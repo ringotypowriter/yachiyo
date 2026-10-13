@@ -6,12 +6,55 @@ import Foundation
 struct ToolPreviewDocument: Equatable {
     enum Key: Equatable {
         case notice, title, input, output, error
+        case parameter(String)
     }
 
     struct Section: Equatable {
         let key: Key
         let heading: String?
         let body: String
+        var language: String? = nil
+    }
+
+    /// Decode complete object inputs into readable fields. A shortened or non-object preview
+    /// stays intact rather than guessing at missing arguments.
+    static func inputSections(input: String?, title: String?, toolName: String) -> [Section] {
+        let object = input.flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let description = (object?["description"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? title
+        var sections: [Section] = []
+        if let description, !description.isEmpty {
+            sections.append(Section(key: .title, heading: "Description", body: description))
+        }
+        guard let input else { return sections }
+        guard var object, !object.isEmpty else {
+            sections.append(Section(key: .input, heading: "Input", body: input))
+            return sections
+        }
+        if object["description"] is String { object.removeValue(forKey: "description") }
+        let priority = ["command", "code"]
+        let keys = priority.filter { object[$0] != nil } + object.keys.filter { !priority.contains($0) }.sorted()
+        for key in keys {
+            guard let value = object[key] else { continue }
+            let body: String
+            let language: String?
+            if let string = value as? String {
+                body = string
+                switch key {
+                case "command": language = "bash"
+                case "code": language = toolName.lowercased().contains("py") ? "python" : "javascript"
+                default: language = nil
+                }
+            } else {
+                let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+                body = data.flatMap { String(data: $0, encoding: .utf8) } ?? String(describing: value)
+                language = "json"
+            }
+            let label = key.replacingOccurrences(of: "([a-z0-9])([A-Z])", with: "$1 $2", options: .regularExpression)
+                .replacingOccurrences(of: "_", with: " ")
+            sections.append(Section(key: .parameter(key), heading: label.prefix(1).uppercased() + label.dropFirst(), body: body, language: language))
+        }
+        return sections
     }
 
     /// A place in one section's body.

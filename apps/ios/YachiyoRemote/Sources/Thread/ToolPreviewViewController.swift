@@ -1,4 +1,5 @@
 import UIKit
+import MarkdownView
 import YachiyoMaterial
 import YachiyoRemoteKit
 
@@ -10,7 +11,16 @@ final class ToolPreviewViewController: UIViewController {
     private let toolCallId: String
     private let store = RemoteStore.shared
     // TextKit 1, for glyph-level positions when the text is replaced.
-    private let textView = UITextView(usingTextLayoutManager: false)
+    private let sectionLayout = ToolPreviewLayoutManager()
+    private lazy var textView: UITextView = {
+        let storage = NSTextStorage()
+        storage.addLayoutManager(sectionLayout)
+        let container = NSTextContainer(size: .zero)
+        container.widthTracksTextView = true
+        container.lineFragmentPadding = 0
+        sectionLayout.addTextContainer(container)
+        return UITextView(frame: .zero, textContainer: container)
+    }()
     private var document: ToolPreviewDocument?
     private var notice: String?
     private var isLoadingPreview = false
@@ -33,18 +43,25 @@ final class ToolPreviewViewController: UIViewController {
         view.backgroundColor = .yachiyo(.canvas)
         textView.backgroundColor = .clear
         textView.isEditable = false
+        textView.alwaysBounceVertical = true
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 32, right: 16)
         textView.accessibilityIdentifier = "toolPreview.body"
         textView.frame = view.bounds
         textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(textView)
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: String(localized: "Refresh"), primaryAction: UIAction { [weak self] _ in
+        navigationItem.largeTitleDisplayMode = .never
+        navigationController?.navigationBar.tintColor = .yachiyo(.ink)
+        navigationController?.sheetPresentationController?.selectedDetentIdentifier = .large
+        navigationItem.rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "arrow.clockwise"), primaryAction: UIAction { [weak self] _ in
             self?.refresh()
         })
-        navigationItem.leftBarButtonItem?.accessibilityIdentifier = "toolPreview.refresh"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+        navigationItem.rightBarButtonItem?.accessibilityLabel = "Refresh"
+        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "toolPreview.refresh"
+        navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "xmark"), primaryAction: UIAction { [weak self] _ in
             self?.dismiss(animated: true)
         })
+        navigationItem.leftBarButtonItem?.accessibilityLabel = "Close"
+        navigationItem.leftBarButtonItem?.accessibilityIdentifier = "toolPreview.close"
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitUserInterfaceStyle.self]) { (reader: ToolPreviewViewController, _: UITraitCollection) in
             // Fonts and colors are resolved into the attributed text; rebuild it in place.
             reader.render(rebuildingText: true)
@@ -85,7 +102,7 @@ final class ToolPreviewViewController: UIViewController {
         guard loadTask == nil else { return }
         isLoadingPreview = true
         notice = nil
-        navigationItem.leftBarButtonItem?.isEnabled = false
+        navigationItem.rightBarButtonItem?.isEnabled = false
         render()
         loadTask = Task { [weak self] in
             let notice = await request()
@@ -93,7 +110,7 @@ final class ToolPreviewViewController: UIViewController {
             loadTask = nil
             isLoadingPreview = false
             self.notice = notice
-            navigationItem.leftBarButtonItem?.isEnabled = true
+            navigationItem.rightBarButtonItem?.isEnabled = true
             render()
         }
     }
@@ -111,10 +128,7 @@ final class ToolPreviewViewController: UIViewController {
         }
         var sections: [ToolPreviewDocument.Section] = []
         if !notices.isEmpty { sections.append(.init(key: .notice, heading: nil, body: notices.joined(separator: "\n"))) }
-        if let title = call?.title, !title.isEmpty { sections.append(.init(key: .title, heading: nil, body: title)) }
-        if let input = preview.input {
-            sections.append(.init(key: .input, heading: String(localized: "Input"), body: input))
-        }
+        sections += ToolPreviewDocument.inputSections(input: preview.input, title: call?.title, toolName: call?.toolName ?? "")
         let output = isLoadingPreview && preview.output == nil
             ? String(localized: "Loading preview…")
             : preview.output ?? String(localized: "No output preview is available yet.")
@@ -132,6 +146,7 @@ final class ToolPreviewViewController: UIViewController {
         let position = previous.flatMap(readingPosition(in:))
         let selection = previous.flatMap { previous in next.carry(selection: textView.selectedRange, from: previous) }
         document = next
+        sectionLayout.bodyRanges = next.sections.filter { $0.key != .notice }.compactMap { next.bodyRange(of: $0.key) }
         textView.attributedText = attributedText(for: next)
         textView.selectedRange = selection ?? NSRange(location: 0, length: 0)
         if let previous, let position { restore(position, in: next, after: previous) }
@@ -142,11 +157,29 @@ final class ToolPreviewViewController: UIViewController {
             .font: YachiyoFonts.body(),
             .foregroundColor: UIColor.yachiyo(.ink),
         ])
-        let mono = UIFontMetrics(forTextStyle: .body).scaledFont(for: .monospacedSystemFont(ofSize: 14, weight: .regular))
-        for key in [ToolPreviewDocument.Key.input, .output, .error] {
-            if let range = document.bodyRange(of: key) { text.addAttribute(.font, value: mono, range: range) }
-            if let range = document.headingRange(of: key) {
-                text.addAttributes([.font: YachiyoFonts.sectionTitle(), .foregroundColor: UIColor.yachiyo(.textSecondary)], range: range)
+        let mono = UIFontMetrics(forTextStyle: .body).scaledFont(for: .monospacedSystemFont(ofSize: 16, weight: .regular))
+        for section in document.sections where section.key != .notice {
+            if let range = document.bodyRange(of: section.key) {
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.firstLineHeadIndent = 10
+                paragraph.headIndent = 10
+                paragraph.tailIndent = -10
+                paragraph.lineSpacing = 2
+                paragraph.lineBreakMode = section.key == .title ? .byWordWrapping : .byCharWrapping
+                text.addAttributes([.font: section.key == .title ? YachiyoFonts.body() : mono, .paragraphStyle: paragraph], range: range)
+                // Reuse the chat renderer's cached, adaptive syntax colors. Bound synchronous
+                // highlighting work; very large previews remain selectable plain text.
+                if let language = section.language, range.length <= 32_000 {
+                    for (token, color) in CodeHighlighter.current.highlight(key: nil, content: section.body, language: language) {
+                        text.addAttribute(.foregroundColor, value: color, range: NSRange(location: range.location + token.location, length: token.length))
+                    }
+                }
+            }
+            if let range = document.headingRange(of: section.key) {
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.paragraphSpacingBefore = 8
+                paragraph.paragraphSpacing = 14
+                text.addAttributes([.font: YachiyoFonts.body(), .foregroundColor: UIColor.yachiyo(.textSecondary), .paragraphStyle: paragraph], range: range)
             }
         }
         if let range = document.bodyRange(of: .notice) {
@@ -184,5 +217,31 @@ final class ToolPreviewViewController: UIViewController {
         let maximum = max(minimum, textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom)
         let target = line.minY + position.lineOffset + textView.textContainerInset.top - textView.adjustedContentInset.top
         textView.contentOffset.y = min(max(target, minimum), maximum)
+    }
+}
+
+/// Draw field surfaces behind the continuous selectable text, so refresh can keep the same
+/// TextKit reading anchor and selection instead of rebuilding a stack of independent readers.
+private final class ToolPreviewLayoutManager: NSLayoutManager {
+    var bodyRanges: [NSRange] = []
+
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+        if let container = textContainers.first {
+            for range in bodyRanges where range.length > 0 {
+                let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                guard NSIntersectionRange(glyphs, glyphsToShow).length > 0 else { continue }
+                var rect = boundingRect(forGlyphRange: glyphs, in: container)
+                rect.origin.x = 0
+                rect.size.width = container.size.width
+                rect = rect.insetBy(dx: 0, dy: -8).offsetBy(dx: origin.x, dy: origin.y)
+                let path = UIBezierPath(roundedRect: rect, cornerRadius: 8)
+                UIColor.yachiyo(.surface).setFill()
+                path.fill()
+                UIColor.separator.withAlphaComponent(0.12).setStroke()
+                path.lineWidth = 1
+                path.stroke()
+            }
+        }
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
     }
 }

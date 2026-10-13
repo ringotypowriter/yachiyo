@@ -421,6 +421,8 @@ final class RemoteSmokeTests: XCTestCase {
         let loaded = NSPredicate(format: "value CONTAINS 'Output' AND NOT (value CONTAINS 'Loading preview')")
         expectation(for: loaded, evaluatedWith: preview)
         waitForExpectations(timeout: 15)
+        XCTAssertTrue((preview.value as? String)?.contains("Description") == true)
+        XCTAssertTrue(app.buttons["toolPreview.close"].exists)
         capture("tool-details-preview")
         preview.swipeUp()
         // Refresh updates this reader in place rather than replacing the sheet's content.
@@ -431,7 +433,7 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(preview.exists)
         expectation(for: loaded, evaluatedWith: preview)
         waitForExpectations(timeout: 5)
-        app.navigationBars.buttons["Done"].tap()
+        app.buttons["toolPreview.close"].tap()
         let media = app.buttons["composer.more"]
         XCTAssertTrue(media.waitForExistence(timeout: 10))
         media.tap()

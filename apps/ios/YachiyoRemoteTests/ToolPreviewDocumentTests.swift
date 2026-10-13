@@ -1,8 +1,99 @@
 import XCTest
+import UIKit
+import YachiyoRemoteKit
 @testable import Yachiyo
 
 final class ToolPreviewDocumentTests: XCTestCase {
     private typealias Document = ToolPreviewDocument
+
+    @MainActor
+    func testNativeSheetWrapsAndHighlightsCommandWithoutChangingSelectableText() async throws {
+        let id = UUID().uuidString
+        let command = "python3 - <<'EOF'\nimport json\npath = '/tmp/" + String(repeating: "long-directory/", count: 10) + "report.json'\nprint(path)\nEOF"
+        let input = try JSONSerialization.data(withJSONObject: ["description": "Inspect the cached report and print its location", "command": command])
+        let payload: [String: Any] = [
+            "type": "tool.updated", "threadId": id, "summaryOnly": true,
+            "toolCall": ["id": id, "toolName": "bash", "title": "Inspect report", "status": "completed", "startedAt": "2026-10-13T09:00:00Z", "truncated": false,
+                         "inputPreview": String(decoding: input, as: UTF8.self), "outputPreview": "Report found"],
+        ]
+        let event = try JSONDecoder().decode(RemoteEvent.self, from: JSONSerialization.data(withJSONObject: payload))
+        let thread = ThreadStore(desktopId: id, threadId: id)
+        await thread.open()
+        defer { thread.close() }
+        RemoteStore.shared.threadEvents.send((desktopId: id, event: event, seq: 1))
+        let controller = ToolPreviewViewController(thread: thread, toolCallId: id)
+        let navigation = UINavigationController(rootViewController: controller)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = navigation
+        window.isHidden = false
+        defer { window.isHidden = true }
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        let reader = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? UITextView }.first)
+        XCTAssertFalse(reader.isEditable)
+        XCTAssertTrue(reader.isSelectable)
+        XCTAssertTrue(reader.text.contains(command))
+        XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "toolPreview.close")
+        XCTAssertEqual(controller.navigationItem.rightBarButtonItem?.accessibilityIdentifier, "toolPreview.refresh")
+        let range = (reader.text as NSString).range(of: command)
+        var colors = Set<String>()
+        reader.attributedText.enumerateAttribute(.foregroundColor, in: range) { value, _, _ in
+            if let color = value as? UIColor { colors.insert(color.description) }
+        }
+        XCTAssertGreaterThan(colors.count, 1)
+        for (name, width, appearance) in [("light", 390.0, UIUserInterfaceStyle.light), ("dark-narrow", 320.0, .dark)] {
+            window.frame.size.width = width
+            window.overrideUserInterfaceStyle = appearance
+            window.layoutIfNeeded()
+            reader.layoutManager.ensureLayout(for: reader.textContainer)
+            XCTAssertLessThanOrEqual(reader.contentSize.width, reader.bounds.width + 1)
+            let glyphs = reader.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            let bounds = reader.layoutManager.boundingRect(forGlyphRange: glyphs, in: reader.textContainer)
+            XCTAssertGreaterThan(bounds.height, 120)
+            let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { context in
+                window.layer.render(in: context.cgContext)
+            }
+            let attachment = XCTAttachment(image: screenshot)
+            attachment.name = "tool-sheet-\(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    func testBashInputSeparatesDescriptionAndUnescapedCommandWithoutLosingOptions() {
+        let sections = Document.inputSections(
+            input: #"{"command":"echo \"hello\"\nprintf '世界'","description":"Print a greeting","timeout":30,"background":false}"#,
+            title: "Fallback title", toolName: "bash"
+        )
+        XCTAssertEqual(sections.map(\.heading), ["Description", "Command", "Background", "Timeout"])
+        XCTAssertEqual(sections.map(\.body), ["Print a greeting", "echo \"hello\"\nprintf '世界'", "false", "30"])
+        XCTAssertEqual(sections[1].language, "bash")
+    }
+
+    func testCodeArgumentsKeepTheirLanguageAndNestedValues() {
+        let sections = Document.inputSections(input: #"{"code":"print('ok')","options":{"items":[1,2]}}"#, title: "Run Python", toolName: "pyRepl")
+        XCTAssertEqual(sections[1].language, "python")
+        XCTAssertEqual(sections[1].body, "print('ok')")
+        XCTAssertEqual(sections[2].language, "json")
+        XCTAssertTrue(sections[2].body.contains("items"))
+    }
+
+    func testMalformedOrTruncatedInputIsPreservedVerbatim() {
+        let input = "{\"command\":\"partial"
+        let sections = Document.inputSections(input: input, title: "Run command", toolName: "bash")
+        XCTAssertEqual(sections.map(\.body), ["Run command", input])
+        XCTAssertEqual(sections.last?.heading, "Input")
+        XCTAssertEqual(Document.inputSections(input: nil, title: "Run command", toolName: "bash").count, 1)
+    }
+
+    func testParameterSelectionSurvivesOtherParametersBeingInserted() {
+        let before = Document(sections: Document.inputSections(input: #"{"path":"/tmp/世界"}"#, title: "Read file", toolName: "read"))
+        let after = Document(sections: Document.inputSections(input: #"{"limit":20,"path":"/tmp/世界"}"#, title: "Read file", toolName: "read"))
+        let selection = (before.text as NSString).range(of: "/tmp/世界")
+        XCTAssertEqual(after.carry(selection: selection, from: before), (after.text as NSString).range(of: "/tmp/世界"))
+    }
 
     private func document(notice: String? = nil, input: String = "ls -la", output: String) -> Document {
         Document(sections: [
