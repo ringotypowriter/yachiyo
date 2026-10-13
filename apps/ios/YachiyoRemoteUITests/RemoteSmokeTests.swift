@@ -28,6 +28,43 @@ final class RemoteSmokeTests: XCTestCase {
         app.launch()
     }
 
+    func testMarkAllAsRead() throws {
+        continueAfterPairing()
+        // Existing simulators can retain other desktops; select this test's harness.
+        let url = try XCTUnwrap(ProcessInfo.processInfo.environment["YACHIYO_PAIRING_URL"])
+        let encoded = try XCTUnwrap(URLComponents(string: url)?.queryItems?.first { $0.name == "d" }?.value)
+            .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let data = try XCTUnwrap(Data(base64Encoded: encoded + String(repeating: "=", count: (4 - encoded.count % 4) % 4)))
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let desktopId = try XCTUnwrap(payload["remoteDeviceId"] as? String)
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "inbox", "-inboxDesktopId", desktopId]
+        app.launch()
+        let list = app.collectionViews["inbox.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 30))
+        let markRead = app.buttons["inbox.markAllRead"]
+        XCTAssertTrue(markRead.waitForExistence(timeout: 10))
+        XCTAssertFalse(markRead.isEnabled)
+
+        // A later completion must light the button again after clearing the first one.
+        for _ in 0..<2 {
+            app.buttons["inbox.new"].tap()
+            send("slow: finish after leaving the thread")
+            XCTAssertTrue(element("composer.stop").waitForExistence(timeout: 30))
+            app.navigationBars.buttons["BackButton"].tap()
+            let completed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: markRead)
+            XCTAssertEqual(XCTWaiter.wait(for: [completed], timeout: 60), .completed)
+            markRead.tap()
+            let cleared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == false"), object: markRead)
+            XCTAssertEqual(XCTWaiter.wait(for: [cleared], timeout: 10), .completed)
+            XCTAssertTrue(list.cells.firstMatch.exists)
+        }
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "inbox-all-read"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     func testBackgroundTaskLiveStatusAndOutput() throws {
         continueAfterPairing()
         // Existing simulators can retain other desktops; explicitly select this fixture.

@@ -608,6 +608,11 @@ final class RemoteStore {
         }
     }
 
+    func markAllAsRead() {
+        guard !unreadCompletions.isEmpty else { return }
+        unreadCompletions.removeAll()
+    }
+
     func clearOpenThread(desktopId: String, threadId: String) {
         guard openThread?.desktopId == desktopId, openThread?.threadId == threadId else { return }
         links[desktopId]?.watch(threadIds: [])

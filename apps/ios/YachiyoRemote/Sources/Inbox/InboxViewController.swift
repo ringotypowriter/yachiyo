@@ -74,6 +74,7 @@ final class InboxViewController: UIViewController {
     private var needsStoreRefresh = false
     private let desktopButton = UIButton(type: .system)
     private let filterStatus = UIButton(type: .system)
+    private lazy var markReadItem = UIBarButtonItem(image: .lucide("circle-check"), primaryAction: UIAction { [weak self] _ in self?.store.markAllAsRead() })
     private lazy var filterItem = UIBarButtonItem(image: .lucide("list-filter"), menu: makeFilterMenu())
     private lazy var newItem = UIBarButtonItem(image: .lucide("square-pen"), primaryAction: UIAction { [weak self] _ in self?.presentNewThread() })
 
@@ -127,7 +128,10 @@ final class InboxViewController: UIViewController {
         let settings = UIBarButtonItem(image: .lucide("settings"), primaryAction: UIAction { [weak self] _ in self?.presentSettings() })
         settings.accessibilityIdentifier = "inbox.settings"
         settings.accessibilityLabel = String(localized: "Settings")
-        navigationItem.rightBarButtonItem = settings
+        markReadItem.accessibilityIdentifier = "inbox.markAllRead"
+        markReadItem.accessibilityLabel = String(localized: "Mark all as read")
+        markReadItem.isEnabled = !store.unreadCompletions.isEmpty
+        navigationItem.rightBarButtonItems = [settings, markReadItem]
     }
 
     private func configureCollectionView() {
@@ -228,6 +232,7 @@ final class InboxViewController: UIViewController {
 
     private func refreshFromStore() {
         needsStoreRefresh = false
+        markReadItem.isEnabled = !store.unreadCompletions.isEmpty
         synchronizeDesktop()
         applySnapshot()
         runPendingRoute()
