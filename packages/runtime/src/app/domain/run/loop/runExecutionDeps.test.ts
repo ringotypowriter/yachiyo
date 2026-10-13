@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { parseTurnContext, serializeTurnContext } from '../../../../storage/storage.ts'
 import { DEFAULT_SETTINGS_CONFIG } from '../../../../settings/settingsStore.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type {
@@ -303,7 +304,7 @@ function setupRunExecutionDeps(
   }
 }
 
-test('sentinel completion snapshots current state and leaves ordinary runs unchanged', () => {
+test('persisted sentinel completion snapshots current state and leaves ordinary runs unchanged', () => {
   const thread = { id: 'thread-1', title: 'Thread', updatedAt: NOW }
   const sentinelManager = createThreadSentinelManager({
     now: () => Date.parse(NOW),
@@ -325,7 +326,7 @@ test('sentinel completion snapshots current state and leaves ordinary runs uncha
     content: 'Check',
     status: 'completed',
     createdAt: NOW,
-    turnContext: { sentinelWake: true }
+    turnContext: parseTurnContext(serializeTurnContext({ sentinelWake: true }))
   } as MessageRecord
   const { executionDeps, emittedEvents } = setupRunExecutionDeps(thread, {
     requestMessage,

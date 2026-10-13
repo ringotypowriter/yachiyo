@@ -1183,6 +1183,7 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
   }
 
   const hasReminder = turnContext.reminder?.trim()
+  const sentinelWake = turnContext.sentinelWake === true
   const hasMemory = turnContext.memoryEntries && turnContext.memoryEntries.length > 0
   const hasEnabledTools = turnContext.enabledTools !== undefined
   const hasEnabledSkillNames = turnContext.enabledSkillNames !== undefined
@@ -1191,6 +1192,7 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
 
   if (
     !hasReminder &&
+    !sentinelWake &&
     !hasMemory &&
     !hasEnabledTools &&
     !hasEnabledSkillNames &&
@@ -1201,6 +1203,7 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
   }
 
   return JSON.stringify({
+    ...(sentinelWake ? { sentinelWake: true } : {}),
     ...(hasReminder ? { reminder: turnContext.reminder } : {}),
     ...(hasMemory ? { memoryEntries: turnContext.memoryEntries } : {}),
     ...(hasEnabledTools
@@ -1221,6 +1224,7 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
 
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>
+    const sentinelWake = parsed.sentinelWake === true
     const reminder =
       typeof parsed.reminder === 'string' && parsed.reminder.trim().length > 0
         ? parsed.reminder
@@ -1240,6 +1244,7 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
       : undefined
     if (
       reminder === undefined &&
+      !sentinelWake &&
       memoryEntries.length === 0 &&
       enabledTools === undefined &&
       enabledSkillNames === undefined &&
@@ -1249,6 +1254,7 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
       return undefined
     }
     return {
+      ...(sentinelWake ? { sentinelWake: true } : {}),
       ...(reminder !== undefined ? { reminder } : {}),
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
       ...(enabledTools !== undefined ? { enabledTools } : {}),

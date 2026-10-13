@@ -191,3 +191,24 @@ test('parseTurnContext handles tool-only context', () => {
   const parsed = parseTurnContext(serializeTurnContext(ctx))
   assert.deepEqual(parsed, ctx)
 })
+
+test('turn context preserves sentinel wake through persistence', () => {
+  const context = { sentinelWake: true }
+  assert.deepEqual(parseTurnContext(serializeTurnContext(context)), context)
+})
+
+test('turn context preserves sentinel wake alongside prepared run context', () => {
+  const context = {
+    sentinelWake: true,
+    reminder: 'Check progress',
+    enabledTools: ['useSentinel' as const],
+    enabledSkillNames: [],
+    runMode: 'auto' as const
+  }
+  assert.deepEqual(parseTurnContext(serializeTurnContext(context)), context)
+})
+
+test('turn context does not infer sentinel wake from false or invalid values', () => {
+  assert.equal(parseTurnContext(serializeTurnContext({ sentinelWake: false })), undefined)
+  assert.equal(parseTurnContext('{"sentinelWake":"true"}'), undefined)
+})
