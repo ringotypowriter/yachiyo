@@ -12,7 +12,9 @@ final class ReasoningContentView: MessageListRowView {
         $0.isSelectable = true
     }
 
-    private lazy var thinkingTile: ThinkingTile = .init()
+    private lazy var thinkingTile: ThinkingTile = .init().with {
+        $0.isThinking = isThinking
+    }
 
     static let paragraphStyle: NSParagraphStyle = {
         let style = NSMutableParagraphStyle()
