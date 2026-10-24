@@ -12,10 +12,20 @@ import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import type { UserDocument } from '@yachiyo/shared/protocol'
 
-async function waitForCondition(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!predicate() && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5))
+function createStreamGate(): {
+  ready: Promise<void>
+  release: () => void
+  wait: () => Promise<void>
+} {
+  const ready = Promise.withResolvers<void>()
+  const released = Promise.withResolvers<void>()
+  return {
+    ready: ready.promise,
+    release: released.resolve,
+    wait: () => {
+      ready.resolve()
+      return released.promise
+    }
   }
 }
 
@@ -555,7 +565,7 @@ test('YachiyoServer copies the source workspace when creating a branch thread', 
 
 test('YachiyoServer creates a branch while the source thread has an active run', async () => {
   let requestCount = 0
-  let releaseActiveRun: (() => void) | null = null
+  const activeRunGate = createStreamGate()
 
   await withServer(
     async ({ server, completeRun, workspacePathForThread }) => {
@@ -587,11 +597,8 @@ test('YachiyoServer creates a branch while the source thread has an active run',
         content: 'Keep running'
       })
 
-      await waitForCondition(() => Boolean(releaseActiveRun))
-      const release = releaseActiveRun
-      assert.ok(release, 'active run should reach the model stream before branching')
-
       try {
+        await activeRunGate.ready
         const bootstrap = await server.bootstrap()
         const firstAssistant = bootstrap.messagesByThread[thread.id]?.find(
           (message) => message.role === 'assistant'
@@ -617,7 +624,7 @@ test('YachiyoServer creates a branch while the source thread has an active run',
         )
         await assert.rejects(access(join(branchWorkspacePath, 'during-run.txt')))
       } finally {
-        release()
+        activeRunGate.release()
         await completeRun(secondRun.runId)
       }
     },
@@ -656,9 +663,7 @@ test('YachiyoServer creates a branch while the source thread has an active run',
             { abortSignal: request.signal }
           )
 
-          await new Promise<void>((resolve) => {
-            releaseActiveRun = resolve
-          })
+          await activeRunGate.wait()
           yield ' done'
         }
       })
@@ -668,8 +673,8 @@ test('YachiyoServer creates a branch while the source thread has an active run',
 
 test('YachiyoServer keeps active-run reply workspace changes when branching from that reply', async () => {
   let requestCount = 0
-  let finishFirstLeg: (() => void) | null = null
-  let finishSecondLeg: (() => void) | null = null
+  const firstLeg = createStreamGate()
+  const secondLeg = createStreamGate()
 
   await withServer(
     async ({ server, completeRun, workspacePathForThread }) => {
@@ -694,22 +699,16 @@ test('YachiyoServer keeps active-run reply workspace changes when branching from
         content: 'Produce active reply'
       })
 
-      await waitForCondition(() => Boolean(finishFirstLeg))
-      const releaseFirst = finishFirstLeg
-      assert.ok(releaseFirst, 'first active run leg should reach the model stream')
-
-      await server.sendChat({
-        threadId: thread.id,
-        content: 'Continue this same run',
-        mode: 'steer'
-      })
-      releaseFirst()
-
-      await waitForCondition(() => Boolean(finishSecondLeg))
-      const releaseSecond = finishSecondLeg
-      assert.ok(releaseSecond, 'second active run leg should keep the run active')
-
       try {
+        await firstLeg.ready
+        await server.sendChat({
+          threadId: thread.id,
+          content: 'Continue this same run',
+          mode: 'steer'
+        })
+        firstLeg.release()
+        await secondLeg.ready
+
         const bootstrap = await server.bootstrap()
         const activeAssistant = bootstrap.messagesByThread[thread.id]?.find(
           (message) => message.role === 'assistant' && message.content === 'Active answer'
@@ -737,7 +736,8 @@ test('YachiyoServer keeps active-run reply workspace changes when branching from
         )
         await assert.rejects(access(join(branchWorkspacePath, 'later-run.txt')))
       } finally {
-        releaseSecond()
+        firstLeg.release()
+        secondLeg.release()
         await completeRun(activeRun.runId)
       }
     },
@@ -773,9 +773,7 @@ test('YachiyoServer keeps active-run reply workspace changes when branching from
               { abortSignal: request.signal }
             )
 
-            await new Promise<void>((resolve) => {
-              finishFirstLeg = resolve
-            })
+            await firstLeg.wait()
             return
           }
 
@@ -804,9 +802,7 @@ test('YachiyoServer keeps active-run reply workspace changes when branching from
             { abortSignal: request.signal }
           )
 
-          await new Promise<void>((resolve) => {
-            finishSecondLeg = resolve
-          })
+          await secondLeg.wait()
           yield ' done'
         }
       })
