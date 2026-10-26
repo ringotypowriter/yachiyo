@@ -44,7 +44,7 @@ export default defineConfig({
             {
               label: 'Guides',
               description:
-                'task-oriented guides for providers, skills, workspaces, channels, and schedules',
+                'task-oriented guides for providers, skills, workspaces, channels, schedules, and remote access',
               paths: ['docs/guides/**']
             }
           ]
@@ -98,6 +98,7 @@ export default defineConfig({
             { slug: 'docs/guides/coding-agents' },
             { slug: 'docs/guides/schedules' },
             { slug: 'docs/guides/channels' },
+            { slug: 'docs/guides/remote' },
             { slug: 'docs/guides/web-search' },
             { slug: 'docs/guides/sync' }
           ]
@@ -114,6 +115,7 @@ export default defineConfig({
             { slug: 'docs/cli/schedule' },
             { slug: 'docs/cli/channel' },
             { slug: 'docs/cli/send' },
+            { slug: 'docs/cli/remote' },
             { slug: 'docs/cli/soul' }
           ]
         },

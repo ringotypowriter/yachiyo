@@ -104,6 +104,8 @@ Once the basics work, the pieces that make Yachiyo a resident rather than a tab:
   at a specific time. Morning digests, nightly checks, one-off reminders.
 - **[Channels](/docs/guides/channels/)** — connect Telegram, Discord, or QQ so
   the same assistant, with the same memory, answers from your phone.
+- **[Remote access](/docs/guides/remote/)** — pair an iPhone to follow desktop
+  conversations, send messages, and answer questions while you are away.
 - **[Coding agents](/docs/guides/coding-agents/)** — hand implementation work to
   Claude Code or Codex over ACP and get the result back in the thread.
 - **[Memory and persona](/docs/guides/memory-and-persona/)** — `SOUL.md` and

@@ -95,6 +95,27 @@ Set `[chat].defaultRunMode` instead. See [run modes](/docs/concepts/#run-modes).
 | --------- | -------- | ----------------------------------------------------- |
 | `syncDir` | `string` | Sync folder path. Empty disables sync on this device. |
 
+## `[remote]`
+
+Configure phone access in **Settings → Remote**. See the
+[Remote access guide](/docs/guides/remote/) for activation, pairing, and setup.
+
+| Key                | Type                                            | Default | Description                                                                                       |
+| ------------------ | ----------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `enabled`          | `boolean`                                       | `false` | Start the Remote service; turning it off keeps pairing records                                    |
+| `tunnel`           | `"quick"` \| `"named"` \| `"none"` \| `"relay"` | `quick` | Connection method; `relay` means Yachiyo Connect, and `none` uses external or LAN access          |
+| `port`             | `number`                                        | `47831` | Local Remote WebSocket port                                                                       |
+| `metricsPort`      | `number`                                        | `47832` | Local `cloudflared` metrics port used for address discovery                                       |
+| `namedHostname`    | `string`                                        | `""`    | Hostname for a named tunnel                                                                       |
+| `publicEndpoint`   | `string`                                        | `""`    | Public HTTPS or WSS address when `tunnel` is `none`                                               |
+| `lanEndpoint`      | `boolean`                                       | `false` | Listen on the local network and advertise a LAN address                                           |
+| `keepAwakeOnPower` | `boolean`                                       | `true`  | Prevent app suspension on AC power while Remote is enabled; system sleep still disconnects phones |
+
+Choosing `relay` requires prior Connect activation with an invitation. The app
+stores its Connect credential encrypted on this device, outside `config.toml`.
+Selecting `quick` or `named` does not install a tunnel; use
+[`yachiyo remote tunnel install`](/docs/cli/remote/).
+
 ## `[skills]`
 
 | Key        | Type       | Description                     |

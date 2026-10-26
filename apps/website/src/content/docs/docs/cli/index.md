@@ -5,7 +5,7 @@ description: The yachiyo command — namespaces, global flags, and what to do wh
 
 The `yachiyo` command drives the same local instance the desktop app uses. Most
 of it reads and writes `~/.yachiyo` directly, so it works whether or not the app
-is running — the exception is `send`, which needs a live app.
+is running. The `send`, `update`, and `remote` commands require a running app.
 
 ```
 yachiyo <namespace> <subcommand> [args...] [flags...]
@@ -27,17 +27,18 @@ hand-writing a JSON payload.
 
 ## Namespaces
 
-| Namespace                         | Purpose                                               |
-| --------------------------------- | ----------------------------------------------------- |
-| [`soul`](/docs/cli/soul/)         | Manage evolving persona traits                        |
-| [`provider`](/docs/cli/provider/) | Manage AI providers and models                        |
-| [`agent`](/docs/cli/agent/)       | Subagent runtime mode and ACP profiles                |
-| [`config`](/docs/cli/config/)     | Read and write configuration values                   |
-| [`thread`](/docs/cli/thread/)     | Search and inspect conversation history               |
-| [`schedule`](/docs/cli/schedule/) | Manage scheduled tasks and run history                |
-| [`channel`](/docs/cli/channel/)   | List channel users and groups, set status and labels  |
-| [`send`](/docs/cli/send/)         | Send notifications and channel messages               |
-| `doctor`                          | Diagnose platform runtime, binaries, and capabilities |
+| Namespace                         | Purpose                                                  |
+| --------------------------------- | -------------------------------------------------------- |
+| [`soul`](/docs/cli/soul/)         | Manage evolving persona traits                           |
+| [`provider`](/docs/cli/provider/) | Manage AI providers and models                           |
+| [`agent`](/docs/cli/agent/)       | Subagent runtime mode and ACP profiles                   |
+| [`config`](/docs/cli/config/)     | Read and write configuration values                      |
+| [`thread`](/docs/cli/thread/)     | Search and inspect conversation history                  |
+| [`schedule`](/docs/cli/schedule/) | Manage scheduled tasks and run history                   |
+| [`channel`](/docs/cli/channel/)   | List channel users and groups, set status and labels     |
+| [`send`](/docs/cli/send/)         | Send notifications and channel messages                  |
+| [`remote`](/docs/cli/remote/)     | Inspect Remote access, manage tunnels, and unpair phones |
+| `doctor`                          | Diagnose platform runtime, binaries, and capabilities    |
 
 `yachiyo doctor` prints a readable platform report. `yachiyo doctor --json`
 prints only structured JSON, which is safe to attach to a bug report: it does

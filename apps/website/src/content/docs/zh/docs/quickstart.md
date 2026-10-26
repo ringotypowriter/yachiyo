@@ -76,6 +76,7 @@ yachiyo provider set-default anthropic --model <model-name>
 
 - **[定时任务](/zh/docs/guides/schedules/)** —— 按 cron 表达式或在指定时间执行一段提示词。早报、夜间巡检、一次性提醒。
 - **[频道](/zh/docs/guides/channels/)** —— 接上 Telegram、Discord 或 QQ，让同一个助手、带着同一份记忆，在你手机上回话。
+- **[远程访问](/zh/docs/guides/remote/)** —— 配对 iPhone，离开电脑后继续查看对话、发送消息和回答提问。
 - **[编码智能体](/zh/docs/guides/coding-agents/)** —— 把实现工作交给子智能体或外部编码智能体，结果回到线程里。
 - **[记忆与人格](/zh/docs/guides/memory-and-persona/)** —— `SOUL.md` 和 `USER.md` 决定它在每个线程和频道里的表现。
 

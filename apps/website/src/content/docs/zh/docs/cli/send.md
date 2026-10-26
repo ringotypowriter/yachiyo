@@ -7,7 +7,7 @@ description: 从脚本里推送系统通知和频道消息。需要应用处于�
 `~/.yachiyo/yachiyo.sock`，Windows 使用命名管道。
 
 :::caution[应用必须在运行]
-和命令行的其余部分不同，`send` 需要一个活着的应用。没有的话你会看到：
+`send` 需要桌面应用正在运行。没有的话你会看到：
 
 ```
 Yachiyo app is not running. Start the app first.

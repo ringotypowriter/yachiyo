@@ -7,7 +7,7 @@ Fire-and-forget commands that talk to the running Yachiyo app over its local
 command endpoint: `~/.yachiyo/yachiyo.sock` on macOS or a named pipe on Windows.
 
 :::caution[The app must be running]
-Unlike the rest of the CLI, `send` needs a live app. Without one you get:
+`send` needs a live app. Without one you get:
 
 ```
 Yachiyo app is not running. Start the app first.

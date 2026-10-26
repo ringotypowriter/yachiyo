@@ -83,6 +83,23 @@ runMode = "auto"
 | --------- | -------- | ---------------------------------------- |
 | `syncDir` | `string` | 同步文件夹路径。留空则在本设备停用同步。 |
 
+## `[remote]`
+
+在 **设置 → 远程** 中配置手机访问。激活、配对和连接步骤见[远程访问指南](/zh/docs/guides/remote/)。
+
+| 键                 | 类型                                            | 默认    | 说明                                                              |
+| ------------------ | ----------------------------------------------- | ------- | ----------------------------------------------------------------- |
+| `enabled`          | `boolean`                                       | `false` | 启动远程服务；关闭后保留配对记录                                  |
+| `tunnel`           | `"quick"` \| `"named"` \| `"none"` \| `"relay"` | `quick` | 连接方式；`relay` 是 Yachiyo Connect，`none` 使用外部地址或局域网 |
+| `port`             | `number`                                        | `47831` | 本地远程 WebSocket 端口                                           |
+| `metricsPort`      | `number`                                        | `47832` | 用于发现地址的本地 `cloudflared` 指标端口                         |
+| `namedHostname`    | `string`                                        | `""`    | 命名隧道的域名                                                    |
+| `publicEndpoint`   | `string`                                        | `""`    | `tunnel` 为 `none` 时使用的公网 HTTPS 或 WSS 地址                 |
+| `lanEndpoint`      | `boolean`                                       | `false` | 监听局域网，并公布局域网地址                                      |
+| `keepAwakeOnPower` | `boolean`                                       | `true`  | 远程访问开启且接通电源时防止应用挂起；系统休眠仍会断开手机        |
+
+选择 `relay` 前，需要先用邀请码激活 Connect。应用将 Connect 凭据加密保存在本机，不写入 `config.toml`。选择 `quick` 或 `named` 不会安装隧道，需要使用 [`yachiyo remote tunnel install`](/zh/docs/cli/remote/)。
+
 ## `[skills]`
 
 | 键         | 类型       | 说明             |

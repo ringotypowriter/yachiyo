@@ -3,7 +3,7 @@ title: 命令行总览
 description: yachiyo 命令 —— 命名空间、全局参数，以及找不到命令时怎么办。
 ---
 
-`yachiyo` 命令驱动的是桌面应用用的那同一个本地实例。它大部分直接读写 `~/.yachiyo`，所以应用开没开都能用 —— 例外是 `send`，它需要一个活着的应用。
+`yachiyo` 命令驱动的是桌面应用用的那同一个本地实例。它大部分直接读写 `~/.yachiyo`，所以应用开没开都能用。`send`、`update` 和 `remote` 命令需要桌面应用正在运行。
 
 ```
 yachiyo <namespace> <subcommand> [args...] [flags...]
@@ -19,17 +19,18 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 
 ## 命名空间
 
-| 命名空间                             | 用途                               |
-| ------------------------------------ | ---------------------------------- |
-| [`soul`](/zh/docs/cli/soul/)         | 管理演化中的人格特质               |
-| [`provider`](/zh/docs/cli/provider/) | 管理 AI 供应商和模型               |
-| [`agent`](/zh/docs/cli/agent/)       | 子智能体运行模式与 ACP 档案        |
-| [`config`](/zh/docs/cli/config/)     | 读写配置项                         |
-| [`thread`](/zh/docs/cli/thread/)     | 搜索和查看对话历史                 |
-| [`schedule`](/zh/docs/cli/schedule/) | 管理定时任务和运行历史             |
-| [`channel`](/zh/docs/cli/channel/)   | 列出频道用户和群组，设置状态与标签 |
-| [`send`](/zh/docs/cli/send/)         | 发送通知和频道消息                 |
-| `doctor`                             | 诊断平台运行时、二进制和可用能力   |
+| 命名空间                             | 用途                                 |
+| ------------------------------------ | ------------------------------------ |
+| [`soul`](/zh/docs/cli/soul/)         | 管理演化中的人格特质                 |
+| [`provider`](/zh/docs/cli/provider/) | 管理 AI 供应商和模型                 |
+| [`agent`](/zh/docs/cli/agent/)       | 子智能体运行模式与 ACP 档案          |
+| [`config`](/zh/docs/cli/config/)     | 读写配置项                           |
+| [`thread`](/zh/docs/cli/thread/)     | 搜索和查看对话历史                   |
+| [`schedule`](/zh/docs/cli/schedule/) | 管理定时任务和运行历史               |
+| [`channel`](/zh/docs/cli/channel/)   | 列出频道用户和群组，设置状态与标签   |
+| [`send`](/zh/docs/cli/send/)         | 发送通知和频道消息                   |
+| [`remote`](/zh/docs/cli/remote/)     | 查看远程状态、管理隧道和撤销手机配对 |
+| `doctor`                             | 诊断平台运行时、二进制和可用能力     |
 
 `yachiyo doctor` 输出便于阅读的平台报告；`yachiyo doctor --json` 只输出结构化 JSON，可以安全附在 bug 报告里，不会包含供应商密钥、凭据 key、认证文件或完整环境变量。
 
