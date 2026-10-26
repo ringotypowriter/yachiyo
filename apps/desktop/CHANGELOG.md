@@ -1,5 +1,23 @@
 # @yachiyo/desktop
 
+## 1.8.0
+
+### Minor Changes
+
+- [`8a71c26`](https://github.com/ringotypowriter/yachiyo/commit/8a71c26fb921a62af58e1fdfc3df684060acb96c) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Add interactive UI directly in chat and optional tool-model suggestions for the next instruction.
+
+  Improve iOS remote conversations with live background-task status and output, readable tool-detail sheets, fully tappable tool summaries, and a mark-all-as-read action. Stop the thinking indicator when displaying completed reasoning.
+
+  Improve interrupted-stream recovery with HTTP fallback and clearer errors, preserve scheduled-run reporting context, and send sentinel completion notifications only after monitoring stops. Keep Codex OAuth session paths local to each device and serialize temporary-file cleanup updates.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.8.0
+  - @yachiyo/runtime@1.8.0
+  - @yachiyo/shared@1.8.0
+  - @yachiyo/core-skills@1.8.0
+
 ## 1.7.3
 
 ### Patch Changes
