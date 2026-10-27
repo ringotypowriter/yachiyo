@@ -1,11 +1,10 @@
-import { pathToFileURL } from 'node:url'
-
 import {
   resolveYachiyoDbPath,
   resolveYachiyoSettingsPath,
   resolveYachiyoSoulPath
 } from '@yachiyo/runtime/config/paths'
 import { handleAgentCommand } from './commands/agent.ts'
+import { handleChatCommand } from './commands/chat.ts'
 import { handleChannelCommand } from './commands/channel.ts'
 import { handleConfigCommand } from './commands/config.ts'
 import { handleDoctorCommand } from './commands/doctor.ts'
@@ -54,6 +53,11 @@ export async function runYachiyoCli(
     return
   }
 
+  if (namespace === 'chat') {
+    await handleChatCommand(positionals.slice(1), flags, options)
+    return
+  }
+
   const settingsPath = flags.get('--settings') ?? resolveYachiyoSettingsPath()
   const soulPath = flags.get('--soul') ?? resolveYachiyoSoulPath()
   const dbPath = flags.get('--db') ?? resolveYachiyoDbPath()
@@ -95,7 +99,7 @@ export async function runYachiyoCli(
 
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote\n\n${USAGE}`
+      `Unknown namespace: ${namespace}. Expected: chat, doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote\n\n${USAGE}`
     )
   }
 
@@ -119,16 +123,4 @@ export async function runYachiyoCli(
   }
 
   await handleConfigCommand(positionals.slice(1), flags, configService, stdout)
-}
-
-async function main(): Promise<void> {
-  await runYachiyoCli()
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`Error: ${message}\n`)
-    process.exitCode = 1
-  })
 }

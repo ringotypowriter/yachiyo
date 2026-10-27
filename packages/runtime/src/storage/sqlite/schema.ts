@@ -20,6 +20,7 @@ import type {
   ThreadColorTag,
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
+import type { WorkerTranscriptTurn } from '../workerTranscripts.ts'
 
 export const channelUsersTable = sqliteTable('channel_users', {
   id: text('id').primaryKey(),
@@ -275,6 +276,40 @@ export const runsTable = sqliteTable(
     index('runs_thread_id_created_at_idx').on(table.threadId, table.createdAt),
     index('runs_request_message_id_idx').on(table.requestMessageId),
     index('runs_assistant_message_id_idx').on(table.assistantMessageId)
+  ]
+)
+
+export const workerTranscriptTurnsTable = sqliteTable(
+  'worker_transcript_turns',
+  {
+    id: text('id').primaryKey(),
+    version: integer('version').notNull().default(1),
+    agentId: text('agent_id').notNull(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threadsTable.id, { onDelete: 'cascade' }),
+    launchRunId: text('launch_run_id')
+      .notNull()
+      .references(() => runsTable.id, { onDelete: 'cascade' }),
+    turnId: text('turn_id').notNull(),
+    agentType: text('agent_type').notNull(),
+    workspacePath: text('workspace_path').notNull(),
+    modelId: text('model_id').notNull(),
+    messages: text('messages', { mode: 'json' })
+      .$type<WorkerTranscriptTurn['messages']>()
+      .notNull(),
+    compaction: text('compaction', { mode: 'json' }).$type<WorkerTranscriptTurn['compaction']>(),
+    status: text('status').$type<WorkerTranscriptTurn['status']>().notNull(),
+    error: text('error'),
+    promptTokens: integer('prompt_tokens'),
+    completionTokens: integer('completion_tokens'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    completedAt: text('completed_at')
+  },
+  (table) => [
+    index('worker_transcript_turns_thread_idx').on(table.threadId),
+    index('worker_transcript_turns_agent_idx').on(table.agentId, table.createdAt)
   ]
 )
 

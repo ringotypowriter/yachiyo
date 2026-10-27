@@ -175,6 +175,7 @@ export type {
 } from './agentTools/delegateTaskTool.ts'
 
 export interface AgentToolDependencies {
+  unavailableTools?: readonly string[]
   availableSkills?: SkillCatalogEntry[]
   /** Active (enabled) skills, surfaced to worker subagents so they can discover what exists. */
   activeSkills?: SkillSummary[]
@@ -1210,6 +1211,11 @@ export function createAgentToolSet(
 
   if (dependencies.extraTools) {
     Object.assign(tools, dependencies.extraTools)
+  }
+
+  for (const name of dependencies.unavailableTools ?? []) {
+    delete tools[name]
+    delete nestedFileTools[name]
   }
 
   return Object.keys(tools).length > 0 ? tools : undefined

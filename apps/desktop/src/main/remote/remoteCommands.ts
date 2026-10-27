@@ -10,8 +10,8 @@ import type {
 } from '@yachiyo/shared/remote/command'
 import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 
-import type { ICloudDriveState } from './mailboxWriter.ts'
-import type { PairingRecord } from './pairingStore.ts'
+import type { ICloudDriveState } from '@yachiyo/runtime/remote/mailboxWriter'
+import type { PairingRecord } from '@yachiyo/runtime/remote/pairingStore'
 import type { TunnelInstallMode, TunnelStatus } from './tunnelSupervisor.ts'
 
 export interface RemoteCommandDeps {

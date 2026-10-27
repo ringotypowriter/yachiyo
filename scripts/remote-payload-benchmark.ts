@@ -35,9 +35,9 @@ import {
   type StoredRunRow,
   type StoredToolCallRow
 } from '../packages/runtime/src/storage/storage.ts'
-import { HandshakeState } from '../apps/desktop/src/main/remote/noise/handshake.ts'
-import { generateKeyPair } from '../apps/desktop/src/main/remote/noise/primitives.ts'
-import { NoiseTransport } from '../apps/desktop/src/main/remote/noise/transport.ts'
+import { HandshakeState } from '../packages/runtime/src/remote/noise/handshake.ts'
+import { generateKeyPair } from '../packages/runtime/src/remote/noise/primitives.ts'
+import { NoiseTransport } from '../packages/runtime/src/remote/noise/transport.ts'
 
 const args = process.argv.slice(2)
 if (args.includes('--help')) {

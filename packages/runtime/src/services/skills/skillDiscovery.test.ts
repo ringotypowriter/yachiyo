@@ -183,6 +183,41 @@ function isolateSkillTestHome(homePath: string): () => void {
   }
 }
 
+test('skill discovery preserves folded and literal YAML descriptions without nested metadata leaking', async (t) => {
+  const { workspace, skillsRoot } = await symlinkFixture(t)
+  await mkdir(join(skillsRoot, 'folded'))
+  await mkdir(join(skillsRoot, 'literal'))
+  await writeFile(
+    join(skillsRoot, 'folded', 'SKILL.md'),
+    [
+      '---',
+      'name: history',
+      'description: >-',
+      '  Search previous sessions',
+      '  when the user refers to past work.',
+      'metadata:',
+      '  name: must-not-replace-the-skill-name',
+      '---',
+      '# History'
+    ].join('\r\n')
+  )
+  await writeFile(
+    join(skillsRoot, 'literal', 'SKILL.md'),
+    '---\nname: literal\ndescription: |-\n  First line.\n  Second line.\n---\n# Literal'
+  )
+  const skills = await discoverSkills([workspace])
+  assert.deepEqual(
+    skills.map(({ name, description }) => ({ name, description })),
+    [
+      {
+        name: 'history',
+        description: 'Search previous sessions when the user refers to past work.'
+      },
+      { name: 'literal', description: 'First line.\nSecond line.' }
+    ]
+  )
+})
+
 test('skill platform metadata accepts supported comma-separated values and missing metadata', () => {
   assert.deepEqual(parseSkillPlatforms('darwin, win32'), ['darwin', 'win32'])
   assert.deepEqual(parseSkillPlatforms('linux, darwin, linux'), ['linux', 'darwin'])

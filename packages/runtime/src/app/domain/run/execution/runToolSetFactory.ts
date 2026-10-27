@@ -188,6 +188,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     pyReplAvailable,
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     browserAutomationService: deps.browserAutomationService,
+    unavailableTools: deps.unavailableTools,
     searchService: deps.searchService,
     webSearchService: deps.webSearchService,
     memoryService: resolveToolMemoryService(input),

@@ -15,7 +15,7 @@ import {
 import {
   buildMailboxFixture,
   buildNoiseSessionFixtures
-} from '../apps/desktop/src/main/remote/noise/crossLanguageFixtures.ts'
+} from '../packages/runtime/src/remote/noise/crossLanguageFixtures.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const remoteDir = resolve(root, 'packages/shared/src/remote')

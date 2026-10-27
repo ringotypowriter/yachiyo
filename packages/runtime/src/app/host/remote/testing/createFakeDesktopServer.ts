@@ -8,6 +8,7 @@ import { withThreadCapabilities } from '@yachiyo/shared/protocol'
 
 import { createDemoYachiyoStorage } from '../../../../demo/demoMode.ts'
 import { createInMemoryYachiyoStorage } from '../../../../storage/memoryStorage.ts'
+import { createSettingsStore } from '../../../../settings/settingsStore.ts'
 import type { YachiyoStorage } from '../../../../storage/storage.ts'
 import { YachiyoServer } from '../../YachiyoServer.ts'
 import { createScriptedModelRuntime } from './scriptedModelRuntime.ts'
@@ -100,6 +101,14 @@ export async function createFakeDesktopServer(
     'utf8'
   )
   const workspacePathForThread = (threadId: string): string => join(root, 'workspaces', threadId)
+
+  // remote.hello probes sync readiness even when sync is disabled. Keep that probe
+  // away from the developer's real cloud drive, unless the test supplies its own path.
+  const settings = createSettingsStore(settingsPath)
+  const config = settings.read()
+  if (!config.sync?.syncDir) {
+    settings.write({ ...config, sync: { ...config.sync, syncDir: join(root, 'disabled-sync') } })
+  }
 
   const storage = options.demo ? createDemoYachiyoStorage() : createInMemoryYachiyoStorage()
   if (options.demo) seedLongHistoryThread(storage)

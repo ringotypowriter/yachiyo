@@ -1,0 +1,20 @@
+{
+  "name": "@yachiyo/headless",
+  "version": "1.7.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/main.ts",
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@yachiyo/cli": "workspace:*",
+    "@yachiyo/runtime": "workspace:*",
+    "@yachiyo/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.4"
+  }
+}

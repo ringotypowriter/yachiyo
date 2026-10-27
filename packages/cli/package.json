@@ -7,7 +7,8 @@
     "yachiyo": "bin/yachiyo"
   },
   "exports": {
-    "./yachiyoCli": "./src/yachiyoCli.ts"
+    "./yachiyoCli": "./src/yachiyoCli.ts",
+    "./*": "./src/*.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json --composite false",

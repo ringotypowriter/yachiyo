@@ -548,6 +548,7 @@ export class YachiyoServer {
       auxiliaryGeneration,
       createModelRuntime,
       processBroker: this.processBroker,
+      unavailableTools: options.unavailableTools,
       ...(options.jsReplWorkerPath ? { jsReplWorkerPath: options.jsReplWorkerPath } : {}),
       ...(options.pyReplRunnerPath ? { pyReplRunnerPath: options.pyReplRunnerPath } : {}),
       isManagedPythonEnvironmentReady: this.isManagedPythonEnvironmentReady.bind(this),

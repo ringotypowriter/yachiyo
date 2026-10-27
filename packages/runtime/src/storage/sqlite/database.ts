@@ -7,6 +7,7 @@ import { createSqliteActivitySourceStorageMethods } from './activitySourceStorag
 import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
 import { createSqliteRemoteHistoryStorageMethods } from './remoteHistoryStorage.ts'
+import { createSqliteWorkerTranscriptStorageMethods } from './workerTranscriptStorage.ts'
 import { acceptSettingsCausalClock, readSettingsCausalClock } from './settingsCausalClockStorage.ts'
 import { parseSettingsFieldResolutions } from './settingsFieldResolutionsCodec.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
@@ -20,7 +21,8 @@ import {
   scheduleRunsTable,
   syncConflictsTable,
   threadsTable,
-  toolCallsTable
+  toolCallsTable,
+  workerTranscriptTurnsTable
 } from './schema.ts'
 import { openMigratedSqliteDatabase } from './sqliteRuntime.ts'
 import { ensureThreadSearchIndex, repairRunRequestMessageIdsOnce } from './threadSearchIndex.ts'
@@ -311,8 +313,13 @@ export function createSqliteYachiyoStorage(
       db
     }),
     ...createSqliteThingsStorageMethods(db),
+    ...createSqliteWorkerTranscriptStorageMethods(db),
 
     recoverInterruptedRuns({ error, finishedAt }) {
+      db.update(workerTranscriptTurnsTable)
+        .set({ status: 'failed', error, updatedAt: finishedAt, completedAt: finishedAt })
+        .where(eq(workerTranscriptTurnsTable.status, 'running'))
+        .run()
       const recoverableRunIds = new Set(
         db
           .select({ runId: runRecoveryCheckpointsTable.runId })

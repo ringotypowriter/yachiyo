@@ -17,7 +17,8 @@ function bundledCandidates(options: ResolveBundledExecutableOptions): string[] {
   const osByPlatform: Record<string, string> = { darwin: 'mac', linux: 'linux', win32: 'win' }
   const platformDir = `${osByPlatform[platform] ?? platform}-${arch}`
   const candidates: string[] = []
-  const resourcesPath = options.resourcesPath ?? process.resourcesPath
+  const resourcesPath =
+    options.resourcesPath ?? process.env.YACHIYO_RESOURCES_PATH ?? process.resourcesPath
   if (typeof resourcesPath === 'string') {
     candidates.push(join(resourcesPath, 'bin', options.name))
   }

@@ -8,13 +8,17 @@ import { RetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
 import { SubagentTurnError } from './subagentManager.ts'
 import { createWorkerSubagentRunnerFactory } from './workerSubagentRunner.ts'
 import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../../settings/namedSubagents.ts'
+import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
+import type { YachiyoStorage } from '../../../storage/storage.ts'
 
 async function withRunner(
   streamReply: ModelRuntime['streamReply'],
   check: (
     runner: ReturnType<ReturnType<typeof createWorkerSubagentRunnerFactory>>
   ) => Promise<void>,
-  hasPendingMessages: () => boolean = () => false
+  hasPendingMessages: () => boolean = () => false,
+  unavailableTools?: readonly string[],
+  sourceQueryStorage?: YachiyoStorage
 ): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'worker-completion-'))
   const factory = createWorkerSubagentRunnerFactory({
@@ -29,7 +33,7 @@ async function withRunner(
         baseUrl: ''
       },
       parentToolContext: { workspacePath },
-      parentDependencies: {},
+      parentDependencies: { unavailableTools, sourceQueryStorage },
       createModelRuntime: () => ({ streamReply }) as ModelRuntime
     }
   })
@@ -66,6 +70,114 @@ const turn = {
   messages: [],
   signal: new AbortController().signal
 }
+
+function workerStorage(): YachiyoStorage {
+  const storage = createInMemoryYachiyoStorage()
+  const thread = { id: 'parent', title: 'Task', updatedAt: '2026-10-26T00:00:00.000Z' }
+  storage.createThread({ thread, createdAt: thread.updatedAt })
+  storage.startRun({ runId: 'run', thread, updatedThread: thread, createdAt: thread.updatedAt })
+  return storage
+}
+
+test('worker runner records live tool input and accumulates all model steps', async () => {
+  const storage = workerStorage()
+  await withRunner(
+    async function* (request) {
+      request.onToolCallStart?.({
+        toolCall: { toolCallId: 'call', toolName: 'read', input: { path: '/tmp/live-evidence' } }
+      } as never)
+      assert.match(JSON.stringify(storage.listWorkerTranscriptTurns('parent')), /live-evidence/)
+      request.onToolCallFinish?.({
+        toolCall: { toolCallId: 'call', toolName: 'read', input: { path: '/tmp/live-evidence' } },
+        success: true,
+        output: {
+          content: [{ type: 'text', text: 'evidence' }],
+          details: { startLine: 1, endLine: 1 }
+        }
+      } as never)
+      request.onFinish?.({
+        promptTokens: 3,
+        completionTokens: 2,
+        totalPromptTokens: 20,
+        totalCompletionTokens: 5
+      } as never)
+      yield 'Verified'
+    },
+    async (runner) => {
+      const result = await runner.runTurn(turn)
+      assert.equal(result.promptTokens, 20)
+      assert.equal(result.completionTokens, 5)
+      const [saved] = storage.listWorkerTranscriptTurns('parent')
+      assert.equal(saved!.status, 'completed')
+      assert.equal(saved!.promptTokens, 20)
+      assert.match(JSON.stringify(saved!.messages), /evidence/)
+    },
+    () => false,
+    undefined,
+    storage
+  )
+})
+
+test('cancelling the retry wait retains already incurred worker usage', async () => {
+  const storage = workerStorage()
+  const controller = new AbortController()
+  const save = storage.upsertWorkerTranscriptTurn
+  storage.upsertWorkerTranscriptTurn = (record) => {
+    const result = save(record)
+    if (
+      record.status === 'running' &&
+      record.messages.some((entry) =>
+        JSON.stringify(entry.message).includes('[Worker turn recovery')
+      )
+    ) {
+      queueMicrotask(() => controller.abort())
+    }
+    return result
+  }
+  let attempts = 0
+  await withRunner(
+    async function* (request) {
+      if (++attempts === 1) {
+        finishWithToolResult(request)
+        yield* []
+        return
+      }
+      throw new RetryableRunError('interrupted')
+    },
+    async (runner) => {
+      await assert.rejects(runner.runTurn({ ...turn, signal: controller.signal }), (error) => {
+        assert.ok(error instanceof SubagentTurnError)
+        assert.equal(error.usage.promptTokens, 3)
+        assert.equal(error.usage.completionTokens, 2)
+        return true
+      })
+      const [saved] = storage.listWorkerTranscriptTurns('parent')
+      assert.equal(saved!.status, 'cancelled')
+      assert.equal(saved!.promptTokens, 3)
+      assert.equal(saved!.completionTokens, 2)
+    },
+    () => false,
+    undefined,
+    storage
+  )
+})
+
+test('workers preserve host tool restrictions even when their profile enables the tool', async () => {
+  let called = false
+  await withRunner(
+    async function* (request) {
+      called = true
+      assert.ok(!request.tools?.read)
+      yield 'No file access on this host.'
+    },
+    async (runner) => {
+      await runner.runTurn(turn)
+    },
+    () => false,
+    ['read']
+  )
+  assert.equal(called, true)
+})
 
 test('general worker in Code Mode exposes file tools only inside REPL', async () => {
   const workspacePath = await mkdtemp(join(tmpdir(), 'worker-code-mode-'))

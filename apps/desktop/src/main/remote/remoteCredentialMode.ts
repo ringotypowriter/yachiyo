@@ -1,5 +1,5 @@
 import type { GatewayRemoteBinding } from './gatewayRemote.ts'
-import type { SecretBox } from './pairingStore.ts'
+import type { SecretBox } from '@yachiyo/runtime/remote/pairingStore'
 
 export const REMOTE_WALLET_REQUIRED_MESSAGE =
   'Remote access is unavailable in plaintext credential mode. Restart with encrypted credentials and an unlocked system wallet to use Remote. Saved Remote settings and pairings are unchanged.'

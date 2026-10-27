@@ -287,10 +287,7 @@ test('the stream-deflate encoder enforces the plaintext cap before compressing',
 test('the committed stream-deflate fixture decodes with one node inflateRaw context', async () => {
   const fixture = JSON.parse(
     readFileSync(
-      new URL(
-        '../../../../../packages/shared/src/remote/fixtures/remote-stream-deflate.json',
-        import.meta.url
-      ),
+      new URL('../../../shared/src/remote/fixtures/remote-stream-deflate.json', import.meta.url),
       'utf8'
     )
   ) as { raw: string[]; encodedBase64: string[] }

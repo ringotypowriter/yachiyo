@@ -13,9 +13,9 @@ import { createInterface } from 'node:readline'
 import { parseArgs } from 'node:util'
 
 import { createFakeDesktopServer } from '../packages/runtime/src/app/host/remote/testing/createFakeDesktopServer.ts'
-import { createInProcessRemotePorts } from '../apps/desktop/src/main/remote/inProcessPorts.ts'
-import { plaintextSecretBox } from '../apps/desktop/src/main/remote/pairingStore.ts'
-import { RemoteService } from '../apps/desktop/src/main/remote/remoteService.ts'
+import { createInProcessRemotePorts } from '../packages/runtime/src/remote/inProcessPorts.ts'
+import { plaintextSecretBox } from '../packages/runtime/src/remote/pairingStore.ts'
+import { RemoteService } from '../packages/runtime/src/remote/remoteService.ts'
 import type { RemoteEndpoint } from '../packages/shared/src/remote/common.ts'
 
 const { values } = parseArgs({

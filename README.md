@@ -112,6 +112,35 @@ Windows v1 supports chat, workspaces, providers, channels, schedules, Bash tools
 
 Linux x64 builds are experimental and require a graphical desktop session. macOS-only integrations remain unavailable; Linux ARM builds are not provided. Stable and nightly releases include AppImage and Debian packages with a Linux update feed.
 
+For a Debian server without a graphical session, the experimental [headless target](apps/headless/README.md)
+runs under Node and supports CLI conversations and encrypted Remote access. Build it with
+`pnpm build:headless`; deployment and systemd instructions are in that guide.
+
+## Obelisk history
+
+The bundled `yachiyo-obelisk` skill searches history across coding agents through
+[Obelisk](https://github.com/tommy0103/obelisk). Install a CLI build that includes
+the `yachiyo` provider, then run `obelisk --doctor`. The report must show working
+FTS5 and `yachiyo` in `providers`. `yachiyo doctor --json` also checks this optional
+dependency. Older Obelisk builds can search other agents but cannot index Yachiyo.
+
+Obelisk reads `~/.yachiyo/yachiyo.sqlite` without changing it. It also honors
+`YACHIYO_HOME`; set `providerRoots.yachiyo` in Obelisk for another data directory.
+Local conversations and owner DMs are indexed. Private, guest, and group
+conversations are excluded. A successful refresh removes deleted or newly private
+threads from the index. Source outages retain existing indexed history.
+
+Yachiyo now records worker turns in `worker_transcript_turns`. The runtime applies
+the generated migration when it next opens the database. Worker transcripts keep
+full tool evidence across compaction and follow their parent thread's deletion or
+history reset. Old worker histories were not stored and cannot be recovered from
+summaries. Yachiyo's own memory stays separate from Obelisk's memory.
+
+For development, build the matching Obelisk checkout with `npm run build:cli`.
+Run it with `node /path/to/obelisk/packages/cli/dist/cli/src/obelisk.js`, using a
+Node.js 22.13+ build with FTS5. The bundled skill includes bounded queries and a
+scoped substring query for Chinese text.
+
 ## Development
 
 ```bash
@@ -123,6 +152,7 @@ pnpm dev
 Workspace packages:
 
 - `apps/desktop` — Electron desktop app
+- `apps/headless` — Node service for CLI and Remote conversations
 - `apps/website` — public website
 - `packages/shared` — shared protocol and message utilities
 - `packages/runtime` — local assistant runtime

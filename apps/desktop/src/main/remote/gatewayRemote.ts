@@ -13,15 +13,22 @@ import { handleYachiyoIpc, tapYachiyoEvents } from '../yachiyoGateway/ipc.ts'
 import { IPC_CHANNELS } from '../yachiyoGateway/ipcChannels.ts'
 import { isPlaintextProviderCredentialMode } from '../security/providerCredentials.ts'
 import { createRemoteKeepAwake } from './keepAwake.ts'
-import { defaultICloudDriveRoot, detectICloudDrive, MailboxWriter } from './mailboxWriter.ts'
-import { PairingStore, type PairingRecord } from './pairingStore.ts'
-import { prunePairingQrImagesOnStartup, storePairingQrImage } from './pairingQrImage.ts'
+import {
+  defaultICloudDriveRoot,
+  detectICloudDrive,
+  MailboxWriter
+} from '@yachiyo/runtime/remote/mailboxWriter'
+import { PairingStore, type PairingRecord } from '@yachiyo/runtime/remote/pairingStore'
+import {
+  prunePairingQrImagesOnStartup,
+  storePairingQrImage
+} from '@yachiyo/runtime/remote/pairingQrImage'
 import { handleRemoteCommand, type RemoteCommandDeps } from './remoteCommands.ts'
 import { RemoteController } from './remoteController.ts'
-import type { RemoteHostPort, RemoteServerPort } from './remoteFacade.ts'
-import { defaultRemoteDirectories, RemoteService } from './remoteService.ts'
-import { RelayActivation } from './relayActivation.ts'
-import { RelayAccess } from './relayAccess.ts'
+import type { RemoteHostPort, RemoteServerPort } from '@yachiyo/runtime/remote/remoteFacade'
+import { defaultRemoteDirectories, RemoteService } from '@yachiyo/runtime/remote/remoteService'
+import { RelayActivation } from '@yachiyo/runtime/remote/relayActivation'
+import { RelayAccess } from '@yachiyo/runtime/remote/relayAccess'
 import {
   createRemoteCredentialSecretBox,
   createUnavailableRemoteBinding

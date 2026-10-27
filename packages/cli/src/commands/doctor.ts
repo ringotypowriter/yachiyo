@@ -9,8 +9,10 @@ import { resolveShellRuntime } from '@yachiyo/runtime/runtime/shell/shellRuntime
 import { resolveSearchBinaries } from '@yachiyo/runtime/services/search/searchBinaries'
 import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 import type { CliStdout } from '../core/types.ts'
+import { probeObelisk, type ObeliskStatus } from '../services/obelisk.ts'
 
 export interface DoctorReport {
+  obelisk?: ObeliskStatus
   platform: NodeJS.Platform
   arch: string
   commandEndpoint: string
@@ -161,6 +163,7 @@ export async function collectDoctorReport(): Promise<DoctorReport> {
     platform,
     arch,
     commandEndpoint: resolveYachiyoSocketPath(),
+    obelisk: probeObelisk(),
     shell,
     binaries: {
       rg: Boolean(search.rg),
@@ -191,6 +194,17 @@ export async function collectDoctorReport(): Promise<DoctorReport> {
 
 function sanitizeDoctorReport(report: DoctorReport): DoctorReport {
   return {
+    ...(report.obelisk
+      ? {
+          obelisk: {
+            ready: report.obelisk.ready,
+            version: report.obelisk.version,
+            fts5: report.obelisk.fts5,
+            yachiyoProvider: report.obelisk.yachiyoProvider,
+            issue: report.obelisk.issue
+          }
+        }
+      : {}),
     platform: report.platform,
     arch: report.arch,
     commandEndpoint: report.commandEndpoint,
@@ -255,6 +269,11 @@ export async function handleDoctorCommand(input: {
       }`,
       `better-sqlite3: ${availability(report.nativeModules.betterSqlite3)}`,
       `sharp: ${availability(report.nativeModules.sharp)}`,
+      ...(report.obelisk
+        ? [
+            `Obelisk: ${report.obelisk.ready ? 'ready' : report.obelisk.issue} (optional; run obelisk --doctor)`
+          ]
+        : []),
       `Activity tracking: ${availability(report.capabilities.activityTracking)}`,
       `Activity OCR: ${availability(report.capabilities.activityOcr)}`,
       `macOS automation skills: ${availability(report.capabilities.macAutomationSkills)}`

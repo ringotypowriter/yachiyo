@@ -33,6 +33,9 @@ export interface CliConfigService {
 }
 
 export interface RunYachiyoCliOptions {
+  stdin?: NodeJS.ReadStream
+  connectHeadless?: typeof import('../services/headless.ts').connectHeadless
+  createRemotePairing?: () => Promise<{ url: string; expiresAt: string }>
   collectDoctorReport?: () => Promise<DoctorReport>
   createConfigService?: (settingsPath: string) => CliConfigService
   createStorage?: (dbPath: string) => YachiyoStorage

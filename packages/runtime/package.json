@@ -20,6 +20,7 @@
     "@ai-sdk/openai": "^4.0.72",
     "@ai-sdk/provider": "^4.0.17",
     "@babel/parser": "^7.29.7",
+    "@noble/ciphers": "^2.4.0",
     "@yachiyo/shared": "workspace:*",
     "ai": "^7.0.109",
     "better-sqlite3": "^12.8.0",
@@ -29,7 +30,6 @@
     "diff": "^9.0.0",
     "discord.js": "^14.25.1",
     "drizzle-orm": "^0.45.1",
-    "electron": "^39.2.6",
     "eventsource-parser": "^3.0.6",
     "fast-glob": "^3.3.3",
     "google-auth-library": "^10.5.0",
@@ -45,11 +45,13 @@
     "telegraf": "^4.16.3",
     "unpdf": "^1.4.0",
     "ws": "^8.20.1",
+    "yaml": "^2.9.1",
     "yauzl": "^3.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "@types/yauzl": "^3.4.0"
+    "@types/yauzl": "^3.4.0",
+    "electron": "^39.2.6"
   }
 }

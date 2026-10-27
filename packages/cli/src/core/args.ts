@@ -8,7 +8,9 @@ const VALUE_FLAGS = new Set([
   '--model',
   '--mode',
   '--tunnel',
-  '--hostname'
+  '--hostname',
+  '--thread',
+  '--workspace'
 ])
 
 export function parseArgs(rawArgs: string[]): {

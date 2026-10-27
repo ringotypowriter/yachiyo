@@ -25,6 +25,9 @@ async function run(args: string[]): Promise<{ requests: RemoteCommandRequest[]; 
 
 test('remote subcommands map to command socket requests and print the JSON result', async () => {
   assert.deepEqual((await run(['status'])).requests, [{ action: 'status' }])
+  assert.deepEqual((await run(['activate', 'test-invitation'])).requests, [
+    { action: 'relay-activate', code: 'test-invitation' }
+  ])
   assert.deepEqual((await run(['tunnel', 'install'])).requests, [
     { action: 'tunnel-install', mode: 'quick' }
   ])
@@ -55,6 +58,21 @@ test('remote subcommands map to command socket requests and print the JSON resul
   const revoked = await run(['pairings', 'revoke', 'pairing-1'])
   assert.deepEqual(revoked.requests, [{ action: 'pairings-revoke', pairingId: 'pairing-1' }])
   assert.deepEqual(JSON.parse(revoked.output), { echoed: 'pairings-revoke' })
+})
+
+test('headless terminal pairing prints the URL returned by the running host', async () => {
+  let output = ''
+  const pairing = { url: 'yachiyo://pair?test=invitation', expiresAt: '2026-10-22T12:05:00Z' }
+  await runYachiyoCli(['remote', 'pair'], {
+    createRemotePairing: async () => pairing,
+    stdout: {
+      write: (chunk) => {
+        output += String(chunk)
+        return true
+      }
+    }
+  })
+  assert.deepEqual(JSON.parse(output), pairing)
 })
 
 test('invalid remote commands fail before reaching the app', async () => {

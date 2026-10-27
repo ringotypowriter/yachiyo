@@ -23,10 +23,7 @@ interface CacophonyVector {
   messages: Array<{ payload: string; ciphertext: string }>
 }
 
-const fixturesUrl = new URL(
-  '../../../../../../packages/shared/src/remote/fixtures/',
-  import.meta.url
-)
+const fixturesUrl = new URL('../../../../shared/src/remote/fixtures/', import.meta.url)
 const hex = (value: string): Buffer => Buffer.from(value, 'hex')
 
 function readFixture<T>(name: string): T {

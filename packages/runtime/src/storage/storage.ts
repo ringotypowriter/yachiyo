@@ -54,6 +54,7 @@ import {
   parseResponseMessages,
   serializeCheckpointResponseMessages
 } from './responseMessageCodec.ts'
+import type { WorkerTranscriptTurn } from './workerTranscripts.ts'
 
 export interface StoredThreadRow {
   id: string
@@ -409,6 +410,9 @@ export interface YachiyoStorage {
   getRunRecoveryCheckpoint(runId: string): RunRecoveryCheckpoint | undefined
   upsertRunRecoveryCheckpoint(checkpoint: RunRecoveryCheckpoint): void
   deleteRunRecoveryCheckpoint(runId: string): void
+  /** Returns false after the owning run/thread has been removed or made inaccessible. */
+  upsertWorkerTranscriptTurn(turn: WorkerTranscriptTurn): boolean
+  listWorkerTranscriptTurns(threadId: string): WorkerTranscriptTurn[]
   getRun(runId: string): RunRecord | undefined
   getThread(threadId: string): ThreadRecord | undefined
   getArchivedThread(threadId: string): ThreadRecord | undefined

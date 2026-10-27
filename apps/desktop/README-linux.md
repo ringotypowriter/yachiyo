@@ -1,5 +1,8 @@
 # Linux VM Remote setup
 
+For servers without a graphical session, use the [Node headless target](../headless/README.md).
+The instructions below apply to the Electron desktop build and its bundled CLI.
+
 The Linux x64 desktop build provides the same Remote WebSocket service and pairing flow as the macOS app. Run it in a Linux desktop session with a working system credential store (for example, GNOME Keyring or KWallet). Encrypted mode rejects Electron's insecure `basic_text` storage backend. Without a working wallet, Yachiyo starts with the provider-only plaintext fallback described below; Remote pairing still requires a working wallet.
 
 ## Desktop prerequisites
@@ -23,7 +26,7 @@ The Remote listener remains bound to `127.0.0.1` unless **Local network** is sep
 
 Encrypted credential storage is used whenever the system wallet is available. If it is
 unavailable, Yachiyo starts in plaintext mode instead of failing, for both the desktop and
-headless CLI. No dialog, banner, or settings control is added; the selected mode and its
+Electron CLI. No dialog, banner, or settings control is added; the selected mode and its
 consequences are logged at startup.
 
 Start Yachiyo with `--yachiyo-plaintext-credentials` to choose plaintext storage and skip

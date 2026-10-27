@@ -18,6 +18,8 @@ function parseRequest(positionals: string[], flags: Map<string, string>): Remote
   let candidate: unknown
   if (group === 'status') {
     candidate = { action: 'status' }
+  } else if (group === 'activate') {
+    candidate = { action: 'relay-activate', code: required(action, '<invitation-code>') }
   } else if (group === 'tunnel' && action === 'install') {
     const mode = flags.get('--mode') ?? 'quick'
     candidate =
@@ -53,6 +55,15 @@ export async function handleRemoteCommand(
 ): Promise<void> {
   if (flags.has('--help')) {
     stdout.write(`${namespaceHelp('remote')}\n`)
+    return
+  }
+  if (positionals[0] === 'pair') {
+    if (!options.createRemotePairing)
+      throw new Error(
+        'Use the headless CLI for terminal pairing, or Settings > Remote in the desktop app.'
+      )
+    const result = await options.createRemotePairing()
+    stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     return
   }
   const request = parseRequest(positionals, flags)

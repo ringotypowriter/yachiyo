@@ -41,6 +41,7 @@ export type WorkerCompactionPhase = 'initial' | 'maintenance'
 
 export interface WorkerCompactionResult {
   history: ModelMessage[]
+  summary?: string
   phase?: WorkerCompactionPhase
   promptTokens: number
   completionTokens: number
@@ -346,6 +347,7 @@ export function createWorkerHistoryCompactor(
           ...compactionInput.history.slice(cutIndex)
         ],
         phase,
+        summary: previousSummary,
         promptTokens,
         completionTokens
       }

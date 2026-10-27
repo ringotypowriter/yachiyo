@@ -100,6 +100,7 @@ export interface RunDomainDeps {
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   processBroker: ProcessBroker
+  unavailableTools?: readonly string[]
   jsReplWorkerPath?: string | URL
   pyReplRunnerPath?: string | URL
   isManagedPythonEnvironmentReady?: () => Promise<boolean>

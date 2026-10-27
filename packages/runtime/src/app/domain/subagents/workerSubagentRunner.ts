@@ -19,6 +19,7 @@ import type {
 } from './subagentManager.ts'
 import { SubagentTurnError } from './subagentManager.ts'
 import { createWorkerHistoryCompactor } from './workerSubagentCompaction.ts'
+import { createWorkerTranscriptRecorder } from './workerTranscriptRecorder.ts'
 import {
   ReadRecordCache,
   createAgentToolSet,
@@ -38,6 +39,7 @@ import type { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTra
 import { SnapshotTracker as WorkerSnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
 import {
   appendRecoveryTextDelta,
+  appendRecoveryReasoningDelta,
   appendRecoveryToolCall,
   appendRecoveryToolResult,
   type RecoveryResponseMessage
@@ -105,6 +107,7 @@ function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunne
   const parentToolContextInput = input.dependencies.parentToolContext
   const parentDependenciesInput = input.dependencies.parentDependencies
   const parentDependencies: AgentToolDependencies = {
+    unavailableTools: parentDependenciesInput.unavailableTools,
     ...(parentDependenciesInput.availableSkills
       ? { availableSkills: [...parentDependenciesInput.availableSkills] }
       : {}),
@@ -209,6 +212,7 @@ function createWorkerRunner(
     ...(parentDependenciesInput.availableSkills
       ? { availableSkills: parentDependenciesInput.availableSkills }
       : {}),
+    unavailableTools: parentDependenciesInput.unavailableTools,
     ...(parentDependenciesInput.fetchImpl ? { fetchImpl: parentDependenciesInput.fetchImpl } : {}),
     ...(parentDependenciesInput.jsReplWorkerPath
       ? { jsReplWorkerPath: parentDependenciesInput.jsReplWorkerPath }
@@ -295,6 +299,7 @@ function createWorkerRunner(
     getTask
   }
   const workerDependencies = {
+    unavailableTools: parentDependencies.unavailableTools,
     availableSkills: parentDependencies.availableSkills,
     activeSkills,
     searchService: parentDependencies.searchService,
@@ -366,196 +371,249 @@ function createWorkerRunner(
       }
       turnMessages.push(...turn.messages.map(mailboxMessage))
       history.push(...turnMessages)
-      const compaction = historyCompactor
-        ? await historyCompactor.compactIfNeeded({
-            history,
-            signal: turn.signal,
-            previousPromptTokens
+      const transcript = parentDependencies.sourceQueryStorage
+        ? createWorkerTranscriptRecorder({
+            storage: parentDependencies.sourceQueryStorage,
+            launch,
+            turn,
+            modelId: workerSettings.model
           })
-        : {
-            history,
-            phase: undefined,
-            promptTokens: 0,
-            completionTokens: 0
-          }
-      if (compaction.history !== history) {
-        history.splice(0, history.length, ...compaction.history)
-        if (workerSettings.provider === 'anthropic') applyAnthropicCacheBreakpoints(history)
-      }
-      let output = ''
+        : undefined
+      if (turn.initialPrompt !== undefined) transcript?.append(turnMessages.slice(0, 1))
+      transcript?.append(turnMessages.slice(turn.initialPrompt === undefined ? 0 : 1), true)
       let promptTokens: number | undefined
       let completionTokens: number | undefined
-      let reportOnly = false
-      let yielded = false
-      let retryDelay = WORKER_SUBAGENT_RETRY_BASE_DELAY_MS
-      for (let attempt = 1; attempt <= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS; attempt++) {
-        const modelRuntime = createModelRuntime()
-        const recoveryMessages: RecoveryResponseMessage[] = []
-        const activeToolCalls = new Map<string, ToolCallName>()
-        let responseMessages: unknown[] | undefined
-        let attemptOutput = ''
-        let historyCommitted = false
-        try {
-          for await (const delta of modelRuntime.streamReply({
-            messages: history,
-            settings: workerSettings,
-            signal: turn.signal,
-            purpose: `worker:${launch.agentType}`,
-            promptCacheKey: `${launch.parentThreadId}:subagent:${launch.agentId}`,
-            maxToolSteps: reportOnly ? 1 : (profileSnapshot.maxToolSteps ?? 999),
-            stopWhen:
-              tools && !reportOnly
-                ? [
-                    isStepCount(profileSnapshot.maxToolSteps ?? 999),
-                    ({ steps }) => {
-                      yielded = hasPendingMessages() && (steps.at(-1)?.toolResults?.length ?? 0) > 0
-                      return yielded
-                    }
-                  ]
-                : undefined,
-            tools: reportOnly ? undefined : tools,
-            onToolCallStart: (event) => {
-              const inputSummary = summarizeToolInput(event.toolCall.toolName, event.toolCall.input)
-              activeToolCalls.set(
-                event.toolCall.toolCallId,
-                event.toolCall.toolName as ToolCallName
-              )
-              appendRecoveryToolCall(recoveryMessages, {
-                toolCallId: event.toolCall.toolCallId,
-                toolName: event.toolCall.toolName as ToolCallName,
-                toolInput: event.toolCall.input
-              })
-              onProgress({
-                turnId: turn.turnId,
-                chunk: `[${event.toolCall.toolName}] ${inputSummary}\n`
-              })
-              onToolCall({
-                turnId: turn.turnId,
-                toolCallId: event.toolCall.toolCallId,
-                toolName: event.toolCall.toolName,
-                inputSummary,
-                status: 'running'
-              })
-            },
-            onToolCallFinish: (event) => {
-              const inputSummary = summarizeToolInput(event.toolCall.toolName, event.toolCall.input)
-              const outputSummary = event.success
-                ? summarizeToolOutput(event.toolCall.toolName, event.output)
-                : summarizeToolOutput(event.toolCall.toolName, {
-                    error: event.error instanceof Error ? event.error.message : String(event.error)
-                  })
-              activeToolCalls.delete(event.toolCall.toolCallId)
-              appendRecoveryToolResult(recoveryMessages, {
-                toolCallId: event.toolCall.toolCallId,
-                toolName: event.toolCall.toolName as ToolCallName,
-                ...(event.success ? { output: event.output } : { error: event.error })
-              })
-              onToolCall({
-                turnId: turn.turnId,
-                toolCallId: event.toolCall.toolCallId,
-                toolName: event.toolCall.toolName,
-                inputSummary,
-                outputSummary,
-                status: event.success ? 'completed' : 'failed'
-              })
-            },
-            onFinish: (usage) => {
-              if (usage.promptTokens !== undefined)
-                promptTokens = (promptTokens ?? 0) + usage.promptTokens
-              if (usage.completionTokens !== undefined)
-                completionTokens = (completionTokens ?? 0) + usage.completionTokens
-              previousPromptTokens = usage.promptTokens
-              responseMessages = usage.responseMessages
+      let compactionPromptTokens = 0
+      let compactionCompletionTokens = 0
+      let hasCompactionUsage = false
+      try {
+        const compaction = historyCompactor
+          ? await historyCompactor.compactIfNeeded({
+              history,
+              signal: turn.signal,
+              previousPromptTokens
+            })
+          : {
+              history,
+              phase: undefined,
+              summary: undefined,
+              promptTokens: 0,
+              completionTokens: 0
             }
-          })) {
-            output += delta
-            attemptOutput += delta
-            appendRecoveryTextDelta(recoveryMessages, delta)
-            onProgress({ turnId: turn.turnId, chunk: delta })
-          }
-          const completedMessages = (
-            responseMessages?.length ? responseMessages : recoveryMessages
-          ) as ModelMessage[]
-          history.push(...completedMessages)
-          historyCommitted = true
-          const lastResponse = completedMessages.at(-1)
-          output =
-            lastResponse?.role === 'assistant'
-              ? typeof lastResponse.content === 'string'
-                ? lastResponse.content
-                : lastResponse.content.some((part) => part.type === 'tool-call')
+        compactionPromptTokens = compaction.promptTokens
+        compactionCompletionTokens = compaction.completionTokens
+        hasCompactionUsage = Boolean(compaction.phase)
+        if (compaction.summary) {
+          transcript?.compact({
+            summary: compaction.summary,
+            promptTokens: compaction.promptTokens,
+            completionTokens: compaction.completionTokens
+          })
+        }
+        if (compaction.history !== history) {
+          history.splice(0, history.length, ...compaction.history)
+          if (workerSettings.provider === 'anthropic') applyAnthropicCacheBreakpoints(history)
+        }
+        let output = ''
+        let reportOnly = false
+        let yielded = false
+        let retryDelay = WORKER_SUBAGENT_RETRY_BASE_DELAY_MS
+        for (let attempt = 1; attempt <= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS; attempt++) {
+          const modelRuntime = createModelRuntime()
+          const recoveryMessages: RecoveryResponseMessage[] = []
+          const activeToolCalls = new Map<string, ToolCallName>()
+          let responseMessages: unknown[] | undefined
+          let attemptOutput = ''
+          let historyCommitted = false
+          try {
+            for await (const delta of modelRuntime.streamReply({
+              messages: history,
+              settings: workerSettings,
+              signal: turn.signal,
+              purpose: `worker:${launch.agentType}`,
+              promptCacheKey: `${launch.parentThreadId}:subagent:${launch.agentId}`,
+              maxToolSteps: reportOnly ? 1 : (profileSnapshot.maxToolSteps ?? 999),
+              stopWhen:
+                tools && !reportOnly
+                  ? [
+                      isStepCount(profileSnapshot.maxToolSteps ?? 999),
+                      ({ steps }) => {
+                        yielded =
+                          hasPendingMessages() && (steps.at(-1)?.toolResults?.length ?? 0) > 0
+                        return yielded
+                      }
+                    ]
+                  : undefined,
+              tools: reportOnly ? undefined : tools,
+              onReasoningDelta: (delta) => {
+                appendRecoveryReasoningDelta(recoveryMessages, delta)
+                transcript?.update(recoveryMessages, false)
+              },
+              onToolCallStart: (event) => {
+                const inputSummary = summarizeToolInput(
+                  event.toolCall.toolName,
+                  event.toolCall.input
+                )
+                activeToolCalls.set(
+                  event.toolCall.toolCallId,
+                  event.toolCall.toolName as ToolCallName
+                )
+                appendRecoveryToolCall(recoveryMessages, {
+                  toolCallId: event.toolCall.toolCallId,
+                  toolName: event.toolCall.toolName as ToolCallName,
+                  toolInput: event.toolCall.input
+                })
+                transcript?.update(recoveryMessages)
+                onProgress({
+                  turnId: turn.turnId,
+                  chunk: `[${event.toolCall.toolName}] ${inputSummary}\n`
+                })
+                onToolCall({
+                  turnId: turn.turnId,
+                  toolCallId: event.toolCall.toolCallId,
+                  toolName: event.toolCall.toolName,
+                  inputSummary,
+                  status: 'running'
+                })
+              },
+              onToolCallFinish: (event) => {
+                const inputSummary = summarizeToolInput(
+                  event.toolCall.toolName,
+                  event.toolCall.input
+                )
+                const outputSummary = event.success
+                  ? summarizeToolOutput(event.toolCall.toolName, event.output)
+                  : summarizeToolOutput(event.toolCall.toolName, {
+                      error:
+                        event.error instanceof Error ? event.error.message : String(event.error)
+                    })
+                activeToolCalls.delete(event.toolCall.toolCallId)
+                appendRecoveryToolResult(recoveryMessages, {
+                  toolCallId: event.toolCall.toolCallId,
+                  toolName: event.toolCall.toolName as ToolCallName,
+                  ...(event.success ? { output: event.output } : { error: event.error })
+                })
+                transcript?.update(recoveryMessages)
+                onToolCall({
+                  turnId: turn.turnId,
+                  toolCallId: event.toolCall.toolCallId,
+                  toolName: event.toolCall.toolName,
+                  inputSummary,
+                  outputSummary,
+                  status: event.success ? 'completed' : 'failed'
+                })
+              },
+              onFinish: (usage) => {
+                const inputTokens = usage.totalPromptTokens ?? usage.promptTokens
+                const outputTokens = usage.totalCompletionTokens ?? usage.completionTokens
+                if (inputTokens !== undefined) promptTokens = (promptTokens ?? 0) + inputTokens
+                if (outputTokens !== undefined)
+                  completionTokens = (completionTokens ?? 0) + outputTokens
+                previousPromptTokens = usage.promptTokens
+                responseMessages = usage.responseMessages
+              }
+            })) {
+              output += delta
+              attemptOutput += delta
+              appendRecoveryTextDelta(recoveryMessages, delta)
+              transcript?.update(recoveryMessages, false)
+              onProgress({ turnId: turn.turnId, chunk: delta })
+            }
+            const completedMessages = (
+              responseMessages?.length ? responseMessages : recoveryMessages
+            ) as ModelMessage[]
+            history.push(...completedMessages)
+            transcript?.commit(completedMessages)
+            historyCommitted = true
+            const lastResponse = completedMessages.at(-1)
+            output =
+              lastResponse?.role === 'assistant'
+                ? typeof lastResponse.content === 'string'
+                  ? lastResponse.content
+                  : lastResponse.content.some((part) => part.type === 'tool-call')
+                    ? ''
+                    : lastResponse.content
+                        .filter((part) => part.type === 'text')
+                        .map((part) => part.text)
+                        .join('')
+                : lastResponse
                   ? ''
-                  : lastResponse.content
-                      .filter((part) => part.type === 'text')
-                      .map((part) => part.text)
-                      .join('')
-              : lastResponse
-                ? ''
-                : attemptOutput
-          if (!yielded && !output.trim()) {
-            if (reportOnly)
-              throw new Error(
-                'Worker did not produce a final report after a report-only continuation.'
-              )
-            reportOnly = true
-            attempt = 0
-            retryDelay = WORKER_SUBAGENT_RETRY_BASE_DELAY_MS
+                  : attemptOutput
+            if (!yielded && !output.trim()) {
+              if (reportOnly)
+                throw new Error(
+                  'Worker did not produce a final report after a report-only continuation.'
+                )
+              reportOnly = true
+              attempt = 0
+              retryDelay = WORKER_SUBAGENT_RETRY_BASE_DELAY_MS
+              history.push({
+                role: 'user',
+                content:
+                  'Return a concise final report based on the work already recorded above. State what you verified and what remains incomplete. No further tool calls are available for this report.'
+              })
+              transcript?.append(history.slice(-1), true)
+              continue
+            }
+            break
+          } catch (error) {
+            const hadActiveToolCalls = activeToolCalls.size > 0
+            for (const [toolCallId, toolName] of activeToolCalls) {
+              appendRecoveryToolResult(recoveryMessages, {
+                toolCallId,
+                toolName,
+                error: new Error('Tool execution was interrupted before completion.')
+              })
+            }
+            if (!historyCommitted && recoveryMessages.length > 0) {
+              history.push(...(recoveryMessages as ModelMessage[]))
+              transcript?.commit(recoveryMessages)
+            }
+            if (
+              !isRetryableRunError(error) ||
+              turn.signal.aborted ||
+              hadActiveToolCalls ||
+              attempt >= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS
+            ) {
+              throw error
+            }
+
             history.push({
               role: 'user',
               content:
-                'Return a concise final report based on the work already recorded above. State what you verified and what remains incomplete. No further tool calls are available for this report.'
+                `[Worker turn recovery ${attempt}/${WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS}] ` +
+                'The provider stream was interrupted. Continue from the transcript above without repeating completed tool calls.'
             })
-            continue
+            transcript?.append(history.slice(-1), true)
+            await sleep(retryDelay, turn.signal)
+            retryDelay = Math.min(retryDelay * 2, WORKER_SUBAGENT_RETRY_MAX_DELAY_MS)
           }
-          break
-        } catch (error) {
-          const hadActiveToolCalls = activeToolCalls.size > 0
-          for (const [toolCallId, toolName] of activeToolCalls) {
-            appendRecoveryToolResult(recoveryMessages, {
-              toolCallId,
-              toolName,
-              error: new Error('Tool execution was interrupted before completion.')
-            })
-          }
-          if (!historyCommitted && recoveryMessages.length > 0) {
-            history.push(...(recoveryMessages as ModelMessage[]))
-          }
-          if (
-            !isRetryableRunError(error) ||
-            turn.signal.aborted ||
-            hadActiveToolCalls ||
-            attempt >= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS
-          ) {
-            if (promptTokens !== undefined || completionTokens !== undefined || compaction.phase) {
-              throw new SubagentTurnError(error, {
-                promptTokens: (promptTokens ?? 0) + compaction.promptTokens,
-                completionTokens: (completionTokens ?? 0) + compaction.completionTokens
-              })
-            }
-            throw error
-          }
-
-          history.push({
-            role: 'user',
-            content:
-              `[Worker turn recovery ${attempt}/${WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS}] ` +
-              'The provider stream was interrupted. Continue from the transcript above without repeating completed tool calls.'
-          })
-          await sleep(retryDelay, turn.signal)
-          retryDelay = Math.min(retryDelay * 2, WORKER_SUBAGENT_RETRY_MAX_DELAY_MS)
         }
-      }
-      const totalPromptTokens = (promptTokens ?? 0) + compaction.promptTokens
-      const totalCompletionTokens = (completionTokens ?? 0) + compaction.completionTokens
-      return {
-        output: yielded ? '' : output,
-        ...(yielded ? { yielded: true } : {}),
-        ...(promptTokens !== undefined || compaction.phase
-          ? { promptTokens: totalPromptTokens }
-          : {}),
-        ...(completionTokens !== undefined || compaction.phase
-          ? { completionTokens: totalCompletionTokens }
-          : {})
+        const totalPromptTokens = (promptTokens ?? 0) + compaction.promptTokens
+        const totalCompletionTokens = (completionTokens ?? 0) + compaction.completionTokens
+        const result: SubagentTurnResult = {
+          output: yielded ? '' : output,
+          ...(yielded ? { yielded: true } : {}),
+          ...(promptTokens !== undefined || compaction.phase
+            ? { promptTokens: totalPromptTokens }
+            : {}),
+          ...(completionTokens !== undefined || compaction.phase
+            ? { completionTokens: totalCompletionTokens }
+            : {})
+        }
+        transcript?.finish(result)
+        return result
+      } catch (error) {
+        const failure =
+          error instanceof SubagentTurnError ||
+          (promptTokens === undefined && completionTokens === undefined && !hasCompactionUsage)
+            ? error
+            : new SubagentTurnError(error, {
+                promptTokens: (promptTokens ?? 0) + compactionPromptTokens,
+                completionTokens: (completionTokens ?? 0) + compactionCompletionTokens
+              })
+        transcript?.fail(failure, turn.signal.aborted)
+        throw failure
       }
     },
     async close(): Promise<void | { snapshotId?: string }> {

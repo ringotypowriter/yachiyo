@@ -119,9 +119,6 @@ importers:
       '@lobehub/icons':
         specifier: ^5.6.0
         version: 5.6.0(@lobehub/ui@5.6.4)(@types/react@19.2.14)(antd@6.3.5(luxon@3.7.2)(moment@2.31.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      '@noble/ciphers':
-        specifier: ^2.4.0
-        version: 2.4.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.0
@@ -352,6 +349,22 @@ importers:
         specifier: ^7.2.6
         version: 7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.1)
 
+  apps/headless:
+    dependencies:
+      '@yachiyo/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+      '@yachiyo/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@yachiyo/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+    devDependencies:
+      esbuild:
+        specifier: 0.27.4
+        version: 0.27.4
+
   apps/website:
     dependencies:
       '@astrojs/react':
@@ -450,6 +463,9 @@ importers:
       '@babel/parser':
         specifier: ^7.29.7
         version: 7.29.7
+      '@noble/ciphers':
+        specifier: ^2.4.0
+        version: 2.4.0
       '@yachiyo/shared':
         specifier: workspace:*
         version: link:../shared
@@ -477,9 +493,6 @@ importers:
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)
-      electron:
-        specifier: ^39.2.6
-        version: 39.8.2
       eventsource-parser:
         specifier: ^3.0.6
         version: 3.0.8
@@ -525,6 +538,9 @@ importers:
       ws:
         specifier: ^8.20.1
         version: 8.20.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
       yauzl:
         specifier: ^3.4.0
         version: 3.4.0
@@ -538,6 +554,9 @@ importers:
       '@types/yauzl':
         specifier: ^3.4.0
         version: 3.4.0
+      electron:
+        specifier: ^39.2.6
+        version: 39.8.2
 
   packages/shared:
     dependencies:
@@ -8885,11 +8904,6 @@ packages:
     resolution: {integrity: sha512-vIYeF1u3CjlhAFekPPAk2h/Kv4T3mAkMox5OymRiJQB0spDP10LHvt+K7G9Ny6NuuMAb25/6n1qyUjAcGNf/AA==}
     engines: {node: '>= 6'}
 
-  yaml@2.8.3:
-    resolution: {integrity: sha512-AvbaCLOO2Otw/lW5bmh9d/WEdcDFdQp2Z2ZUH3pX9U2ihyUY0nvLv7J6TrWowklRGPYbB/IuIMfYgxaCPg5Bpg==}
-    engines: {node: '>= 14.6'}
-    hasBin: true
-
   yaml@2.9.1:
     resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
     engines: {node: '>= 14.6'}
@@ -15326,7 +15340,7 @@ snapshots:
       picomatch: 4.0.3
       string-argv: 0.3.2
       tinyexec: 1.0.4
-      yaml: 2.8.3
+      yaml: 2.9.1
 
   listr2@9.0.5:
     dependencies:
@@ -18607,8 +18621,6 @@ snapshots:
   yallist@5.0.0: {}
 
   yaml@1.10.3: {}
-
-  yaml@2.8.3: {}
 
   yaml@2.9.1: {}
 

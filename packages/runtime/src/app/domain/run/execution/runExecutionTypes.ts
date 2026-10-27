@@ -169,6 +169,7 @@ export interface RunExecutionDeps {
   searchService?: SearchService
   webSearchService?: WebSearchService
   browserAutomationService?: BrowserAutomationToolBackend
+  unavailableTools?: readonly string[]
   readSoulDocument?: () => Promise<SoulDocument | null>
   readUserDocument?: () => Promise<UserDocument | null>
   readThread: (threadId: string) => ThreadRecord

@@ -1,0 +1,16 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": ["src/**/*"],
+  "compilerOptions": {
+    "noImplicitAny": true,
+    "allowImportingTsExtensions": true,
+    "composite": false,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@yachiyo/runtime/*": ["../../packages/runtime/src/*"],
+      "@yachiyo/shared/*": ["../../packages/shared/src/*"],
+      "@yachiyo/cli/*": ["../../packages/cli/src/*"]
+    }
+  }
+}

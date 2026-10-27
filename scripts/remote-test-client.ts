@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { parseArgs } from 'node:util'
 
-import { runRemoteScenario } from '../apps/desktop/src/main/remote/testing/remoteScenario.ts'
+import { runRemoteScenario } from '../packages/runtime/src/remote/testing/remoteScenario.ts'
 
 const { values } = parseArgs({
   options: {

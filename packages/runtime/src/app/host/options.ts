@@ -35,6 +35,8 @@ export interface YachiyoServerOptions {
   createModelRuntime?: () => ModelRuntime
   searchService?: SearchService
   processBroker?: ProcessBroker
+  /** Tools the host cannot provide, independent of the user's saved preferences. */
+  unavailableTools?: readonly string[]
   jsReplWorkerPath?: string | URL
   pyReplRunnerPath?: string | URL
   readSoulDocument?: () => Promise<SoulDocument | null>

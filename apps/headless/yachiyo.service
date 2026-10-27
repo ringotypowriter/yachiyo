@@ -1,0 +1,22 @@
+[Unit]
+Description=Yachiyo headless assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yachiyo
+Group=yachiyo
+StateDirectory=yachiyo
+StateDirectoryMode=0700
+Environment=YACHIYO_HOME=/var/lib/yachiyo
+Environment=PATH=/opt/yachiyo:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/var/lib/yachiyo
+ExecStart=/opt/yachiyo/yachiyo serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

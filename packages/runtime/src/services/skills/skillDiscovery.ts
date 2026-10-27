@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { parse as parseYaml } from 'yaml'
 
 import type { SkillCatalogEntry, SkillOrigin, SkillPlatform } from '@yachiyo/shared/protocol'
 import { resolveYachiyoDataDir } from '../../config/paths.ts'
@@ -124,61 +125,31 @@ export function parseSkillPlatforms(value: string | undefined): SkillPlatform[] 
   return platforms
 }
 
-function unquoteFrontmatterValue(value: string): string {
-  const trimmed = value.trim()
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1).trim()
-  }
-
-  return trimmed
-}
-
 function parseFrontmatter(content: string): ParsedFrontmatter {
-  if (!content.startsWith('---\n')) {
-    return {
-      body: content,
-      data: {}
-    }
+  const normalized = content.replace(/\r\n/gu, '\n')
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/u.exec(normalized)
+  if (!match) return { body: content, data: {} }
+  // Older skill files can contain bare non-field lines. Preserve that tolerance
+  // without treating indented metadata as top-level name/description fields.
+  const frontmatter = match[1]!
+    .split('\n')
+    .filter((line) => !/^\S/u.test(line) || /^(?:#|[^:]+:)/u.test(line))
+    .join('\n')
+  const parsed: unknown = parseYaml(frontmatter, { schema: 'failsafe' })
+  if (parsed !== null && (typeof parsed !== 'object' || Array.isArray(parsed))) {
+    throw new Error('Skill frontmatter must be a YAML mapping.')
   }
-
-  const endIndex = content.indexOf('\n---\n', 4)
-  if (endIndex < 0) {
-    return {
-      body: content,
-      data: {}
-    }
-  }
-
   const data: Record<string, string> = {}
-  const rawFrontmatter = content.slice(4, endIndex)
-
-  for (const rawLine of rawFrontmatter.split('\n')) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) {
-      continue
+  for (const [key, value] of Object.entries(parsed ?? {})) {
+    if (typeof value === 'string') data[key] = value
+    else if (key === 'platforms' && Array.isArray(value)) {
+      if (!value.every((platform) => typeof platform === 'string')) {
+        throw new Error('Skill platforms must be platform names.')
+      }
+      data[key] = value.join(',')
     }
-
-    const separatorIndex = line.indexOf(':')
-    if (separatorIndex <= 0) {
-      continue
-    }
-
-    const key = line.slice(0, separatorIndex).trim()
-    const value = unquoteFrontmatterValue(line.slice(separatorIndex + 1))
-    if (!key || !value) {
-      continue
-    }
-
-    data[key] = value
   }
-
-  return {
-    body: content.slice(endIndex + '\n---\n'.length),
-    data
-  }
+  return { body: normalized.slice(match[0].length), data }
 }
 
 function extractHeadingName(body: string): string | undefined {

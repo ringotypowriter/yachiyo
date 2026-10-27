@@ -36,6 +36,7 @@ import { isLocalOrOwnerDmThread } from './threadVisibility.ts'
 import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
 import { applyThreadSnapshot, createStoredThreadRow } from './memoryStorage/threadRows.ts'
 import { getInMemoryUsageStats } from './memoryStorage/usageStats.ts'
+import { createInMemoryWorkerTranscriptStore } from './memoryStorage/workerTranscripts.ts'
 
 export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const channelGroups = new Map<string, ChannelGroupRecord>()
@@ -154,7 +155,17 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     return message.textBlocks?.some((block) => block.content.trim().length > 0) ?? false
   }
   const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => toToolCallRecord(row)
-  const deleteActivitySourceRecordsForRuns = (runIds: Set<string>): void => {
+  const workerTranscripts = createInMemoryWorkerTranscriptStore((turn) => {
+    const thread = threads.get(turn.threadId)
+    return Boolean(
+      thread &&
+      thread.privacyMode !== '1' &&
+      isBootstrapThread(thread) &&
+      runs.get(turn.launchRunId)?.threadId === turn.threadId
+    )
+  })
+  const deleteRunEvidence = (runIds: Set<string>): void => {
+    workerTranscripts.deleteRuns(runIds)
     if (runIds.size === 0) return
 
     const nextRecords = activitySourceRecords.filter((record) => !runIds.has(record.runId))
@@ -211,6 +222,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
 
     recoverInterruptedRuns({ error, finishedAt }) {
+      workerTranscripts.recover({ error, finishedAt })
       const recoverableRunIds = new Set(runRecoveryCheckpoints.keys())
       const interruptedRunIds = [...runs.values()]
         .filter((run) => run.status === 'running')
@@ -275,6 +287,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     deleteRunRecoveryCheckpoint(runId) {
       runRecoveryCheckpoints.delete(runId)
     },
+
+    ...workerTranscripts.methods,
 
     getRun(runId) {
       const run = runs.get(runId)
@@ -439,7 +453,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         runs.delete(runId)
         runRecoveryCheckpoints.delete(runId)
       }
-      deleteActivitySourceRecordsForRuns(deletedRunIds)
+      deleteRunEvidence(deletedRunIds)
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
         if (
@@ -468,7 +482,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         runs.delete(runId)
         runRecoveryCheckpoints.delete(runId)
       }
-      deleteActivitySourceRecordsForRuns(deletedRunIds)
+      deleteRunEvidence(deletedRunIds)
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
         if (toolCall.threadId === threadId) {
@@ -502,7 +516,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         runs.delete(runId)
         runRecoveryCheckpoints.delete(runId)
       }
-      deleteActivitySourceRecordsForRuns(deletedRunIds)
+      deleteRunEvidence(deletedRunIds)
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
         if (threadIdSet.has(toolCall.threadId)) {
@@ -950,7 +964,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       for (const runId of deletedRunIds) {
         runs.delete(runId)
       }
-      deleteActivitySourceRecordsForRuns(deletedRunIds)
+      deleteRunEvidence(deletedRunIds)
 
       for (const toolCall of [...toolCalls.values()]) {
         if (toolCall.assistantMessageId && deletedIds.has(toolCall.assistantMessageId)) {
