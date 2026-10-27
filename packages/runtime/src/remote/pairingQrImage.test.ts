@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, readdir, stat, utimes, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -47,10 +47,12 @@ test('stores a private PNG in a path with spaces and removes expired artifacts',
       directory,
       now: () => now
     })
-    assert.ok(first.startsWith(`${directory}/`))
+    assert.equal(dirname(first), directory)
     assert.deepEqual(await readFile(first), png)
-    assert.equal((await stat(directory)).mode & 0o777, 0o700)
-    assert.equal((await stat(first)).mode & 0o777, 0o600)
+    if (process.platform !== 'win32') {
+      assert.equal((await stat(directory)).mode & 0o777, 0o700)
+      assert.equal((await stat(first)).mode & 0o777, 0o600)
+    }
 
     const stale = join(directory, '00000000-0000-4000-8000-000000000000.png')
     await writeFile(stale, png)
