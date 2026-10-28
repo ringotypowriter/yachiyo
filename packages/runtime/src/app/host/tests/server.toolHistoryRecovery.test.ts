@@ -420,7 +420,7 @@ test('YachiyoServer applies steer at the completed tool-call boundary', async ()
   })
 
   await withServer(
-    async ({ server, completeRun }) => {
+    async ({ server, storage, completeRun }) => {
       const unsubscribe = server.subscribe((event) => {
         if (event.type !== 'tool.updated') {
           return
@@ -460,20 +460,30 @@ test('YachiyoServer applies steer at the completed tool-call boundary', async ()
 
       await toolExecutionStarted
 
-      const steerAccepted = await server.sendChat({
-        threadId: thread.id,
-        content: 'Actually summarize the result instead',
-        mode: 'steer'
-      })
-      const beforeRelease = await server.bootstrap()
+      try {
+        const steerAccepted = await server.sendChat({
+          threadId: thread.id,
+          content: 'Actually summarize the result instead',
+          mode: 'steer'
+        })
+        const beforeRelease = await server.bootstrap()
 
-      assert.equal(steerAccepted.kind, 'active-run-steer-pending')
-      assert.equal(firstRequest?.signal.aborted, false)
-      assert.equal(requests.length, 1)
-      assert.equal((beforeRelease.messagesByThread[thread.id] ?? []).length, 1)
-
-      markSteerQueued!()
-      releaseToolExecution?.()
+        assert.equal(steerAccepted.kind, 'active-run-steer-pending')
+        assert.equal(firstRequest?.signal.aborted, false)
+        assert.equal(requests.length, 1)
+        assert.deepEqual(
+          beforeRelease.messagesByThread[thread.id]?.map((message) => message.content),
+          ['List the workspace files.', 'Checking the workspace']
+        )
+        assert.equal(beforeRelease.messagesByThread[thread.id]?.at(-1)?.status, 'streaming')
+        assert.deepEqual(
+          storage.listThreadMessages(thread.id).map((message) => message.content),
+          ['List the workspace files.']
+        )
+      } finally {
+        markSteerQueued!()
+        releaseToolExecution?.()
+      }
       await completeRun(accepted.runId)
 
       const bootstrap = await server.bootstrap()

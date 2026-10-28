@@ -37,9 +37,9 @@ const QUICK_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
   <key>RunAtLoad</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>HOME/logs/cloudflared.log</string>
+  <string>LOG_PATH</string>
   <key>StandardErrorPath</key>
-  <string>HOME/logs/cloudflared.log</string>
+  <string>LOG_PATH</string>
 </dict>
 </plist>
 `
@@ -126,7 +126,10 @@ test('quick tunnel LaunchAgent plist matches the expected snapshot', async () =>
     await supervisor.install({ mode: 'quick' }, { port: 47831, metricsPort: 47832 })
 
     const plist = await readFile(supervisor.plistPath, 'utf8')
-    assert.equal(plist, QUICK_PLIST.replaceAll('HOME', join(root, 'home')))
+    assert.equal(
+      plist,
+      QUICK_PLIST.replaceAll('LOG_PATH', join(root, 'home', 'logs', 'cloudflared.log'))
+    )
     assert.deepEqual(commands, [
       ['launchctl', 'bootout', `gui/501/${CLOUDFLARED_AGENT_LABEL}`],
       ['launchctl', 'bootstrap', 'gui/501', supervisor.plistPath]
