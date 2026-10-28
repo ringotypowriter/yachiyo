@@ -65,6 +65,9 @@ jobs:
       - name: Test native server behavior
         run: pnpm run test:server:native
 
+      - name: Build desktop for lifecycle smoke
+        run: pnpm --filter @yachiyo/desktop exec electron-vite build
+
       - name: Test app server and desktop shell lifecycle
         run: node --experimental-strip-types scripts/smoke-app-server.mts
 
