@@ -26,6 +26,11 @@ export function createWebSocketRpcTransport(
   const closeListeners = new Set<() => void>()
   let closed = false
 
+  const exceedsByteLimit = (frame: string, budget: number): boolean => {
+    // Each UTF-16 code unit needs 1–3 UTF-8 bytes. Only count exactly near the limit.
+    if (frame.length > budget) return true
+    return frame.length * 3 > budget && encoder.encode(frame).byteLength > budget
+  }
   const dispose = (): void => {
     if (closed) return
     closed = true
@@ -43,7 +48,7 @@ export function createWebSocketRpcTransport(
   const receive = (event: { data: unknown }): void => {
     let message: RpcMessage
     try {
-      if (typeof event.data !== 'string' || encoder.encode(event.data).byteLength > maxBytes) {
+      if (typeof event.data !== 'string' || exceedsByteLimit(event.data, maxBytes)) {
         throw new Error('Invalid RPC frame')
       }
       message = decodeRpcMessage(event.data)
@@ -61,7 +66,7 @@ export function createWebSocketRpcTransport(
     post(message) {
       if (closed || socket.readyState !== 1) throw new Error('RPC transport closed')
       const frame = encodeRpcMessage(message)
-      if (encoder.encode(frame).byteLength + socket.bufferedAmount > maxBytes) {
+      if (exceedsByteLimit(frame, maxBytes - socket.bufferedAmount)) {
         fail()
         throw new Error('RPC peer exceeded the output buffer limit')
       }

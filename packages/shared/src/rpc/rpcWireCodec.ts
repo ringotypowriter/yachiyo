@@ -38,6 +38,13 @@ function encodeValue(value: unknown, ancestors: Set<object>, depth: number): unk
   if (typeof value !== 'object') throw new Error('RPC values must be JSON data or bytes')
   if (ancestors.has(value)) throw new Error('RPC values cannot contain cycles')
   if (value instanceof Uint8Array) {
+    // Node can encode the exact byte view without expanding it into a JS string.
+    if (typeof Buffer !== 'undefined') {
+      return {
+        [TAG]: 'bytes',
+        value: Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('base64')
+      }
+    }
     let binary = ''
     for (let offset = 0; offset < value.length; offset += 8192) {
       binary += String.fromCharCode(...value.subarray(offset, offset + 8192))
@@ -50,10 +57,8 @@ function encodeValue(value: unknown, ancestors: Set<object>, depth: number): unk
   ancestors.add(value)
   try {
     if (Array.isArray(value)) return value.map((item) => encodeValue(item, ancestors, depth + 1))
-    const entries = Object.entries(value).map(([key, item]) => [
-      key,
-      encodeValue(item, ancestors, depth + 1)
-    ])
+    const entries = Object.entries(value)
+    for (const entry of entries) entry[1] = encodeValue(entry[1], ancestors, depth + 1)
     // Escape user records containing our tag, so ordinary data never becomes a typed value.
     return Object.hasOwn(value, TAG)
       ? { [TAG]: 'record', value: entries }
@@ -66,13 +71,20 @@ function encodeValue(value: unknown, ancestors: Set<object>, depth: number): unk
 function decodeValue(value: unknown, depth: number): unknown {
   if (depth > MAX_DEPTH) throw new Error('RPC value exceeds the nesting limit')
   if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map((item) => decodeValue(item, depth + 1))
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) {
+      value[index] = decodeValue(value[index], depth + 1)
+    }
+    return value
+  }
   const record = value as Record<string, unknown>
   if (Object.hasOwn(record, TAG)) {
     if (record[TAG] === 'undefined' && Object.keys(record).length === 1) return undefined
     if (record[TAG] === 'bytes' && typeof record.value === 'string') {
       const binary = atob(record.value)
-      return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+      return bytes
     }
     if (record[TAG] === 'record' && Array.isArray(record.value)) {
       const entries = record.value.map((entry: unknown) => {
@@ -85,9 +97,10 @@ function decodeValue(value: unknown, depth: number): unknown {
     }
     throw new Error('Invalid RPC typed value')
   }
-  return Object.fromEntries(
-    Object.entries(record).map(([key, item]) => [key, decodeValue(item, depth + 1)])
-  )
+  // JSON.parse owns these records, including any own __proto__ data property.
+  // Replace typed values in place so ordinary snapshots do not get copied again.
+  for (const key of Object.keys(record)) record[key] = decodeValue(record[key], depth + 1)
+  return record
 }
 
 /** JSON transport encoding, including the bytes and undefined values used by host RPC. */
