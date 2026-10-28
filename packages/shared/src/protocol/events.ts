@@ -19,6 +19,7 @@ import type {
 import type { ManagedPythonEnvironmentStatus } from './pythonEnvironment.ts'
 
 interface BaseEvent {
+  streamCursor?: import('../appServer/protocol.ts').AppEventCursor
   eventId: string
   timestamp: string
   type: string

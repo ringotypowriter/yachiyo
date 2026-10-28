@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { connect } from 'node:net'
 import { existsSync, unlinkSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { connect } from 'node:net'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { startCommandSocket } from './commandSocket.ts'
+import { startCommandSocket } from '@yachiyo/runtime/appServer/commandSocket'
 
 function sendToSocket(socketPath: string, data: string): Promise<void> {
   return new Promise((resolve, reject) => {

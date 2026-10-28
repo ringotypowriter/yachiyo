@@ -1,11 +1,11 @@
-import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { mkdir, mkdtemp, open, writeFile, rm, symlink, realpath } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readFilePreview } from '@yachiyo/runtime/appServer/readFilePreview'
 import { resolveThreadWorkspacePath } from '@yachiyo/runtime/config/paths'
 import { MAX_FILE_PREVIEW_BYTES } from '@yachiyo/shared/filePreview'
-import { readFilePreview } from './readFilePreview.ts'
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
 
 test('reads a document relative to an explicit workspace', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'preview-'))

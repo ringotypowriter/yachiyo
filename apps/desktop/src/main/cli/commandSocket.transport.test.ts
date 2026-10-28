@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
 
-import type { CommandEndpoint } from '@yachiyo/runtime/config/commandEndpoint'
 import {
   cleanupCommandEndpoint,
   createCommandSocketRestartPolicy,
   prepareCommandEndpoint,
   probeCommandEndpoint
-} from './commandSocket.ts'
+} from '@yachiyo/runtime/appServer/commandSocket'
+import type { CommandEndpoint } from '@yachiyo/runtime/config/commandEndpoint'
 
 function createFilesystemRecorder(): {
   calls: string[]

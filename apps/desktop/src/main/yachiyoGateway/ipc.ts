@@ -7,8 +7,7 @@ import type {
 } from '@yachiyo/shared/protocol'
 import { getPerfMonitor } from '@yachiyo/runtime/services/perfMonitor'
 import { createNotificationDeduplicator } from '@yachiyo/shared/notificationDeduplication'
-import { isAuxiliaryWindow, isHighFrequencyChatEvent } from './filter.ts'
-import { IPC_CHANNELS } from './ipcChannels.ts'
+import { isAuxiliaryWindow } from './filter.ts'
 import { createDockBadgeController } from './dockBadgeController.ts'
 
 const notificationDockBadge = createDockBadgeController({
@@ -60,20 +59,8 @@ export function showYachiyoNotification(input: ShowNotificationInput): void {
   if (shouldShowDockBadge) notificationDockBadge.increment()
 }
 
-/**
- * Main-process consumers of the runtime event stream (the remote hub). They attach here, not to
- * one runtime client, so they keep receiving events after the utility process is reforked.
- */
-const yachiyoEventTaps = new Set<(event: YachiyoServerEvent) => void>()
-
-export function tapYachiyoEvents(listener: (event: YachiyoServerEvent) => void): () => void {
-  yachiyoEventTaps.add(listener)
-  return () => yachiyoEventTaps.delete(listener)
-}
-
 export function broadcastYachiyoEvent(event: YachiyoServerEvent): void {
   getPerfMonitor().recordIpcEvent(event.type)
-  for (const tap of yachiyoEventTaps) tap(event)
 
   if (event.type === 'sync.custom-skills-disclosure') {
     showYachiyoNotification({ title: event.title, body: event.body })
@@ -89,16 +76,6 @@ export function broadcastYachiyoEvent(event: YachiyoServerEvent): void {
         target: 'thread'
       })
     }
-  }
-
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed()) {
-      continue
-    }
-    if (isHighFrequencyChatEvent(event) && isAuxiliaryWindow(window)) {
-      continue
-    }
-    window.webContents.send(IPC_CHANNELS.event, event)
   }
 }
 

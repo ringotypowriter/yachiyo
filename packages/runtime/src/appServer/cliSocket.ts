@@ -1,9 +1,9 @@
-import { connect, createServer, type Socket } from 'node:net'
 import { chmod, lstat, unlink } from 'node:fs/promises'
+import { connect, createServer, type Socket } from 'node:net'
 
-import { createSocketRpcTransport } from '@yachiyo/shared/rpc/socketRpcTransport'
-import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
 import type { YachiyoServerEvent } from '@yachiyo/shared/protocol'
+import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
+import { createSocketRpcTransport } from '@yachiyo/shared/rpc/socketRpcTransport'
 
 export async function isSocketRunning(path: string): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -48,6 +48,10 @@ export async function listenLocalSocket(input: {
   target: object
   subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
 }): Promise<{ close(): Promise<void> }> {
+  // macOS silently truncates an overlong sockaddr_un path before reporting listen success.
+  const pathLimit = process.platform === 'darwin' ? 103 : 107
+  if (Buffer.byteLength(input.path) > pathLimit)
+    throw new Error(`CLI socket path exceeds ${pathLimit} bytes; use a shorter YACHIYO_HOME`)
   await removeStaleSocket(input.path)
   const sockets = new Set<Socket>()
   const server = createServer((socket) => {

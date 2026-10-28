@@ -8,8 +8,8 @@ import {
 import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 import { REMOTE_WS_PATH } from '@yachiyo/shared/remote/wire'
 
-import type { RemoteKeepAwake } from './keepAwake.ts'
 import type { RelayCredential } from '@yachiyo/runtime/remote/relayActivation'
+import type { RemoteKeepAwake } from './keepAwake.ts'
 
 export interface ManagedRemoteService {
   readonly port: number | null

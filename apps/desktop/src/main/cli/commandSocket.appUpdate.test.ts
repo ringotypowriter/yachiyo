@@ -1,22 +1,22 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { connect } from 'node:net'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import type { AppUpdateController } from '../electron/appUpdateController.ts'
-import type { UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
-import { createAppUpdateCommandHandler } from './appUpdateCommand.ts'
 import {
   createAppUpdateReplyFinalizer,
   startCommandSocket,
+  writeAppUpdateReply,
   type AppUpdateCommandReply,
-  type CommandSocketOptions,
-  writeAppUpdateReply
-} from './commandSocket.ts'
+  type CommandSocketOptions
+} from '@yachiyo/runtime/appServer/commandSocket'
+import type { UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
+import type { AppUpdateController } from '../electron/appUpdateController.ts'
+import { createAppUpdateCommandHandler } from './appUpdateCommand.ts'
 
 async function createTestSocketFixture(): Promise<{ root: string; socketPath: string }> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-socket-'))

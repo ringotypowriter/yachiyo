@@ -7,8 +7,8 @@ import test from 'node:test'
 import { DEFAULT_REMOTE_CONFIG, type RemoteConfig } from '@yachiyo/shared/protocol'
 
 import { createPlatformTunnelSupervisor } from './platformTunnelSupervisor.ts'
-import { RemoteController } from './remoteController.ts'
 import { handleRemoteCommand, type RemoteCommandDeps } from './remoteCommands.ts'
+import { RemoteController } from './remoteController.ts'
 import { TunnelSupervisor } from './tunnelSupervisor.ts'
 import { WindowsTunnelSupervisor } from './windowsTunnelSupervisor.ts'
 

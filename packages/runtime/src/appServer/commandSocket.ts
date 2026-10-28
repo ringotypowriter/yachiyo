@@ -1,17 +1,17 @@
-import { createServer, connect as connectSocket, type Server, type Socket } from 'node:net'
-import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
-import { dirname } from 'node:path'
 import type { CommandEndpoint } from '@yachiyo/runtime/config/commandEndpoint'
 import type {
   AppUpdateCommandRequest,
-  AppUpdateCommandResult,
-  AppUpdateCommandResponse
+  AppUpdateCommandResponse,
+  AppUpdateCommandResult
 } from '@yachiyo/shared/appUpdate'
 import {
   remoteCommandRequestSchema,
   type RemoteCommandRequest,
   type RemoteCommandResponse
 } from '@yachiyo/shared/remote/command'
+import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
+import { connect as connectSocket, createServer, type Server, type Socket } from 'node:net'
+import { dirname } from 'node:path'
 
 export interface SendChannelInput {
   id: string
@@ -223,10 +223,13 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
   } = options
   const endpoint = resolveCommandSocketEndpoint(options)
   let closed = false
+  const connections = new Set<Socket>()
 
   prepareCommandEndpoint(endpoint)
 
   const server: Server = createServer({ allowHalfOpen: true }, (connection) => {
+    connections.add(connection)
+    connection.once('close', () => connections.delete(connection))
     let buffer = ''
     let requestHandled = false
     let transportClosed = false
@@ -449,6 +452,7 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     async close(): Promise<void> {
       return new Promise((resolve) => {
         closed = true
+        for (const connection of connections) connection.destroy()
         const finish = (): void => {
           try {
             cleanupCommandEndpoint(endpoint)

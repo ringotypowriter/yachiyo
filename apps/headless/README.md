@@ -2,7 +2,9 @@
 
 Run the assistant on Debian without Electron, a graphical session, D-Bus, or a desktop wallet.
 One Node process runs the assistant, schedules, channels, and Remote listener. SQLite stores conversations.
-The CLI connects through an owner-only Unix socket in `YACHIYO_HOME`.
+The CLI connects through an owner-only Unix socket in `YACHIYO_HOME`. This host shares the
+[app server](../../packages/runtime/src/appServer) with the desktop target. Its
+loopback WebSocket API is for local clients; expose only the encrypted Remote endpoint.
 
 This is an experimental source-built target. Use Node **22.22.1** and a separate data directory
 from the desktop app. Do not open the same data directory with both hosts.
@@ -73,6 +75,10 @@ After a connection failure, resume the saved thread with `--thread`.
 also run offline with the master key. `thread`, `soul`, `schedule`, `channel`, and `send`
 retain their existing CLI forms. Notifications are written to the service log.
 
+`yachiyo server status` reports the running service. `yachiyo server stop` requests a graceful
+shutdown. Under systemd, use `systemctl stop yachiyo` to keep the service stopped according to
+the unit's restart policy. The desktop and headless credential formats remain separate.
+
 ## Remote
 
 Use an external TLS proxy or an activated Yachiyo Connect relay. For a proxy:
@@ -81,7 +87,6 @@ Use an external TLS proxy or an activated Yachiyo Connect relay. For a proxy:
 yachiyo config set remote.tunnel none
 yachiyo config set remote.publicEndpoint https://yachiyo.example.com
 yachiyo config set remote.enabled true
-# Restart yachiyo serve after changing Remote settings.
 yachiyo remote status
 yachiyo remote pair
 ```
@@ -92,7 +97,7 @@ pairing URL as JSON. Open the URL on the phone, or encode it as a QR code and sc
 Yachiyo Remote. Treat the URL as an invitation to access this assistant.
 
 For Yachiyo Connect, start with Remote disabled, run `yachiyo remote activate <invitation-code>`,
-set `remote.tunnel` to `relay`, enable Remote, and restart the service. Pair after the relay
+set `remote.tunnel` to `relay`, and enable Remote. Settings apply live. Pair after the relay
 connection is ready. `remote pairings list` and `remote pairings revoke <id>` manage phones.
 
 The listener binds to loopback by default. `remote.lanEndpoint = true` binds to all IPv4

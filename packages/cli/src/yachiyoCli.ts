@@ -4,14 +4,15 @@ import {
   resolveYachiyoSoulPath
 } from '@yachiyo/runtime/config/paths'
 import { handleAgentCommand } from './commands/agent.ts'
-import { handleChatCommand } from './commands/chat.ts'
 import { handleChannelCommand } from './commands/channel.ts'
+import { handleChatCommand } from './commands/chat.ts'
 import { handleConfigCommand } from './commands/config.ts'
 import { handleDoctorCommand } from './commands/doctor.ts'
 import { handleProviderCommand } from './commands/provider.ts'
 import { handleRemoteCommand } from './commands/remote.ts'
 import { handleScheduleCommand } from './commands/schedule.ts'
 import { handleSendCommand } from './commands/send.ts'
+import { handleServerCommand } from './commands/server.ts'
 import { handleSoulCommand } from './commands/soul.ts'
 import { handleThreadCommand } from './commands/thread.ts'
 import { handleUpdateCommand } from './commands/update.ts'
@@ -58,6 +59,11 @@ export async function runYachiyoCli(
     return
   }
 
+  if (namespace === 'server') {
+    await handleServerCommand(positionals.slice(1), options)
+    return
+  }
+
   const settingsPath = flags.get('--settings') ?? resolveYachiyoSettingsPath()
   const soulPath = flags.get('--soul') ?? resolveYachiyoSoulPath()
   const dbPath = flags.get('--db') ?? resolveYachiyoDbPath()
@@ -99,7 +105,7 @@ export async function runYachiyoCli(
 
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: chat, doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote\n\n${USAGE}`
+      `Unknown namespace: ${namespace}. Expected: server, chat, doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote\n\n${USAGE}`
     )
   }
 

@@ -1,5 +1,3 @@
-import { open, realpath } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
 import { resolveInputWorkspacePath } from '@yachiyo/runtime/runtime/files/inlineCodeFileReferences'
 import {
   decodePreviewText,
@@ -8,6 +6,8 @@ import {
   type FilePreviewContent,
   type ReadFilePreviewInput
 } from '@yachiyo/shared/filePreview'
+import { open, realpath } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
 
 export async function readFilePreview(input: ReadFilePreviewInput): Promise<FilePreviewContent> {
   let targetPath = input.path

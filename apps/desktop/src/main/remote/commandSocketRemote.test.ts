@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { connect } from 'node:net'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { connect } from 'node:net'
 import { join } from 'node:path'
 import test from 'node:test'
 
 import type { RemoteCommandRequest } from '@yachiyo/shared/remote/command'
 
-import { startCommandSocket } from '../cli/commandSocket.ts'
+import { startCommandSocket } from '@yachiyo/runtime/appServer/commandSocket'
 
 function request(socketPath: string, payload: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {

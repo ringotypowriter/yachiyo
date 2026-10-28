@@ -1,14 +1,14 @@
+import { connectHeadless } from '@yachiyo/cli/services/headless'
+import { isSocketRunning, listenLocalSocket } from '@yachiyo/runtime/appServer/cliSocket'
+import type { YachiyoServerEvent } from '@yachiyo/shared/protocol'
 import assert from 'node:assert/strict'
-import { once } from 'node:events'
 import { execFileSync } from 'node:child_process'
-import { connect } from 'node:net'
+import { once } from 'node:events'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import type { YachiyoServerEvent } from '@yachiyo/shared/protocol'
-import { connectHeadless } from '@yachiyo/cli/services/headless'
-import { isSocketRunning, listenLocalSocket } from './localSocket.ts'
 
 test('local RPC restricts methods and thread events, protects the socket and disconnects malformed peers', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'yh-rpc-'))

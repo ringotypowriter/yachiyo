@@ -265,6 +265,10 @@ export function buildRunExecutionDeps(
         currentRun.answerToolQuestion = handler
       }
     },
+    onLiveMessageReady: (read) => {
+      const run = context.activeRuns.get(input.loopInput.runId)
+      if (run && !input.isRecapRun) run.getLiveMessage = read
+    },
     hasPendingSteer: () => {
       const currentRun = context.activeRuns.get(input.loopInput.runId)
       return currentRun ? hasPendingSteerInputs(currentRun) : false

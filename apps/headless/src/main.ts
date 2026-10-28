@@ -3,22 +3,24 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'node:util'
 
-import { runYachiyoCli } from '@yachiyo/cli/yachiyoCli'
-import type { CliConfigService } from '@yachiyo/cli/core/types'
 import { parseArgs } from '@yachiyo/cli/core/args'
-import { connectHeadless, resolveHeadlessSocketPath } from '@yachiyo/cli/services/headless'
+import type { CliConfigService } from '@yachiyo/cli/core/types'
 import { createDefaultConfigService } from '@yachiyo/cli/services/config'
+import { connectHeadless, resolveHeadlessSocketPath } from '@yachiyo/cli/services/headless'
+import { runYachiyoCli } from '@yachiyo/cli/yachiyoCli'
+import { isSocketRunning } from '@yachiyo/runtime/appServer/cliSocket'
 import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
 import { createRpcMethodProxy } from '@yachiyo/shared/rpc/rpcClient'
 import { createHeadlessProviderVault, readMasterKey, resolveMasterKeyPath } from './credentials.ts'
-import { initializeHeadless } from './initialize.ts'
-import { isSocketRunning } from './localSocket.ts'
 import { startHeadlessHost } from './host.ts'
+import { initializeHeadless } from './initialize.ts'
 
 const HELP = `Yachiyo headless
 
   yachiyo init                         Create settings and a local encryption key
-  yachiyo serve                        Run the background service (foreground process)
+  yachiyo serve                        Run the app server (foreground process)
+  yachiyo server status                Inspect the running app server
+  yachiyo server stop                  Stop the app server
   yachiyo chat [prompt]                 Start a conversation; accepts piped text
   yachiyo chat --thread <id>            Continue a conversation
   yachiyo remote pair                  Print a five-minute pairing URL as JSON
@@ -32,7 +34,7 @@ are also available. Use <command> --help for details.
 
 YACHIYO_HOME selects the data directory (default ~/.yachiyo).
 YACHIYO_MASTER_KEY_FILE selects a raw 32-byte key file (mode 0600 or 0400).
-Remote settings take effect after restarting serve.
+Remote settings take effect in the running service.
 `
 
 async function main(): Promise<void> {
@@ -72,6 +74,7 @@ async function main(): Promise<void> {
       masterKey: readMasterKey(resolveMasterKeyPath(home)),
       version,
       resourcesDir,
+      onShutdown: () => process.exit(0),
       log: (line) => process.stderr.write(`[headless] ${line}\n`)
     })
     process.stderr.write(`Yachiyo headless ready at ${home}\n`)

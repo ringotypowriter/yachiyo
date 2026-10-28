@@ -1256,6 +1256,8 @@ export interface FolderRecord {
 }
 
 export interface BootstrapPayload {
+  /** App-server event position included in this snapshot. */
+  streamCursor?: import('./appServer/protocol.ts').AppEventCursor
   threads: ThreadRecord[]
   archivedThreads: ThreadRecord[]
   sentinelsByThread: Record<string, ThreadSentinelRecord>

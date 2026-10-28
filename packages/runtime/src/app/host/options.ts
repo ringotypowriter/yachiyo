@@ -57,14 +57,14 @@ export interface YachiyoServerOptions {
   sourceQueryExecutor?: QuerySourceExecutor
   /**
    * Browser tool backend, injected by the host process (Electron main today;
-   * an RPC-backed proxy once the runtime moves to a utility process). Omit to
+   * an RPC-backed proxy once the runtime moves to a app server). Omit to
    * run without the browser tool.
    */
   browserAutomationService?: BrowserAutomationToolBackend
   /**
    * Browser page backend for web search and page snapshots, injected by the
    * host process (Electron main today; an RPC-backed proxy once the runtime
-   * moves to a utility process). Omit to run without browser-driven search.
+   * moves to a app server). Omit to run without browser-driven search.
    */
   browserSearchPageFactory?: BrowserSearchPageFactory
   /**

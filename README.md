@@ -116,6 +116,12 @@ For a Debian server without a graphical session, the experimental [headless targ
 runs under Node and supports CLI conversations and encrypted Remote access. Build it with
 `pnpm build:headless`; deployment and systemd instructions are in that guide.
 
+The desktop UI connects to an independent app server over WebSocket RPC. Quitting the desktop
+leaves runtime tasks, schedules, channels, and Remote running. Reopening it reconnects to the
+same server. Native browser and OS integrations require the desktop shell.
+Use `yachiyo server status` to inspect the server. Quit the desktop, then use
+`yachiyo server stop` to stop background work. The [headless guide](apps/headless/README.md) covers server deployment.
+
 ## Obelisk history
 
 The bundled `yachiyo-obelisk` skill searches history across coding agents through

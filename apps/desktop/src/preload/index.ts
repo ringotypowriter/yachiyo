@@ -1,83 +1,99 @@
-import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
-import { contextBridge, ipcRenderer } from 'electron'
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
+import { createAppServerClient, openBrowserAppSocket } from '@yachiyo/shared/appServer/client'
+import { APP_RPC_METHODS, type AppRpcMethod } from '@yachiyo/shared/appServer/methods'
+import type { AppServerAddress } from '@yachiyo/shared/appServer/protocol'
 import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
+import type {
+  AcceptThreadPlanDocumentInput,
+  AnswerToolQuestionInput,
+  BrowserAutomationSessionRecord,
+  ChannelGroupRecord,
+  ChannelsConfig,
+  ChannelUserRecord,
+  ChatAccepted,
+  CompactThreadAccepted,
+  CompactThreadInput,
+  ComposerReasoningSelection,
+  ControlBrowserAutomationSessionInput,
+  DeleteMemoryTermInput,
+  DeleteMemoryTermResult,
+  DeleteThingInput,
+  EditMessageInput,
+  FolderRecord,
+  GetMemoryTermDocumentInput,
+  HideBrowserAutomationSessionInput,
+  ImportWebSearchBrowserSessionInput,
+  JotdownSaveInput,
+  ListActivitySourceRecordsInput,
+  ListActivitySourceRecordsResult,
+  ListBrowserAutomationSessionsInput,
+  ListSkillsInput,
+  ManagedPythonEnvironmentAction,
+  ManagedPythonEnvironmentStatus,
+  MemoryTermDocument,
+  OpenBrowserPreviewInput,
+  ProviderConfig,
+  ProviderSettings,
+  ReadThreadPlanDocumentInput,
+  ReadThreadPlanDocumentResult,
+  ReleaseBrowserPreviewInput,
+  ReleaseBrowserPreviewResult,
+  RemoveThingSourceInput,
+  RenameThingInput,
+  ResolvedFileReference,
+  ResolveFileReferencesInput,
+  ResolveSyncConflictInput,
+  RetryInput,
+  RunModeId,
+  SaveThreadInput,
+  SearchThreadsAndMessagesInput,
+  SearchWorkspaceFilesInput,
+  SendChatInput,
+  SetBrowserAutomationSessionBoundsInput,
+  SettingsConfig,
+  ShowBrowserAutomationSessionInput,
+  ShowNotificationInput,
+  SoulDocument,
+  SubagentSnapshot,
+  TestSubagentProfileInput,
+  ThingRecord,
+  ThreadColorTag,
+  ThreadModelOverride,
+  ThreadRecord,
+  ThreadRuntimeBinding,
+  ThreadSearchResult,
+  ThreadWorkspaceChangeDecision,
+  ThreadWorkspaceChangeDecisionInput,
+  ThreadWorkspaceUpdateInput,
+  ToolPreferencesInput,
+  TranslateInput,
+  TranslateResult,
+  UpdateChannelGroupInput,
+  UpdateChannelUserInput,
+  UserDocument,
+  YachiyoServerEvent
+} from '@yachiyo/shared/protocol'
+import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
 import type {
   ExportProviderBackupInput,
   ExportProviderBackupResult,
   ImportProviderBackupInput,
   ImportProviderBackupResult
 } from '@yachiyo/shared/providerBackup'
-import type {
-  AnswerToolQuestionInput,
-  BrowserAutomationSessionRecord,
-  ControlBrowserAutomationSessionInput,
-  OpenBrowserPreviewInput,
-  ReleaseBrowserPreviewInput,
-  ReleaseBrowserPreviewResult,
-  ChannelGroupRecord,
-  ChannelsConfig,
-  ChannelUserRecord,
-  CompactThreadInput,
-  CompactThreadAccepted,
-  ComposerReasoningSelection,
-  DeleteThingInput,
-  DeleteMemoryTermInput,
-  DeleteMemoryTermResult,
-  EditMessageInput,
-  FolderRecord,
-  GetMemoryTermDocumentInput,
-  HideBrowserAutomationSessionInput,
-  SearchWorkspaceFilesInput,
-  ImportWebSearchBrowserSessionInput,
-  ListBrowserAutomationSessionsInput,
-  ListActivitySourceRecordsInput,
-  ListActivitySourceRecordsResult,
-  ManagedPythonEnvironmentAction,
-  ManagedPythonEnvironmentStatus,
-  ListSkillsInput,
-  ProviderConfig,
-  ProviderSettings,
-  RetryInput,
-  ResolveFileReferencesInput,
-  ResolvedFileReference,
-  SaveThreadInput,
-  SetBrowserAutomationSessionBoundsInput,
-  ReadThreadPlanDocumentInput,
-  ReadThreadPlanDocumentResult,
-  AcceptThreadPlanDocumentInput,
-  ChatAccepted,
-  SettingsConfig,
-  SendChatInput,
-  ShowBrowserAutomationSessionInput,
-  ShowNotificationInput,
-  TestSubagentProfileInput,
-  ThreadColorTag,
-  ThreadModelOverride,
-  ThreadRecord,
-  ThreadRuntimeBinding,
-  ThingRecord,
-  ThreadWorkspaceChangeDecision,
-  ThreadWorkspaceChangeDecisionInput,
-  ThreadWorkspaceUpdateInput,
-  SearchThreadsAndMessagesInput,
-  ThreadSearchResult,
-  MemoryTermDocument,
-  UpdateChannelGroupInput,
-  UpdateChannelUserInput,
-  UserDocument,
-  SoulDocument,
-  ToolPreferencesInput,
-  TranslateInput,
-  RunModeId,
-  RenameThingInput,
-  TranslateResult,
-  JotdownSaveInput,
-  RemoveThingSourceInput,
-  ResolveSyncConflictInput,
-  SubagentSnapshot,
-  YachiyoServerEvent
-} from '@yachiyo/shared/protocol'
+import { contextBridge, ipcRenderer } from 'electron'
+
+const translateListeners = new Set<(delta: string) => void>()
+const appClient = createAppServerClient({
+  resolveAddress: () =>
+    ipcRenderer.invoke('yachiyo:app-server-session') as Promise<AppServerAddress>,
+  connect: openBrowserAppSocket,
+  onReset: () => window.location.reload(),
+  onConnectionError: (error) => console.error('[app-server]', error)
+})
+function invokeApp<T>(method: AppRpcMethod, ...args: unknown[]): Promise<T> {
+  return appClient.call(method, args) as Promise<T>
+}
+window.addEventListener('unload', () => appClient.close())
 
 const api = {
   process: {
@@ -168,34 +184,32 @@ const api = {
   yachiyo: {
     searchThreadsAndMessages: (
       input: SearchThreadsAndMessagesInput
-    ): Promise<ThreadSearchResult[]> =>
-      ipcRenderer.invoke('yachiyo:search-threads-and-messages', input),
+    ): Promise<ThreadSearchResult[]> => invokeApp(APP_RPC_METHODS.searchThreadsAndMessages, input),
     searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) =>
-      ipcRenderer.invoke('yachiyo:search-workspace-files', input),
+      invokeApp(APP_RPC_METHODS.searchWorkspaceFiles, input),
     listThings: (input?: { includeInactive?: boolean }): Promise<ThingRecord[]> =>
-      ipcRenderer.invoke('yachiyo:list-things', input),
+      invokeApp(APP_RPC_METHODS.listThings, input),
     getThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
-      ipcRenderer.invoke('yachiyo:get-thing', input),
+      invokeApp(APP_RPC_METHODS.getThing, input),
     restoreThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
-      ipcRenderer.invoke('yachiyo:restore-thing', input),
+      invokeApp(APP_RPC_METHODS.restoreThing, input),
     renameThing: (input: RenameThingInput): Promise<ThingRecord | undefined> =>
-      ipcRenderer.invoke('yachiyo:rename-thing', input),
+      invokeApp(APP_RPC_METHODS.renameThing, input),
     deleteThing: (input: DeleteThingInput): Promise<boolean> =>
-      ipcRenderer.invoke('yachiyo:delete-thing', input),
+      invokeApp(APP_RPC_METHODS.deleteThing, input),
     removeThingSource: (input: RemoveThingSourceInput): Promise<boolean> =>
-      ipcRenderer.invoke('yachiyo:remove-thing-source', input),
+      invokeApp(APP_RPC_METHODS.removeThingSource, input),
     continueThingInNewChat: (input: { name: string }): Promise<ThreadRecord> =>
-      ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
-    archiveThread: (input: { threadId: string }) =>
-      ipcRenderer.invoke('yachiyo:archive-thread', input),
-    bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),
+      invokeApp(APP_RPC_METHODS.continueThingInNewChat, input),
+    archiveThread: (input: { threadId: string }) => invokeApp(APP_RPC_METHODS.archiveThread, input),
+    bootstrap: () => invokeApp(APP_RPC_METHODS.bootstrap),
     createBranch: (input: {
       threadId: string
       messageId: string
       truncateBeforeToolCallId?: string
-    }) => ipcRenderer.invoke('yachiyo:create-branch', input),
+    }) => invokeApp(APP_RPC_METHODS.createBranch, input),
     compactThreadToAnotherThread: (input: CompactThreadInput): Promise<CompactThreadAccepted> =>
-      ipcRenderer.invoke('yachiyo:compact-thread-to-another-thread', input),
+      invokeApp(APP_RPC_METHODS.compactThreadToAnotherThread, input),
     createThread: (input?: {
       workspacePath?: string
       createdFromEssentialId?: string
@@ -203,93 +217,89 @@ const api = {
       modelOverride?: ThreadModelOverride
       runMode?: RunModeId
       reasoningEffort?: ComposerReasoningSelection
-    }) => ipcRenderer.invoke('yachiyo:create-thread', input),
-    deleteThread: (input: { threadId: string }) =>
-      ipcRenderer.invoke('yachiyo:delete-thread', input),
+    }) => invokeApp(APP_RPC_METHODS.createThread, input),
+    deleteThread: (input: { threadId: string }) => invokeApp(APP_RPC_METHODS.deleteThread, input),
     deleteMessage: (input: { threadId: string; messageId: string }) =>
-      ipcRenderer.invoke('yachiyo:delete-message', input),
-    editMessage: (input: EditMessageInput) => ipcRenderer.invoke('yachiyo:edit-message', input),
+      invokeApp(APP_RPC_METHODS.deleteMessage, input),
+    editMessage: (input: EditMessageInput) => invokeApp(APP_RPC_METHODS.editMessage, input),
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
     getThreadWorkspaceChangeDecision: (
       input: ThreadWorkspaceChangeDecisionInput
     ): Promise<ThreadWorkspaceChangeDecision> =>
-      ipcRenderer.invoke('yachiyo:get-thread-workspace-change-decision', input),
+      invokeApp(APP_RPC_METHODS.getThreadWorkspaceChangeDecision, input),
     readThreadPlanDocument: (
       input: ReadThreadPlanDocumentInput
     ): Promise<ReadThreadPlanDocumentResult> =>
-      ipcRenderer.invoke('yachiyo:read-thread-plan-document', input),
+      invokeApp(APP_RPC_METHODS.readThreadPlanDocument, input),
     acceptThreadPlanDocument: (input: AcceptThreadPlanDocumentInput): Promise<ChatAccepted> =>
-      ipcRenderer.invoke('yachiyo:accept-thread-plan-document', input),
+      invokeApp(APP_RPC_METHODS.acceptThreadPlanDocument, input),
     pickCodexSessionFile: () => ipcRenderer.invoke('yachiyo:pick-codex-session-file'),
     pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
     pickSyncDirectory: () => ipcRenderer.invoke('yachiyo:pick-sync-directory'),
     createFolderForThreads: (input: { threadIds: string[] }): Promise<FolderRecord> =>
-      ipcRenderer.invoke('yachiyo:create-folder-for-threads', input),
+      invokeApp(APP_RPC_METHODS.createFolderForThreads, input),
     renameFolder: (input: { folderId: string; title: string }): Promise<FolderRecord> =>
-      ipcRenderer.invoke('yachiyo:rename-folder', input),
+      invokeApp(APP_RPC_METHODS.renameFolder, input),
     setFolderColor: (input: { folderId: string; colorTag: string | null }): Promise<FolderRecord> =>
-      ipcRenderer.invoke('yachiyo:set-folder-color', input),
+      invokeApp(APP_RPC_METHODS.setFolderColor, input),
     deleteFolder: (input: { folderId: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:delete-folder', input),
+      invokeApp(APP_RPC_METHODS.deleteFolder, input),
     moveThreadToFolder: (input: {
       threadId: string
       folderId: string | null
-    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:move-thread-to-folder', input),
+    }): Promise<ThreadRecord> => invokeApp(APP_RPC_METHODS.moveThreadToFolder, input),
     renameThread: (input: { threadId: string; title: string }) =>
-      ipcRenderer.invoke('yachiyo:rename-thread', input),
+      invokeApp(APP_RPC_METHODS.renameThread, input),
     setThreadColor: (input: { threadId: string; colorTag: ThreadColorTag | null }) =>
-      ipcRenderer.invoke('yachiyo:set-thread-color', input),
+      invokeApp(APP_RPC_METHODS.setThreadColor, input),
     setThreadIcon: (input: { threadId: string; icon: string | null }) =>
-      ipcRenderer.invoke('yachiyo:set-thread-icon', input),
+      invokeApp(APP_RPC_METHODS.setThreadIcon, input),
     showEmojiPanel: () => ipcRenderer.invoke('yachiyo:show-emoji-panel'),
-    restoreThread: (input: { threadId: string }) =>
-      ipcRenderer.invoke('yachiyo:restore-thread', input),
+    restoreThread: (input: { threadId: string }) => invokeApp(APP_RPC_METHODS.restoreThread, input),
     saveToolPreferences: (input: ToolPreferencesInput) =>
-      ipcRenderer.invoke('yachiyo:save-tool-preferences', input),
+      invokeApp(APP_RPC_METHODS.saveToolPreferences, input),
     clearRecapText: (input: { threadId: string }) =>
-      ipcRenderer.invoke('yachiyo:clear-recap-text', input),
-    requestRecap: (input: { threadId: string }) =>
-      ipcRenderer.invoke('yachiyo:request-recap', input),
-    sendChat: (input: SendChatInput) => ipcRenderer.invoke('yachiyo:send-chat', input),
-    retryMessage: (input: RetryInput) => ipcRenderer.invoke('yachiyo:retry-message', input),
-    saveThread: (input: SaveThreadInput) => ipcRenderer.invoke('yachiyo:save-thread', input),
+      invokeApp(APP_RPC_METHODS.clearRecapText, input),
+    requestRecap: (input: { threadId: string }) => invokeApp(APP_RPC_METHODS.requestRecap, input),
+    sendChat: (input: SendChatInput) => invokeApp(APP_RPC_METHODS.sendChat, input),
+    retryMessage: (input: RetryInput) => invokeApp(APP_RPC_METHODS.retryMessage, input),
+    saveThread: (input: SaveThreadInput) => invokeApp(APP_RPC_METHODS.saveThread, input),
     updateThreadWorkspace: (input: ThreadWorkspaceUpdateInput) =>
-      ipcRenderer.invoke('yachiyo:update-thread-workspace', input),
+      invokeApp(APP_RPC_METHODS.updateThreadWorkspace, input),
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
-      ipcRenderer.invoke('yachiyo:select-reply-branch', input),
-    cancelRun: (input: { runId: string }) => ipcRenderer.invoke('yachiyo:cancel-run', input),
+      invokeApp(APP_RPC_METHODS.selectReplyBranch, input),
+    cancelRun: (input: { runId: string }) => invokeApp(APP_RPC_METHODS.cancelRun, input),
     withdrawPendingSteer: (input: { threadId: string }) =>
-      ipcRenderer.invoke('yachiyo:withdraw-pending-steer', input),
+      invokeApp(APP_RPC_METHODS.withdrawPendingSteer, input),
     answerToolQuestion: (input: AnswerToolQuestionInput) =>
-      ipcRenderer.invoke('yachiyo:answer-tool-question', input),
+      invokeApp(APP_RPC_METHODS.answerToolQuestion, input),
     predictComposer: (input: ComposerPredictionInput): Promise<string> =>
-      ipcRenderer.invoke('yachiyo:predict-composer', input),
+      invokeApp(APP_RPC_METHODS.predictComposer, input),
     translate: (input: TranslateInput): Promise<TranslateResult> =>
-      ipcRenderer.invoke('yachiyo:translate', input),
+      appClient.call(APP_RPC_METHODS.translate, [input], {
+        onProgress: (delta) => {
+          for (const listener of translateListeners) listener(delta as string)
+        }
+      }) as Promise<TranslateResult>,
     onTranslateDelta: (listener: (delta: string) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, delta: string): void => {
-        listener(delta)
-      }
-      ipcRenderer.on('translator:delta', handler)
-      return () => ipcRenderer.off('translator:delta', handler)
+      translateListeners.add(listener)
+      return () => translateListeners.delete(listener)
     },
-
-    // Jotdowns
     listJotdowns: (): Promise<import('@yachiyo/shared/protocol').JotdownMeta[]> =>
-      ipcRenderer.invoke('yachiyo:jotdown-list'),
+      invokeApp(APP_RPC_METHODS.jotdownList),
     loadJotdown: (input: { id: string }): Promise<import('@yachiyo/shared/protocol').JotdownFull> =>
-      ipcRenderer.invoke('yachiyo:jotdown-load', input),
+      invokeApp(APP_RPC_METHODS.jotdownLoad, input),
     saveJotdown: (
       input: JotdownSaveInput
     ): Promise<import('@yachiyo/shared/protocol').JotdownMeta> =>
-      ipcRenderer.invoke('yachiyo:jotdown-save', input),
+      invokeApp(APP_RPC_METHODS.jotdownSave, input),
     createJotdown: (): Promise<import('@yachiyo/shared/protocol').JotdownFull> =>
-      ipcRenderer.invoke('yachiyo:jotdown-create'),
+      invokeApp(APP_RPC_METHODS.jotdownCreate),
     deleteJotdown: (input: { id: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:jotdown-delete', input),
+      invokeApp(APP_RPC_METHODS.jotdownDelete, input),
     pruneEmptyTemporaryWorkspaces: (): Promise<number> =>
-      ipcRenderer.invoke('yachiyo:prune-empty-temporary-workspaces'),
+      invokeApp(APP_RPC_METHODS.pruneEmptyTemporaryWorkspaces),
     revealFile: (input: {
       path: string
       threadId?: string
@@ -297,7 +307,7 @@ const api = {
       workspaceOnly?: boolean
     }): Promise<void> => ipcRenderer.invoke('yachiyo:reveal-file', input),
     resolveFileReferences: (input: ResolveFileReferencesInput): Promise<ResolvedFileReference[]> =>
-      ipcRenderer.invoke('yachiyo:resolve-file-references', input),
+      invokeApp(APP_RPC_METHODS.resolveFileReferences, input),
     openFile: (input: {
       path: string
       appSelection?: string
@@ -322,71 +332,69 @@ const api = {
     getUsageStats: (
       input: import('@yachiyo/shared/protocol').UsageStatsInput
     ): Promise<import('@yachiyo/shared/protocol').UsageStatsResponse> =>
-      ipcRenderer.invoke('yachiyo:get-usage-stats', input),
+      invokeApp(APP_RPC_METHODS.getUsageStats, input),
     getPerfStats: (): Promise<import('@yachiyo/shared/protocol').PerfStatsResponse> =>
-      ipcRenderer.invoke('yachiyo:get-perf-stats'),
+      invokeApp(APP_RPC_METHODS.getPerfStats),
 
-    getConfig: () => ipcRenderer.invoke('yachiyo:get-config'),
-    getSoulDocument: (): Promise<SoulDocument> => ipcRenderer.invoke('yachiyo:get-soul-document'),
+    getConfig: () => invokeApp(APP_RPC_METHODS.getConfig),
+    getSoulDocument: (): Promise<SoulDocument> => invokeApp(APP_RPC_METHODS.getSoulDocument),
     addSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>
-      ipcRenderer.invoke('yachiyo:add-soul-trait', input),
+      invokeApp(APP_RPC_METHODS.addSoulTrait, input),
     deleteSoulTrait: (input: { trait: string }): Promise<SoulDocument> =>
-      ipcRenderer.invoke('yachiyo:delete-soul-trait', input),
+      invokeApp(APP_RPC_METHODS.deleteSoulTrait, input),
     getMemoryTermDocument: (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
-      ipcRenderer.invoke('yachiyo:get-memory-term-document', input),
+      invokeApp(APP_RPC_METHODS.getMemoryTermDocument, input),
     deleteMemoryTerm: (input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> =>
-      ipcRenderer.invoke('yachiyo:delete-memory-term', input),
+      invokeApp(APP_RPC_METHODS.deleteMemoryTerm, input),
     listActivitySourceRecords: (
       input?: ListActivitySourceRecordsInput
     ): Promise<ListActivitySourceRecordsResult> =>
-      ipcRenderer.invoke('yachiyo:list-activity-source-records', input),
-    getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
+      invokeApp(APP_RPC_METHODS.listActivitySourceRecords, input),
+    getUserDocument: (): Promise<UserDocument> => invokeApp(APP_RPC_METHODS.getUserDocument),
     testSubagentProfile: (input: TestSubagentProfileInput) =>
-      ipcRenderer.invoke('yachiyo:test-subagent-profile', input),
-    getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),
+      invokeApp(APP_RPC_METHODS.testSubagentProfile, input),
+    getSettings: () => invokeApp(APP_RPC_METHODS.getSettings),
     getPythonEnvironmentStatus: (): Promise<ManagedPythonEnvironmentStatus> =>
-      ipcRenderer.invoke('yachiyo:get-python-environment-status'),
+      invokeApp(APP_RPC_METHODS.getPythonEnvironmentStatus),
     managePythonEnvironment: (
       action: ManagedPythonEnvironmentAction
     ): Promise<ManagedPythonEnvironmentStatus> =>
-      ipcRenderer.invoke('yachiyo:manage-python-environment', { action }),
-    getSyncStatus: () => ipcRenderer.invoke('yachiyo:get-sync-status'),
-    initSync: () => ipcRenderer.invoke('yachiyo:init-sync'),
-    runSyncNow: () => ipcRenderer.invoke('yachiyo:run-sync-now'),
-    listSyncConflicts: () => ipcRenderer.invoke('yachiyo:list-sync-conflicts'),
+      invokeApp(APP_RPC_METHODS.managePythonEnvironment, { action }),
+    getSyncStatus: () => invokeApp(APP_RPC_METHODS.getSyncStatus),
+    initSync: () => invokeApp(APP_RPC_METHODS.initSync),
+    runSyncNow: () => invokeApp(APP_RPC_METHODS.runSyncNow),
+    listSyncConflicts: () => invokeApp(APP_RPC_METHODS.listSyncConflicts),
     resolveSyncConflict: (input: ResolveSyncConflictInput) =>
-      ipcRenderer.invoke('yachiyo:resolve-sync-conflict', input),
-    getRemoteStatus: () => ipcRenderer.invoke('yachiyo:remote-status'),
-    activateRemoteRelay: (code: string) =>
-      ipcRenderer.invoke('yachiyo:remote-activate-relay', { code }),
-    createRemotePairing: () => ipcRenderer.invoke('yachiyo:remote-create-pairing'),
-    listRemotePairings: () => ipcRenderer.invoke('yachiyo:remote-list-pairings'),
+      invokeApp(APP_RPC_METHODS.resolveSyncConflict, input),
+    getRemoteStatus: () => invokeApp(APP_RPC_METHODS.remoteStatus),
+    activateRemoteRelay: (code: string) => invokeApp(APP_RPC_METHODS.remoteActivateRelay, { code }),
+    createRemotePairing: () => invokeApp(APP_RPC_METHODS.remoteCreatePairing),
+    listRemotePairings: () => invokeApp(APP_RPC_METHODS.remoteListPairings),
     revokeRemotePairing: (pairingId: string) =>
-      ipcRenderer.invoke('yachiyo:remote-revoke-pairing', { pairingId }),
-    saveConfig: (input: SettingsConfig) => ipcRenderer.invoke('yachiyo:save-config', input),
+      invokeApp(APP_RPC_METHODS.remoteRevokePairing, { pairingId }),
+    saveConfig: (input: SettingsConfig) => invokeApp(APP_RPC_METHODS.saveConfig, input),
     saveUserDocument: (input: { content: string }): Promise<UserDocument> =>
-      ipcRenderer.invoke('yachiyo:save-user-document', input),
+      invokeApp(APP_RPC_METHODS.saveUserDocument, input),
     saveSettings: (input: Partial<ProviderSettings>) =>
-      ipcRenderer.invoke('yachiyo:save-settings', input),
+      invokeApp(APP_RPC_METHODS.saveSettings, input),
     exportProviderBackup: (input: ExportProviderBackupInput): Promise<ExportProviderBackupResult> =>
       ipcRenderer.invoke('yachiyo:export-provider-backup', input),
     importProviderBackup: (input: ImportProviderBackupInput): Promise<ImportProviderBackupResult> =>
       ipcRenderer.invoke('yachiyo:import-provider-backup', input),
-    upsertProvider: (input: ProviderConfig) => ipcRenderer.invoke('yachiyo:upsert-provider', input),
-    removeProvider: (input: { name: string }) =>
-      ipcRenderer.invoke('yachiyo:remove-provider', input),
+    upsertProvider: (input: ProviderConfig) => invokeApp(APP_RPC_METHODS.upsertProvider, input),
+    removeProvider: (input: { name: string }) => invokeApp(APP_RPC_METHODS.removeProvider, input),
     enableProviderModel: (input: { name: string; model: string }) =>
-      ipcRenderer.invoke('yachiyo:enable-provider-model', input),
+      invokeApp(APP_RPC_METHODS.enableProviderModel, input),
     disableProviderModel: (input: { name: string; model: string }) =>
-      ipcRenderer.invoke('yachiyo:disable-provider-model', input),
+      invokeApp(APP_RPC_METHODS.disableProviderModel, input),
     fetchProviderModels: (input: ProviderConfig) =>
-      ipcRenderer.invoke('yachiyo:fetch-provider-models', input),
-    listSkills: (input?: ListSkillsInput) => ipcRenderer.invoke('yachiyo:list-skills', input),
+      invokeApp(APP_RPC_METHODS.fetchProviderModels, input),
+    listSkills: (input?: ListSkillsInput) => invokeApp(APP_RPC_METHODS.listSkills, input),
     openSkillsFolder: () => ipcRenderer.invoke('yachiyo:open-skills-folder'),
     listWebSearchBrowserImportSources: () =>
-      ipcRenderer.invoke('yachiyo:list-web-search-browser-import-sources'),
+      invokeApp(APP_RPC_METHODS.listWebSearchBrowserImportSources),
     importWebSearchBrowserSession: (input: ImportWebSearchBrowserSessionInput) =>
-      ipcRenderer.invoke('yachiyo:import-web-search-browser-session', input),
+      invokeApp(APP_RPC_METHODS.importWebSearchBrowserSession, input),
     listBrowserAutomationSessions: (
       input: ListBrowserAutomationSessionsInput
     ): Promise<BrowserAutomationSessionRecord[]> =>
@@ -412,35 +420,35 @@ const api = {
     ): Promise<BrowserAutomationSessionRecord> =>
       ipcRenderer.invoke('yachiyo:set-browser-automation-session-bounds', input),
     setThreadPrivacyMode: (input: { threadId: string; enabled: boolean }): Promise<ThreadRecord> =>
-      ipcRenderer.invoke('yachiyo:set-thread-privacy-mode', input),
+      invokeApp(APP_RPC_METHODS.setThreadPrivacyMode, input),
     setThreadModelOverride: (input: {
       threadId: string
       modelOverride: ThreadModelOverride | null
-    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-model-override', input),
+    }): Promise<ThreadRecord> => invokeApp(APP_RPC_METHODS.setThreadModelOverride, input),
     setThreadReasoningEffort: (input: {
       threadId: string
       reasoningEffort: ComposerReasoningSelection | null
-    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-reasoning-effort', input),
+    }): Promise<ThreadRecord> => invokeApp(APP_RPC_METHODS.setThreadReasoningEffort, input),
     setThreadToolMode: (input: { threadId: string; runMode: RunModeId }): Promise<ThreadRecord> =>
-      ipcRenderer.invoke('yachiyo:set-thread-tool-mode', input),
+      invokeApp(APP_RPC_METHODS.setThreadToolMode, input),
     setThreadRuntimeBinding: (input: {
       threadId: string
       runtimeBinding: ThreadRuntimeBinding | null
-    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-runtime-binding', input),
+    }): Promise<ThreadRecord> => invokeApp(APP_RPC_METHODS.setThreadRuntimeBinding, input),
     regenerateThreadTitle: (input: { threadId: string }): Promise<ThreadRecord> =>
-      ipcRenderer.invoke('yachiyo:regenerate-thread-title', input),
+      invokeApp(APP_RPC_METHODS.regenerateThreadTitle, input),
     starThread: (input: { threadId: string; starred: boolean }): Promise<ThreadRecord> =>
-      ipcRenderer.invoke('yachiyo:star-thread', input),
+      invokeApp(APP_RPC_METHODS.starThread, input),
     readClipboardFilePaths: (): Promise<{
       files: { filename: string; mediaType: string; dataUrl: string }[]
       rejected: import('@yachiyo/shared/attachmentFileTypes').AttachmentFileRejectionRecord[]
     }> => ipcRenderer.invoke('yachiyo:read-clipboard-file-paths'),
     readAttachmentFile: (input: { filePath: string; mediaType: string }): Promise<string> =>
-      ipcRenderer.invoke('yachiyo:read-attachment-file', input),
+      invokeApp(APP_RPC_METHODS.readAttachmentFile, input),
     readFilePreview: (
       input: import('@yachiyo/shared/filePreview').ReadFilePreviewInput
     ): Promise<import('@yachiyo/shared/filePreview').FilePreviewContent> =>
-      ipcRenderer.invoke('yachiyo:read-file-preview', input),
+      invokeApp(APP_RPC_METHODS.readFilePreview, input),
     downloadRemoteImageForMessage: (input: {
       threadId: string
       messageId: string
@@ -448,7 +456,7 @@ const api = {
     }): Promise<{
       absPath: string
       message: import('@yachiyo/shared/protocol').MessageRecord
-    }> => ipcRenderer.invoke('yachiyo:download-remote-image-for-message', input),
+    }> => invokeApp(APP_RPC_METHODS.downloadRemoteImageForMessage, input),
     listDiscoveredApps: (): Promise<{
       editors: DiscoveredApp[]
       terminals: DiscoveredApp[]
@@ -464,113 +472,105 @@ const api = {
       toolCalls: import('@yachiyo/shared/protocol').ToolCallRecord[]
       runs: import('@yachiyo/shared/protocol').RunRecord[]
       scheduleRun?: import('@yachiyo/shared/protocol').ScheduleRunRecord
-    }> => ipcRenderer.invoke('yachiyo:load-thread-data', input),
+    }> => invokeApp(APP_RPC_METHODS.loadThreadData, input),
     listBackgroundTasks: (input?: {
       threadId?: string
     }): Promise<import('@yachiyo/shared/protocol').BackgroundTaskSnapshot[]> =>
-      ipcRenderer.invoke('yachiyo:list-background-tasks', input),
+      invokeApp(APP_RPC_METHODS.listBackgroundTasks, input),
     getBackgroundTaskLog: (input: {
       threadId: string
       taskId: string
       maxBytes?: number
     }): Promise<import('@yachiyo/shared/protocol').BackgroundTaskLogSnapshot> =>
-      ipcRenderer.invoke('yachiyo:get-background-task-log', input),
+      invokeApp(APP_RPC_METHODS.getBackgroundTaskLog, input),
     cancelBackgroundTask: (input: { taskId: string }): Promise<boolean> =>
-      ipcRenderer.invoke('yachiyo:cancel-background-task', input),
+      invokeApp(APP_RPC_METHODS.cancelBackgroundTask, input),
     listSubagents: (input?: { threadId?: string }): Promise<SubagentSnapshot[]> =>
-      ipcRenderer.invoke('yachiyo:list-subagents', input),
+      invokeApp(APP_RPC_METHODS.listSubagents, input),
     cancelSubagent: (input: { agentId: string }): Promise<boolean> =>
-      ipcRenderer.invoke('yachiyo:cancel-subagent', input),
+      invokeApp(APP_RPC_METHODS.cancelSubagent, input),
     closeSubagent: (input: { agentId: string }): Promise<boolean> =>
-      ipcRenderer.invoke('yachiyo:close-subagent', input),
+      invokeApp(APP_RPC_METHODS.closeSubagent, input),
     cancelRunningSubagents: (input: { threadId: string }): Promise<number> =>
-      ipcRenderer.invoke('yachiyo:cancel-running-subagents', input),
+      invokeApp(APP_RPC_METHODS.cancelRunningSubagents, input),
     listExternalThreads: (): Promise<ThreadRecord[]> =>
-      ipcRenderer.invoke('yachiyo:list-external-threads'),
+      invokeApp(APP_RPC_METHODS.listExternalThreads),
     listChannelUsers: (): Promise<ChannelUserRecord[]> =>
-      ipcRenderer.invoke('yachiyo:list-channel-users'),
+      invokeApp(APP_RPC_METHODS.listChannelUsers),
     updateChannelUser: (input: UpdateChannelUserInput): Promise<ChannelUserRecord> =>
-      ipcRenderer.invoke('yachiyo:update-channel-user', input),
+      invokeApp(APP_RPC_METHODS.updateChannelUser, input),
     listChannelGroups: (): Promise<ChannelGroupRecord[]> =>
-      ipcRenderer.invoke('yachiyo:list-channel-groups'),
+      invokeApp(APP_RPC_METHODS.listChannelGroups),
     updateChannelGroup: (input: UpdateChannelGroupInput): Promise<ChannelGroupRecord> =>
-      ipcRenderer.invoke('yachiyo:update-channel-group', input),
+      invokeApp(APP_RPC_METHODS.updateChannelGroup, input),
     clearGroupMonitorBuffer: (groupId: string): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:clear-group-monitor-buffer', { groupId }),
-    getChannelsConfig: (): Promise<ChannelsConfig> =>
-      ipcRenderer.invoke('yachiyo:get-channels-config'),
+      invokeApp(APP_RPC_METHODS.clearGroupMonitorBuffer, { groupId }),
+    getChannelsConfig: (): Promise<ChannelsConfig> => invokeApp(APP_RPC_METHODS.getChannelsConfig),
     saveChannelsConfig: (input: ChannelsConfig): Promise<ChannelsConfig> =>
-      ipcRenderer.invoke('yachiyo:save-channels-config', input),
+      invokeApp(APP_RPC_METHODS.saveChannelsConfig, input),
     restartChannelService: (
       platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all'
-    ): Promise<void> => ipcRenderer.invoke('yachiyo:restart-channel-service', { platform }),
+    ): Promise<void> => invokeApp(APP_RPC_METHODS.restartChannelService, { platform }),
 
     // Schedules
     listSchedules: (): Promise<import('@yachiyo/shared/protocol').ScheduleRecord[]> =>
-      ipcRenderer.invoke('yachiyo:list-schedules'),
+      invokeApp(APP_RPC_METHODS.listSchedules),
     createSchedule: (
       input: import('@yachiyo/shared/protocol').CreateScheduleInput
     ): Promise<import('@yachiyo/shared/protocol').ScheduleRecord> =>
-      ipcRenderer.invoke('yachiyo:create-schedule', input),
+      invokeApp(APP_RPC_METHODS.createSchedule, input),
     updateSchedule: (
       input: import('@yachiyo/shared/protocol').UpdateScheduleInput
     ): Promise<import('@yachiyo/shared/protocol').ScheduleRecord> =>
-      ipcRenderer.invoke('yachiyo:update-schedule', input),
+      invokeApp(APP_RPC_METHODS.updateSchedule, input),
     deleteSchedule: (input: { id: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:delete-schedule', input),
+      invokeApp(APP_RPC_METHODS.deleteSchedule, input),
     enableSchedule: (input: { id: string }): Promise<boolean> =>
-      ipcRenderer.invoke('yachiyo:enable-schedule', input),
+      invokeApp(APP_RPC_METHODS.enableSchedule, input),
     disableSchedule: (input: {
       id: string
     }): Promise<import('@yachiyo/shared/protocol').ScheduleRecord> =>
-      ipcRenderer.invoke('yachiyo:disable-schedule', input),
+      invokeApp(APP_RPC_METHODS.disableSchedule, input),
     listScheduleRuns: (input: {
       scheduleId: string
       limit?: number
     }): Promise<import('@yachiyo/shared/protocol').ScheduleRunRecord[]> =>
-      ipcRenderer.invoke('yachiyo:list-schedule-runs', input),
+      invokeApp(APP_RPC_METHODS.listScheduleRuns, input),
     listRecentScheduleRuns: (input?: {
       limit?: number
     }): Promise<import('@yachiyo/shared/protocol').ScheduleRunRecord[]> =>
-      ipcRenderer.invoke('yachiyo:list-recent-schedule-runs', input),
+      invokeApp(APP_RPC_METHODS.listRecentScheduleRuns, input),
     triggerScheduleNow: (input: { scheduleId: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:trigger-schedule-now', input),
+      invokeApp(APP_RPC_METHODS.triggerScheduleNow, input),
     markThreadAsRead: (input: {
       threadId: string
     }): Promise<import('@yachiyo/shared/protocol').ThreadRecord> =>
-      ipcRenderer.invoke('yachiyo:mark-thread-as-read', input),
+      invokeApp(APP_RPC_METHODS.markThreadAsRead, input),
 
     getSnapshotDiff: (input: {
       runId: string
       workspacePath: string
     }): Promise<import('@yachiyo/shared/fileSnapshot').FileChangeForReview[]> =>
-      ipcRenderer.invoke('yachiyo:get-snapshot-diff', input),
+      invokeApp(APP_RPC_METHODS.getSnapshotDiff, input),
     revertSnapshotFile: (input: {
       runId: string
       workspacePath: string
       relativePath: string
-    }): Promise<void> => ipcRenderer.invoke('yachiyo:revert-snapshot-file', input),
+    }): Promise<void> => invokeApp(APP_RPC_METHODS.revertSnapshotFile, input),
     revertSnapshotRun: (input: { runId: string; workspacePath: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:revert-snapshot-run', input),
+      invokeApp(APP_RPC_METHODS.revertSnapshotRun, input),
     listRunSnapshots: (input: {
       workspacePath: string
     }): Promise<import('@yachiyo/shared/fileSnapshot').SnapshotSummary[]> =>
-      ipcRenderer.invoke('yachiyo:list-run-snapshots', input),
+      invokeApp(APP_RPC_METHODS.listRunSnapshots, input),
     restoreToCheckpoint: (input: { runId: string; workspacePath: string }): Promise<string[]> =>
-      ipcRenderer.invoke('yachiyo:restore-to-checkpoint', input),
+      invokeApp(APP_RPC_METHODS.restoreToCheckpoint, input),
 
     showNotification: (input: ShowNotificationInput): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
     beep: (): void => ipcRenderer.send('yachiyo:beep'),
-    subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, payload: YachiyoServerEvent): void => {
-        listener(payload)
-      }
-      ipcRenderer.on('yachiyo:event', handler)
-      return () => {
-        ipcRenderer.off('yachiyo:event', handler)
-      }
-    }
+    subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) =>
+      appClient.subscribe((event) => listener(event as YachiyoServerEvent))
   }
 }
 

@@ -5,7 +5,7 @@ import type { ActivitySummary, ActivitySummarySource } from './ActivityTracker.t
 /**
  * Bridges ActivitySummarySource across the RPC boundary: the tracker stays in
  * the main process next to powerMonitor/BrowserWindow, and the runtime host
- * (utility process) consumes summaries through this proxy instead of its own
+ * (app server) consumes summaries through this proxy instead of its own
  * empty per-process singleton.
  */
 const RPC_METHOD = 'activityTracker.finalizeAndConsume'

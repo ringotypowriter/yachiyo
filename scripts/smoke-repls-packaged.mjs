@@ -156,10 +156,7 @@ async function verifyPackagedAssets() {
   assert.ok(pythonAssets.length > 0, `No emitted Python asset was found under ${buildDir}.`)
 
   const sourceRunnerHash = sha256(await readFile(sourceRunnerPath))
-  const mainBundlePaths = [
-    join(buildDir, 'main', 'index.js'),
-    join(buildDir, 'main', 'runtime-host.js')
-  ]
+  const mainBundlePaths = [join(buildDir, 'main', 'app-server.js')]
   const mainBundles = await Promise.all(
     mainBundlePaths.map(async (path) => ({
       path,

@@ -4,19 +4,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { createFakeDesktopServer } from '@yachiyo/runtime/app/host/remote/testing/createFakeDesktopServer'
 import { DEFAULT_REMOTE_CONFIG } from '@yachiyo/shared/protocol'
 import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 import type { MailboxPlaintext } from '@yachiyo/shared/remote/mailbox'
-import { createFakeDesktopServer } from '@yachiyo/runtime/app/host/remote/testing/createFakeDesktopServer'
 
 import { createInProcessRemotePorts } from '@yachiyo/runtime/remote/inProcessPorts'
-import { MailboxWriter, mailboxDirectory } from '@yachiyo/runtime/remote/mailboxWriter'
+import { mailboxDirectory, MailboxWriter } from '@yachiyo/runtime/remote/mailboxWriter'
 import { deriveMailboxKeys, openMailbox } from '@yachiyo/runtime/remote/noise/mailboxCrypto'
 import { generateKeyPair } from '@yachiyo/runtime/remote/noise/primitives'
 import { PairingStore, plaintextSecretBox } from '@yachiyo/runtime/remote/pairingStore'
-import { RemoteController } from './remoteController.ts'
+import { RemoteController } from '@yachiyo/runtime/remote/remoteController'
 import { RemoteService } from '@yachiyo/runtime/remote/remoteService'
-import { TunnelSupervisor } from './tunnelSupervisor.ts'
+import { TunnelSupervisor } from '@yachiyo/runtime/remote/tunnelSupervisor'
 
 const endpoint = (host: string): RemoteEndpoint => ({
   kind: 'tunnel',

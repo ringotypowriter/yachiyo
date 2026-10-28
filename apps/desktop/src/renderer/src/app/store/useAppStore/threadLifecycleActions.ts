@@ -1,16 +1,9 @@
+import { PLAN_MODE_EXIT_TOOL_NAME, isPlanModeExitRecord } from '@yachiyo/shared/planMode'
+import { DEFAULT_RUN_MODE_ID, type YachiyoServerEvent } from '@yachiyo/shared/protocol'
 import { isModelImageCapable } from '@yachiyo/shared/providerConfig'
-import { isPlanModeExitRecord, PLAN_MODE_EXIT_TOOL_NAME } from '@yachiyo/shared/planMode'
-import { DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
 import { normalizeRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
-import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
-import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
-import {
-  dropPlanDocumentsOfDeletedThreads,
-  dropSnapshotsOfDeletedThreads,
-  resolveThreadReadOutcome
-} from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -46,9 +39,17 @@ import {
   waitForGlobalProcessingPaint,
   withFilterBase
 } from './helpers.ts'
+import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
+import {
+  dropPlanDocumentsOfDeletedThreads,
+  dropSnapshotsOfDeletedThreads,
+  resolveThreadReadOutcome
+} from './threadMessageAuthority.ts'
+import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
 
 let bootstrapPromise: Promise<void> | null = null
 let unsubscribeFromServer: (() => void) | null = null
+let bootstrapEvents: YachiyoServerEvent[] = []
 
 export function createThreadLifecycleActions(input: {
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
@@ -380,6 +381,7 @@ export function createThreadLifecycleActions(input: {
       }
 
       bootstrapPromise = (async () => {
+        bootstrapEvents = []
         set({
           connectionStatus: 'connecting',
           isBootstrapping: true
@@ -390,7 +392,8 @@ export function createThreadLifecycleActions(input: {
             applyEvent: (event) => get().applyServerEvent(event)
           })
           const unsubscribe = window.api.yachiyo.subscribe((event) => {
-            serverEventBatcher.push(event)
+            if (get().isBootstrapping) bootstrapEvents.push(event)
+            else serverEventBatcher.push(event)
           })
           unsubscribeFromServer = () => {
             serverEventBatcher.dispose()
@@ -443,6 +446,27 @@ export function createThreadLifecycleActions(input: {
               ])
             ),
             messages: payload.messagesByThread,
+            pendingAssistantMessages: Object.fromEntries(
+              Object.entries(payload.latestRunsByThread).flatMap(([threadId, run]) => {
+                if (run.status !== 'running') return []
+                const message = payload.messagesByThread[threadId]?.findLast(
+                  (entry) => entry.role === 'assistant' && entry.status === 'streaming'
+                )
+                return message
+                  ? [
+                      [
+                        run.id,
+                        {
+                          messageId: message.id,
+                          parentMessageId: message.parentMessageId,
+                          threadId,
+                          shouldStartNewTextBlock: false
+                        }
+                      ]
+                    ]
+                  : []
+              })
+            ),
             queuedFollowUpMessagesByThread: payload.queuedFollowUpMessagesByThread,
             reasoningEffortByThread: {
               ...state.reasoningEffortByThread,
@@ -463,6 +487,18 @@ export function createThreadLifecycleActions(input: {
             folders: payload.folders ?? [],
             toolCalls: payload.toolCallsByThread
           }))
+          // A snapshot already includes all events through its cursor. Apply only newer deltas.
+          for (const event of bootstrapEvents) {
+            if (
+              payload.streamCursor &&
+              event.streamCursor &&
+              event.streamCursor.instanceId === payload.streamCursor.instanceId &&
+              event.streamCursor.sequence <= payload.streamCursor.sequence
+            )
+              continue
+            get().applyServerEvent(event)
+          }
+          bootstrapEvents = []
           set((state) => {
             const toolMode = getComposerToolMode(state, state.activeThreadId)
             return {
@@ -602,6 +638,7 @@ export function createThreadLifecycleActions(input: {
 
           await refreshAvailableSkills(set, get)
         } catch (error) {
+          bootstrapEvents = []
           const message = error instanceof Error ? error.message : 'Failed to bootstrap Yachiyo.'
           set({
             connectionStatus: 'disconnected',
