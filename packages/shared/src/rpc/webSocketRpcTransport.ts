@@ -1,5 +1,5 @@
 import type { RpcMessage, RpcTransport } from './rpcTransport.ts'
-import { decodeRpcMessage, encodeRpcMessage } from './rpcWireCodec.ts'
+import { decodeRpcMessage, encodeRpcMessage, type RpcWireFrame } from './rpcWireCodec.ts'
 
 export const RPC_MAX_FRAME_BYTES = 64 * 1024 * 1024
 
@@ -8,7 +8,7 @@ export interface RpcWebSocket {
   readonly readyState: number
   readonly bufferedAmount: number
   binaryType: string
-  send(data: string | Uint8Array<ArrayBuffer>): void
+  send(data: RpcWireFrame): void
   close(code?: number, reason?: string): void
   addEventListener(type: 'message', listener: (event: { data: unknown }) => void): void
   addEventListener(type: 'close' | 'error', listener: () => void): void
@@ -16,10 +16,15 @@ export interface RpcWebSocket {
   removeEventListener(type: 'close' | 'error', listener: () => void): void
 }
 
+export interface WebSocketRpcTransport extends RpcTransport {
+  /** Send an immutable frame from encodeRpcMessage, with the same output limits as post. */
+  postEncoded(frame: RpcWireFrame): void
+}
+
 export function createWebSocketRpcTransport(
   socket: RpcWebSocket,
   options: { maxBytes?: number } = {}
-): RpcTransport {
+): WebSocketRpcTransport {
   if (socket.readyState !== 1) throw new Error('RPC WebSocket must be open')
   socket.binaryType = 'arraybuffer'
   const maxBytes = options.maxBytes ?? RPC_MAX_FRAME_BYTES
@@ -67,16 +72,21 @@ export function createWebSocketRpcTransport(
   socket.addEventListener('close', dispose)
   socket.addEventListener('error', fail)
 
+  const postEncoded = (frame: RpcWireFrame): void => {
+    if (closed || socket.readyState !== 1) throw new Error('RPC transport closed')
+    if (exceedsByteLimit(frame, maxBytes - socket.bufferedAmount)) {
+      fail()
+      throw new Error('RPC peer exceeded the output buffer limit')
+    }
+    socket.send(frame)
+  }
+
   return {
     post(message) {
       if (closed || socket.readyState !== 1) throw new Error('RPC transport closed')
-      const frame = encodeRpcMessage(message)
-      if (exceedsByteLimit(frame, maxBytes - socket.bufferedAmount)) {
-        fail()
-        throw new Error('RPC peer exceeded the output buffer limit')
-      }
-      socket.send(frame)
+      postEncoded(encodeRpcMessage(message))
     },
+    postEncoded,
     onMessage(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

@@ -3,13 +3,18 @@ import type {
   AppEventEnvelope,
   AppEventSubscription
 } from '@yachiyo/shared/appServer/protocol'
+import {
+  decodeRpcMessage,
+  encodeRpcMessage,
+  type RpcWireFrame
+} from '@yachiyo/shared/rpc/rpcWireCodec'
 
 /** A bounded reconnect window. An expired cursor requires a fresh UI snapshot. */
 export class AppEventJournal {
   private sequence = 0
   private bytes = 0
-  private entries: { envelope: AppEventEnvelope; bytes: number }[] = []
-  private readonly listeners = new Set<(event: AppEventEnvelope) => void>()
+  private entries: { sequence: number; frame: RpcWireFrame; bytes: number }[] = []
+  private readonly listeners = new Set<(frame: RpcWireFrame) => void>()
   private readonly instanceId: string
   private readonly maxBytes: number
   private readonly maxEvents: number
@@ -21,15 +26,20 @@ export class AppEventJournal {
   }
 
   publish(event: unknown): void {
-    const envelope = { cursor: this.cursor(), event: structuredClone(event) }
-    envelope.cursor.sequence = ++this.sequence
-    const bytes = Buffer.byteLength(JSON.stringify(envelope))
-    this.entries.push({ envelope, bytes })
+    const sequence = this.sequence + 1
+    // Encoding snapshots the value once for retention and every connected client.
+    const frame = encodeRpcMessage({
+      kind: 'rpc:event',
+      payload: { cursor: { instanceId: this.instanceId, sequence }, event }
+    })
+    const bytes = Buffer.byteLength(frame)
+    this.sequence = sequence
+    this.entries.push({ sequence, frame, bytes })
     this.bytes += bytes
     while (this.bytes > this.maxBytes || this.entries.length > this.maxEvents) {
       this.bytes -= this.entries.shift()!.bytes
     }
-    for (const listener of this.listeners) listener(envelope)
+    for (const listener of this.listeners) listener(frame)
   }
 
   cursor(): AppEventCursor {
@@ -37,7 +47,7 @@ export class AppEventJournal {
   }
 
   replay(cursor?: AppEventCursor): AppEventSubscription {
-    const oldest = this.entries[0]?.envelope.cursor.sequence ?? this.sequence + 1
+    const oldest = this.entries[0]?.sequence ?? this.sequence + 1
     const reset =
       cursor !== undefined &&
       (cursor.instanceId !== this.instanceId ||
@@ -49,13 +59,18 @@ export class AppEventJournal {
       events:
         cursor && !reset
           ? this.entries
-              .filter(({ envelope }) => envelope.cursor.sequence > cursor.sequence)
-              .map(({ envelope }) => envelope)
+              .filter((entry) => entry.sequence > cursor.sequence)
+              .map(({ frame }) => {
+                const message = decodeRpcMessage(frame)
+                if (message.kind !== 'rpc:event') throw new Error('Invalid journal event')
+                return message.payload as AppEventEnvelope
+              })
           : []
     }
   }
 
-  subscribe(listener: (event: AppEventEnvelope) => void): () => void {
+  /** Frames belong to the journal; subscribers must not modify them. */
+  subscribe(listener: (frame: RpcWireFrame) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }

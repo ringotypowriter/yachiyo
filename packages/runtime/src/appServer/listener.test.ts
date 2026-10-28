@@ -1,4 +1,8 @@
-import { APP_SERVER_PROTOCOL } from '@yachiyo/shared/appServer/protocol'
+import {
+  APP_SERVER_PROTOCOL,
+  type AppEventEnvelope,
+  type AppEventSubscription
+} from '@yachiyo/shared/appServer/protocol'
 import { createRpcClient } from '@yachiyo/shared/rpc/rpcClient'
 import { createWebSocketRpcTransport } from '@yachiyo/shared/rpc/webSocketRpcTransport'
 import assert from 'node:assert/strict'
@@ -110,3 +114,68 @@ test('native capabilities detach independently from the running app server', asy
   await second.client.call('finish', [])
   assert.equal(await second.client.call('status', []), 'completed')
 })
+
+test(
+  'clients receive the same ordered events live and after reconnecting',
+  { timeout: 5000 },
+  async (t) => {
+    let publish: (event: unknown) => void = () => assert.fail('subscription missing')
+    const server = await listenAppServer({
+      host: new AppHostBridge(),
+      target: {},
+      subscribe: (listener) => {
+        publish = listener
+        return () => {}
+      }
+    })
+    t.after(() => server.close())
+    const bytes = new Uint8Array(4096).fill(255).subarray(11, 4000)
+    const events = [
+      { type: 'message.delta', delta: 'first' },
+      { type: 'message.delta', delta: '\ufeff中文😀'.repeat(1024) },
+      { type: 'attachment.ready', bytes, optional: undefined },
+      { type: 'message.delta', delta: 'last' }
+    ]
+    const expected: AppEventEnvelope[] = structuredClone(events).map((event, index) => ({
+      cursor: { instanceId: server.address.instanceId, sequence: index + 1 },
+      event
+    }))
+    const clients = await Promise.all([
+      connectAppServer(server.address),
+      connectAppServer(server.address)
+    ])
+    const received = clients.map(({ client }) => {
+      t.after(() => client.close())
+      const done = Promise.withResolvers<AppEventEnvelope[]>()
+      const values: AppEventEnvelope[] = []
+      client.subscribe((value) => {
+        values.push(value as AppEventEnvelope)
+        if (values.length === events.length) done.resolve(values)
+      })
+      return done.promise
+    })
+    const subscriptions = (await Promise.all(
+      clients.map(({ client }) => client.call('app.events', []))
+    )) as AppEventSubscription[]
+    for (const event of events) publish(event)
+    bytes.fill(0)
+    events[1].delta = 'mutated after publication'
+    for (const values of await Promise.all(received)) assert.deepEqual(values, expected)
+
+    clients[0].client.close()
+    const next = { type: 'message.delta', delta: 'while disconnected' }
+    const delivered = Promise.withResolvers<unknown>()
+    clients[1].client.subscribe(delivered.resolve)
+    publish(next)
+    expected.push({ cursor: { instanceId: server.address.instanceId, sequence: 5 }, event: next })
+    assert.deepEqual(await delivered.promise, expected[4])
+    const reconnected = await connectAppServer(server.address)
+    t.after(() => reconnected.client.close())
+    const replay = (await reconnected.client.call('app.events', [
+      subscriptions[0].cursor
+    ])) as AppEventSubscription
+    assert.equal(replay.reset, false)
+    assert.deepEqual(replay.events, expected)
+    assert.deepEqual(replay.cursor, expected[4].cursor)
+  }
+)

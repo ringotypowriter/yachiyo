@@ -121,9 +121,9 @@ export async function listenAppServer(options: {
         .optional()
         .parse(input)
       detachEvents?.()
-      detachEvents = journal.subscribe((envelope) => {
+      detachEvents = journal.subscribe((frame) => {
         try {
-          transport.post({ kind: 'rpc:event', payload: envelope })
+          transport.postEncoded(frame)
         } catch {
           transport.close()
         }

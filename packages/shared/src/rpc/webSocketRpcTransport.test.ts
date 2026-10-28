@@ -38,7 +38,7 @@ test('frame limits count UTF-8 bytes and queued output at exact boundaries', () 
     new Uint8Array(65536).fill(128)
   ]
   for (const payload of payloads) {
-    for (const direction of ['send', 'receive']) {
+    for (const direction of ['send', 'sendEncoded', 'receive']) {
       const message: RpcMessage = { kind: 'rpc:event', payload }
       // Include raw lone surrogates on receive; JSON.stringify escapes them on send.
       const frame =
@@ -51,7 +51,7 @@ test('frame limits count UTF-8 bytes and queued output at exact boundaries', () 
         let closed = false
         const sent: (string | Uint8Array)[] = []
         const received: RpcMessage[] = []
-        const bufferedAmount = direction === 'send' ? 256 : 0
+        const bufferedAmount = direction === 'receive' ? 0 : 256
         const socket: RpcWebSocket = {
           readyState: 1,
           binaryType: 'blob',
@@ -75,15 +75,20 @@ test('frame limits count UTF-8 bytes and queued output at exact boundaries', () 
         assert.equal(socket.binaryType, 'arraybuffer')
         transport.onMessage((value) => received.push(value))
         const oversized = byteLength > remaining
-        if (direction === 'send') {
-          if (oversized) assert.throws(() => transport.post(message), /output buffer limit/)
-          else transport.post(message)
+        if (direction !== 'receive') {
+          const send = (): void =>
+            direction === 'send' ? transport.post(message) : transport.postEncoded(frame)
+          if (oversized) assert.throws(send, /output buffer limit/)
+          else send()
           assert.deepEqual(sent, oversized ? [] : [frame])
+          assert.equal(closed, oversized)
+          transport.close()
+          assert.throws(send, /transport closed/)
         } else {
           receive!({ data: typeof frame === 'string' ? frame : frame.buffer })
           assert.deepEqual(received, oversized ? [] : [message])
+          assert.equal(closed, oversized)
         }
-        assert.equal(closed, oversized)
         transport.close()
       }
     }

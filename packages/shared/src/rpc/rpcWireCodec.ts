@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { RpcMessage } from './rpcTransport.ts'
 
+export type RpcWireFrame = string | Uint8Array<ArrayBuffer>
+
 const requestId = z.number().int().positive().safe()
 const messageSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -141,7 +143,7 @@ function decodeValue(value: unknown, depth: number, payload?: BinaryPayload): un
 /** Small messages use JSON. Binary frames contain a uint32 LE header length, JSON, then raw parts.
  * Parts follow the typed values in JSON traversal order, without offsets or reusable references.
  */
-export function encodeRpcMessage(message: RpcMessage): string | Uint8Array<ArrayBuffer> {
+export function encodeRpcMessage(message: RpcMessage): RpcWireFrame {
   const parts: Uint8Array[] = []
   const json = JSON.stringify(encodeValue(message, new Set(), 0, parts))
   if (parts.length === 0) return json
