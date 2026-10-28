@@ -1,4 +1,4 @@
-export const APP_SERVER_PROTOCOL = 1
+export const APP_SERVER_PROTOCOL = 2
 
 export interface AppServerAddress {
   protocol: number

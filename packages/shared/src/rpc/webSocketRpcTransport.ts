@@ -7,7 +7,8 @@ export const RPC_MAX_FRAME_BYTES = 64 * 1024 * 1024
 export interface RpcWebSocket {
   readonly readyState: number
   readonly bufferedAmount: number
-  send(data: string): void
+  binaryType: string
+  send(data: string | Uint8Array<ArrayBuffer>): void
   close(code?: number, reason?: string): void
   addEventListener(type: 'message', listener: (event: { data: unknown }) => void): void
   addEventListener(type: 'close' | 'error', listener: () => void): void
@@ -20,13 +21,15 @@ export function createWebSocketRpcTransport(
   options: { maxBytes?: number } = {}
 ): RpcTransport {
   if (socket.readyState !== 1) throw new Error('RPC WebSocket must be open')
+  socket.binaryType = 'arraybuffer'
   const maxBytes = options.maxBytes ?? RPC_MAX_FRAME_BYTES
   const encoder = new TextEncoder()
   const listeners = new Set<(message: RpcMessage) => void>()
   const closeListeners = new Set<() => void>()
   let closed = false
 
-  const exceedsByteLimit = (frame: string, budget: number): boolean => {
+  const exceedsByteLimit = (frame: string | Uint8Array, budget: number): boolean => {
+    if (typeof frame !== 'string') return frame.byteLength > budget
     // Each UTF-16 code unit needs 1–3 UTF-8 bytes. Only count exactly near the limit.
     if (frame.length > budget) return true
     return frame.length * 3 > budget && encoder.encode(frame).byteLength > budget
@@ -48,10 +51,12 @@ export function createWebSocketRpcTransport(
   const receive = (event: { data: unknown }): void => {
     let message: RpcMessage
     try {
-      if (typeof event.data !== 'string' || exceedsByteLimit(event.data, maxBytes)) {
+      if (typeof event.data !== 'string' && !(event.data instanceof ArrayBuffer)) {
         throw new Error('Invalid RPC frame')
       }
-      message = decodeRpcMessage(event.data)
+      const frame = typeof event.data === 'string' ? event.data : new Uint8Array(event.data)
+      if (exceedsByteLimit(frame, maxBytes)) throw new Error('Invalid RPC frame')
+      message = decodeRpcMessage(frame)
       for (const listener of listeners) listener(message)
     } catch {
       fail()

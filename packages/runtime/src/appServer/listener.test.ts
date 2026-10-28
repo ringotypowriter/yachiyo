@@ -1,3 +1,4 @@
+import { APP_SERVER_PROTOCOL } from '@yachiyo/shared/appServer/protocol'
 import { createRpcClient } from '@yachiyo/shared/rpc/rpcClient'
 import { createWebSocketRpcTransport } from '@yachiyo/shared/rpc/webSocketRpcTransport'
 import assert from 'node:assert/strict'
@@ -32,16 +33,29 @@ test('local app clients authenticate, replay events, and cannot invoke host or p
   })
   const client = createRpcClient(createWebSocketRpcTransport(socket))
   t.after(() => client.close())
+  await assert.rejects(
+    client.call('app.authenticate', [{ protocol: 1, token: address.token }]),
+    /Invalid input/
+  )
   await assert.rejects(client.call('echo', ['before auth']), /Authentication required/)
   await assert.rejects(
-    client.call('app.authenticate', [{ protocol: 1, token: server.address.token }]),
+    client.call('app.authenticate', [
+      { protocol: APP_SERVER_PROTOCOL, token: server.address.token }
+    ]),
     /Invalid credentials/
   )
-  await client.call('app.authenticate', [{ protocol: 1, token: address.token }])
+  await client.call('app.authenticate', [{ protocol: APP_SERVER_PROTOCOL, token: address.token }])
   assert.deepEqual(
     await client.call('echo', [new Uint8Array([0, 128, 255])]),
     new Uint8Array([0, 128, 255])
   )
+  const values = [
+    'attachment:' + '中文😀'.repeat(65536),
+    new Uint8Array(1024 * 1024).fill(128).subarray(11),
+    { text: 'still JSON', missing: undefined },
+    { nested: [new Uint8Array([1, 2, 3]), 'x'.repeat(65536)] }
+  ]
+  assert.deepEqual(await Promise.all(values.map((value) => client.call('echo', [value]))), values)
   await assert.rejects(client.call('host.secret', []), /authorization required/)
   await assert.rejects(client.call('app.attachHost', []), /authorization required/)
   await assert.rejects(client.call('constructor', []), /Unknown RPC method/)

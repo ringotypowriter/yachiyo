@@ -10,6 +10,7 @@ test('an unsolicited response closes the peer instead of escaping into the app s
   let closed = false
   const socket = {
     readyState: 1,
+    binaryType: 'blob',
     bufferedAmount: 0,
     send() {
       assert.fail('An unsolicited response must not send a request')
@@ -32,23 +33,28 @@ test('an unsolicited response closes the peer instead of escaping into the app s
 })
 
 test('frame limits count UTF-8 bytes and queued output at exact boundaries', () => {
-  for (const text of ['a', 'é', '中', '😀', '\ud800', '\udc00']) {
+  const payloads = [
+    ...['a', 'é', '中', '😀', '\ud800', '\udc00'].map((text) => text.repeat(100)),
+    new Uint8Array(65536).fill(128)
+  ]
+  for (const payload of payloads) {
     for (const direction of ['send', 'receive']) {
-      const message: RpcMessage = { kind: 'rpc:event', payload: text.repeat(100) }
+      const message: RpcMessage = { kind: 'rpc:event', payload }
       // Include raw lone surrogates on receive; JSON.stringify escapes them on send.
       const frame =
-        direction === 'send'
-          ? encodeRpcMessage(message)
-          : `{"kind":"rpc:event","payload":"${message.payload}"}`
+        direction === 'receive' && typeof payload === 'string'
+          ? `{"kind":"rpc:event","payload":"${payload}"}`
+          : encodeRpcMessage(message)
       const byteLength = Buffer.byteLength(frame)
       for (const remaining of [frame.length - 1, byteLength - 1, byteLength, frame.length * 3]) {
         let receive: ((event: { data: unknown }) => void) | undefined
         let closed = false
-        const sent: string[] = []
+        const sent: (string | Uint8Array)[] = []
         const received: RpcMessage[] = []
         const bufferedAmount = direction === 'send' ? 256 : 0
         const socket: RpcWebSocket = {
           readyState: 1,
+          binaryType: 'blob',
           bufferedAmount,
           send(data) {
             sent.push(data)
@@ -66,6 +72,7 @@ test('frame limits count UTF-8 bytes and queued output at exact boundaries', () 
         const transport = createWebSocketRpcTransport(socket, {
           maxBytes: remaining + bufferedAmount
         })
+        assert.equal(socket.binaryType, 'arraybuffer')
         transport.onMessage((value) => received.push(value))
         const oversized = byteLength > remaining
         if (direction === 'send') {
@@ -73,7 +80,7 @@ test('frame limits count UTF-8 bytes and queued output at exact boundaries', () 
           else transport.post(message)
           assert.deepEqual(sent, oversized ? [] : [frame])
         } else {
-          receive!({ data: frame })
+          receive!({ data: typeof frame === 'string' ? frame : frame.buffer })
           assert.deepEqual(received, oversized ? [] : [message])
         }
         assert.equal(closed, oversized)

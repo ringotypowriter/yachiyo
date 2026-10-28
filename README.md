@@ -164,6 +164,15 @@ Workspace packages:
 - `packages/runtime` — local assistant runtime
 - `packages/cli` — `yachiyo` command-line interface
 
+The local app-server protocol uses JSON for small RPC messages and binary WebSocket frames for
+large strings and byte arrays. The shell and server must use the same `APP_SERVER_PROTOCOL`
+version. Before switching development builds across protocol versions, quit the desktop and
+run `yachiyo server stop` using the previous build. Packaged updates stop the server before installation.
+
+Run `node --experimental-strip-types scripts/app-server-benchmark.mts [output.json]` to compare
+the production WebSocket transport with Electron IPC using synthetic payloads. The benchmark
+uses an isolated profile and does not rebuild native dependencies.
+
 ## Contributing
 
 Bug fixes and documentation improvements are welcome.
