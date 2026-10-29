@@ -1,0 +1,34 @@
+diff --git a/dist/index.js b/dist/index.js
+index 1fcb536121ccb3c40a4bd2acf44f03b4836ae3cc..48e85fe0370a74ed4afe3d904d0f0b615387767c 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1 +1,27 @@
+-import {bundledLanguagesInfo,bundledLanguages,createHighlighter}from'shiki';import {createJavaScriptRegexEngine}from'shiki/engine/javascript';var S=createJavaScriptRegexEngine({forgiving:true}),C=Object.fromEntries(bundledLanguagesInfo.flatMap(e=>{var n;return ((n=e.aliases)!=null?n:[]).map(t=>[t,e.id])})),r=new Set(Object.keys(bundledLanguages)),B=e=>{let t=e.trim().toLowerCase(),g=C[t];return g||(r.has(t),t)},c=new Map,p=new Map,s=new Map,o=e=>{var n;return typeof e=="string"?e:(n=e.name)!=null?n:"custom"},v=(e,n)=>`${e}-${o(n[0])}-${o(n[1])}`,x=(e,n,t)=>{let g=e.slice(0,100),u=e.length>100?e.slice(-100):"";return `${n}:${t[0]}:${t[1]}:${e.length}:${g}:${u}`},P=(e,n)=>{let t=v(e,n);if(c.has(t))return c.get(t);let g=createHighlighter({themes:n,langs:[e],engine:S});return c.set(t,g),g};function $(e={}){var t;let n=(t=e.themes)!=null?t:["github-light","github-dark"];return {name:"shiki",type:"code-highlighter",supportsLanguage(g){let u=B(g);return r.has(u)},getSupportedLanguages(){return Array.from(r)},getThemes(){return n},highlight({code:g,language:u,themes:h},m){let i=B(u),d=[o(h[0]),o(h[1])],a=x(g,i,d);if(p.has(a))return p.get(a);m&&(s.has(a)||s.set(a,new Set),s.get(a).add(m));let f=r.has(i)?i:"text";return P(f,h).then(l=>{let y=l.getLoadedLanguages().includes(i)?i:"text",L=l.codeToTokens(g,{lang:y,themes:{light:d[0],dark:d[1]}});p.set(a,L);let T=s.get(a);if(T){for(let H of T)H(L);s.delete(a);}}).catch(l=>{console.error("[Streamdown Code] Failed to highlight code:",l),s.delete(a);}),null}}}var G=$();export{G as code,$ as createCodePlugin};
+\ No newline at end of file
++import {bundledLanguagesInfo,bundledLanguages,createHighlighter}from'shiki';import {createJavaScriptRegexEngine}from'shiki/engine/javascript';var S=createJavaScriptRegexEngine({forgiving:true}),C=Object.fromEntries(bundledLanguagesInfo.flatMap(e=>{var n;return ((n=e.aliases)!=null?n:[]).map(t=>[t,e.id])})),r=new Set(Object.keys(bundledLanguages)),B=e=>{let t=e.trim().toLowerCase(),g=C[t];return g||(r.has(t),t)},c=new Map,p=new Map,s=new Map,o=e=>{var n;return typeof e=="string"?e:(n=e.name)!=null?n:"custom"},v=(e,n)=>`${e}-${o(n[0])}-${o(n[1])}`,x=(e,n,t)=>{let g=e.slice(0,100),u=e.length>100?e.slice(-100):"";return `${n}:${t[0]}:${t[1]}:${e.length}:${g}:${u}`},P=(e,n)=>{let t=v(e,n);if(c.has(t))return c.get(t);let g=createHighlighter({themes:n,langs:[e],engine:S});return c.set(t,g),g};function $(e={}){var t;let n=(t=e.themes)!=null?t:["github-light","github-dark"];return {name:"shiki",type:"code-highlighter",supportsLanguage(g){let u=B(g);return r.has(u)},getSupportedLanguages(){return Array.from(r)},getThemes(){return n},highlight({code:g,language:u,themes:h},m){let i=B(u),d=[o(h[0]),o(h[1])],a=x(g,i,d);if(p.has(a)){let l=p.get(a);p.delete(a);p.set(a,l);return l.result;}m&&(s.has(a)||s.set(a,new Set),s.get(a).add(m));let f=r.has(i)?i:"text";return P(f,h).then(l=>{let y=l.getLoadedLanguages().includes(i)?i:"text",L=l.codeToTokens(g,{lang:y,themes:{light:d[0],dark:d[1]}});cacheHighlight(a,L,g.length);let T=s.get(a);if(T){for(let H of T)H(L);s.delete(a);}}).catch(l=>{console.error("[Streamdown Code] Failed to highlight code:",l),s.delete(a);}),null}}}var G=$();export{G as code,$ as createCodePlugin};
++
++// Streaming code produces a new result for every prefix. Retain only recent,
++// bounded source content so token arrays from old revisions can be collected.
++const MAX_HIGHLIGHT_CACHE_ENTRIES = 32
++const MAX_HIGHLIGHT_CACHE_CHARACTERS = 256 * 1024
++let cachedCharacters = 0
++
++function cacheHighlight(key, result, characters) {
++  const existing = p.get(key)
++  if (existing) {
++    cachedCharacters -= existing.characters
++    p.delete(key)
++  }
++  if (characters > MAX_HIGHLIGHT_CACHE_CHARACTERS) return
++
++  while (
++    p.size >= MAX_HIGHLIGHT_CACHE_ENTRIES ||
++    cachedCharacters + characters > MAX_HIGHLIGHT_CACHE_CHARACTERS
++  ) {
++    const oldestKey = p.keys().next().value
++    cachedCharacters -= p.get(oldestKey).characters
++    p.delete(oldestKey)
++  }
++  p.set(key, { result, characters })
++  cachedCharacters += characters
++}

@@ -173,6 +173,13 @@ Run `node --experimental-strip-types scripts/app-server-benchmark.mts [output.js
 the production WebSocket transport with Electron IPC using synthetic payloads. The benchmark
 uses an isolated profile and does not rebuild native dependencies.
 
+Run `node --experimental-strip-types scripts/chromium-memory-benchmark.mts [output.json]` to
+measure the code highlighter's retained memory in a sandboxed Chromium renderer. It processes
+200 streaming updates and 200 separate code blocks with the installed `@streamdown/code` package.
+The report includes memory before and after forced garbage collection. It isolates highlighting;
+it does not measure the complete app. The benchmark uses a temporary profile and does not rebuild
+native dependencies.
+
 ## Contributing
 
 Bug fixes and documentation improvements are welcome.
