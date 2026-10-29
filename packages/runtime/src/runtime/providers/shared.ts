@@ -74,9 +74,10 @@ export type OpenAiResponsesRuntimeProviderOptions = {
 export type AnthropicRuntimeProviderOptions = {
   anthropic: {
     thinking: {
-      type: 'enabled' | 'disabled'
+      type: 'enabled' | 'disabled' | 'adaptive'
       budgetTokens?: number
     }
+    effort?: ReasoningEffortLevel
   }
 }
 

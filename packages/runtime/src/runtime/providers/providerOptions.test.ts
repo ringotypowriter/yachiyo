@@ -134,3 +134,119 @@ test('createProviderOptions maps Anthropic high to a larger thinking budget', ()
     }
   })
 })
+
+test('createProviderOptions uses adaptive thinking for models that reject token budgets', () => {
+  for (const model of [
+    'claude-fable-5-1',
+    'claude-fable-5',
+    'claude-mythos-5-1',
+    'claude-mythos-5',
+    'claude-opus-5-5',
+    'claude-sonnet-5-5',
+    'claude-haiku-5-5',
+    'claude-opus-5',
+    'claude-sonnet-5',
+    'claude-opus-4-8',
+    'claude-opus-4-7'
+  ]) {
+    const options = createProviderOptions(
+      settings({ provider: 'anthropic', model, baseUrl: 'https://api.anthropic.com/v1' }),
+      'default',
+      'high'
+    )
+
+    assert.deepEqual(
+      options,
+      { anthropic: { thinking: { type: 'adaptive' }, effort: 'high' } },
+      model
+    )
+  }
+})
+
+test('createProviderOptions forwards adaptive effort overrides and defaults to medium', () => {
+  const provider = settings({
+    provider: 'anthropic',
+    model: 'claude-fable-5-1',
+    baseUrl: '',
+    reasoningEffort: 'low'
+  })
+  for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+    assert.deepEqual(createProviderOptions(provider, 'default', effort), {
+      anthropic: { thinking: { type: 'adaptive' }, effort }
+    })
+  }
+  assert.deepEqual(createProviderOptions(provider), {
+    anthropic: { thinking: { type: 'adaptive' }, effort: 'low' }
+  })
+  assert.deepEqual(createProviderOptions({ ...provider, reasoningEffort: undefined }), {
+    anthropic: { thinking: { type: 'adaptive' }, effort: 'medium' }
+  })
+})
+
+test('createProviderOptions uses low effort when always-on thinking cannot be disabled', () => {
+  for (const model of [
+    'claude-fable-5-1',
+    'claude-fable-5',
+    'claude-mythos-5-1',
+    'claude-mythos-5',
+    'claude-opus-5-5',
+    'claude-sonnet-5-5'
+  ]) {
+    const provider = settings({
+      provider: 'anthropic',
+      model,
+      baseUrl: 'https://api.anthropic.com/v1',
+      reasoningEffort: 'high'
+    })
+    const expected = { anthropic: { thinking: { type: 'adaptive' }, effort: 'low' } }
+
+    assert.deepEqual(createProviderOptions(provider, 'default', 'off'), expected, model)
+    assert.deepEqual(
+      createProviderOptions({ ...provider, thinkingEnabled: false }),
+      expected,
+      model
+    )
+    assert.deepEqual(createProviderOptions(provider, 'auxiliary'), expected, model)
+  }
+})
+
+test('createProviderOptions still disables thinking on models that support it', () => {
+  for (const model of [
+    'claude-opus-4-7',
+    'claude-opus-4-8',
+    'claude-opus-5',
+    'claude-sonnet-5',
+    'claude-haiku-5-5',
+    'claude-sonnet-4-5',
+    'deepseek-v4-pro',
+    'kimi-k2.5'
+  ]) {
+    const provider = settings({ provider: 'anthropic', model, reasoningEffort: 'max' })
+    const expected = { anthropic: { thinking: { type: 'disabled' } } }
+
+    assert.deepEqual(createProviderOptions(provider, 'default', 'off'), expected, model)
+    assert.deepEqual(
+      createProviderOptions({ ...provider, thinkingEnabled: false }),
+      expected,
+      model
+    )
+    assert.deepEqual(createProviderOptions(provider, 'auxiliary'), expected, model)
+  }
+})
+
+test('createProviderOptions preserves budgets for older Claude and compatible models', () => {
+  for (const model of [
+    'claude-sonnet-4-5',
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
+    'deepseek-v4-pro',
+    'kimi-k2.5',
+    'custom-model'
+  ]) {
+    assert.deepEqual(
+      createProviderOptions(settings({ provider: 'anthropic', model }), 'default', 'high'),
+      { anthropic: { thinking: { type: 'enabled', budgetTokens: 16000 } } },
+      model
+    )
+  }
+})

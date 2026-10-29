@@ -4,6 +4,19 @@ Manage the AI providers configured by Yachiyo. Public provider settings live in
 `~/.yachiyo/config.toml`; API keys and service-account private keys live in the
 keychain-protected credential store. API keys are redacted in output.
 
+## Anthropic thinking
+
+Claude models that reject manual thinking budgets use adaptive thinking with
+`output_config.effort`. The selected reasoning level controls effort; the default
+is `medium`. Older Claude models and other Anthropic-compatible models retain
+their token budgets.
+
+Fable 5/5.1, Mythos 5/5.1, Opus 5.5, and Sonnet 5.5 cannot disable thinking.
+For these models, selecting off, disabling provider thinking, or running an
+auxiliary task uses adaptive thinking with `low` effort. Thinking tokens can still
+be generated and billed. Other models keep explicit thinking-off behavior.
+See [Anthropic's thinking configuration table](https://platform.claude.com/docs/en/build-with-claude/thinking#configuring-thinking).
+
 ## Commands
 
 ### List all providers

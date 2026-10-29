@@ -236,19 +236,39 @@ export function createAnthropicProviderOptions(
   settings: ProviderSettings,
   mode: 'default' | 'auxiliary'
 ): RuntimeProviderOptions {
+  const model = settings.model.trim().toLowerCase()
+  const reasoningEffort = settings.reasoningEffort
+  const thinkingDisabled =
+    mode === 'auxiliary' || settings.thinkingEnabled === false || reasoningEffort === 'off'
+
+  // https://platform.claude.com/docs/en/build-with-claude/thinking#configuring-thinking
+  const alwaysOnThinking = /^claude-(?:(?:fable|mythos)-5|(?:opus|sonnet)-5-5)(?:-|$)/.test(model)
+  if (thinkingDisabled) {
+    return {
+      anthropic: alwaysOnThinking
+        ? { thinking: { type: 'adaptive' }, effort: 'low' }
+        : { thinking: { type: 'disabled' } }
+    }
+  }
+
+  const requiresAdaptiveThinking =
+    /^claude-(?:opus-4-[78]|(?:opus|sonnet|fable|mythos)-5|haiku-5-5)(?:-|$)/.test(model)
+  if (requiresAdaptiveThinking) {
+    return {
+      anthropic: {
+        thinking: { type: 'adaptive' },
+        effort: reasoningEffort ?? 'medium'
+      }
+    }
+  }
+
   return {
     anthropic: {
       thinking: {
-        ...(mode === 'auxiliary' ||
-        settings.thinkingEnabled === false ||
-        settings.reasoningEffort === 'off'
-          ? { type: 'disabled' as const }
-          : {
-              type: 'enabled' as const,
-              budgetTokens: settings.reasoningEffort
-                ? ANTHROPIC_THINKING_BUDGET_BY_EFFORT[settings.reasoningEffort]
-                : DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS
-            })
+        type: 'enabled',
+        budgetTokens: reasoningEffort
+          ? ANTHROPIC_THINKING_BUDGET_BY_EFFORT[reasoningEffort]
+          : DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS
       }
     }
   }
