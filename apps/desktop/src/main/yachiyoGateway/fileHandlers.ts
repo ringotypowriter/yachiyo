@@ -1,3 +1,4 @@
+import { resolveExistingFileReferences } from '@yachiyo/runtime/runtime/files/inlineCodeFileReferences'
 import {
   classifyAttachmentFileSelection,
   toAttachmentFileRejectionRecords,
@@ -5,10 +6,8 @@ import {
 } from '@yachiyo/shared/attachmentFileTypes'
 import type { DiscoveredApp, DiscoveredApps } from '@yachiyo/shared/discoveredApp'
 import type { ResolvedFileReference, ResolveFileReferencesInput } from '@yachiyo/shared/protocol'
-import { resolveExistingFileReferences } from '@yachiyo/runtime/runtime/files/inlineCodeFileReferences'
-import { IPC_CHANNELS } from './ipcChannels.ts'
-import { readFilePreview } from './readFilePreview.ts'
 import { discoverApps, findDiscoveredApp, launchDiscoveredApp } from '../electron/appDiscovery.ts'
+import { IPC_CHANNELS } from './ipcChannels.ts'
 
 type GatewayIpcHandler = <Args extends unknown[], Result>(
   channel: string,
@@ -93,7 +92,6 @@ async function resolveFileOperationPath(
 }
 
 export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
-  handle(IPC_CHANNELS.readFilePreview, readFilePreview)
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
     const { clipboard } = await import('electron')
     const { readFile, stat } = await import('node:fs/promises')
@@ -144,16 +142,6 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
   })
 
   handle(
-    IPC_CHANNELS.readAttachmentFile,
-    async (input: { filePath: string; mediaType: string }) => {
-      const { readFile } = await import('node:fs/promises')
-      const data = await readFile(input.filePath)
-      const base64 = data.toString('base64')
-      return `data:${input.mediaType};base64,${base64}`
-    }
-  )
-
-  handle(
     IPC_CHANNELS.revealFile,
     async (input: {
       path: string
@@ -167,10 +155,6 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
         resolveFileReferences: resolveExistingFileReferences
       })
     }
-  )
-
-  handle(IPC_CHANNELS.resolveFileReferences, (input: ResolveFileReferencesInput) =>
-    resolveExistingFileReferences(input)
   )
 
   handle(IPC_CHANNELS.openFile, async (input: OpenFileSelectionInput) => {

@@ -116,6 +116,12 @@ For a Debian server without a graphical session, the experimental [headless targ
 runs under Node and supports CLI conversations and encrypted Remote access. Build it with
 `pnpm build:headless`; deployment and systemd instructions are in that guide.
 
+The desktop UI connects to an independent app server over WebSocket RPC. Quitting the desktop
+leaves runtime tasks, schedules, channels, and Remote running. Reopening it reconnects to the
+same server. Native browser and OS integrations require the desktop shell.
+Use `yachiyo server status` to inspect the server. Quit the desktop, then use
+`yachiyo server stop` to stop background work. The [headless guide](apps/headless/README.md) covers server deployment.
+
 ## Obelisk history
 
 The bundled `yachiyo-obelisk` skill searches history across coding agents through
@@ -157,6 +163,22 @@ Workspace packages:
 - `packages/shared` — shared protocol and message utilities
 - `packages/runtime` — local assistant runtime
 - `packages/cli` — `yachiyo` command-line interface
+
+The local app-server protocol uses JSON for small RPC messages and binary WebSocket frames for
+large strings and byte arrays. The shell and server must use the same `APP_SERVER_PROTOCOL`
+version. Before switching development builds across protocol versions, quit the desktop and
+run `yachiyo server stop` using the previous build. Packaged updates stop the server before installation.
+
+Run `node --experimental-strip-types scripts/app-server-benchmark.mts [output.json]` to compare
+the production WebSocket transport with Electron IPC using synthetic payloads. The benchmark
+uses an isolated profile and does not rebuild native dependencies.
+
+Run `node --experimental-strip-types scripts/chromium-memory-benchmark.mts [output.json]` to
+measure the code highlighter's retained memory in a sandboxed Chromium renderer. It processes
+200 streaming updates and 200 separate code blocks with the installed `@streamdown/code` package.
+The report includes memory before and after forced garbage collection. It isolates highlighting;
+it does not measure the complete app. The benchmark uses a temporary profile and does not rebuild
+native dependencies.
 
 ## Contributing
 

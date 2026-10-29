@@ -79,6 +79,8 @@ export interface RunState {
   updateHeadOnComplete: boolean
   /** Resolves a pending askUser tool call with the user's answer. Set by execution. */
   answerToolQuestion?: (toolCallId: string, answer: string) => void
+  /** Current flushed output for clients that join an already running conversation. */
+  getLiveMessage?: () => MessageRecord
   /** When true, this run is an ephemeral recap — no messages persisted, result returned via recapResolve. */
   recap?: boolean
   recapResolve?: (text: string | null) => void

@@ -9,9 +9,14 @@ export const GLOBAL_FLAGS_HELP = `Global flags:
   --help              Show help for a command or namespace`
 
 export const NAMESPACE_HELP: Record<string, string> = {
+  server: `Usage: yachiyo server [status|stop]
+
+  status                               Show the app server process and attached desktop state.
+  stop                                 Shut down the server after quitting the desktop app.
+  Closing the desktop app leaves the server and active tasks running.`,
   chat: `Usage: yachiyo chat [prompt] [--thread <id>] [--workspace <path>] [--json]
 
-  Requires yachiyo serve to be running with the same YACHIYO_HOME.
+  Requires an app server started by the desktop app or yachiyo serve with the same YACHIYO_HOME.
   Without a prompt, starts an interactive conversation or reads piped text.
   --thread <id> continues an existing thread. --workspace sets a new thread's workspace.
   --json emits newline-delimited events. Interactive sessions can answer tool questions.
@@ -156,6 +161,6 @@ export const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags..
 All output is JSON unless noted. The app must be running for "send", "update", and "remote" commands.
 Use "yachiyo <namespace> --help" for detailed help on a specific namespace.
 
-Namespaces: chat, doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote
+Namespaces: server, chat, doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote
 
 ${Object.values(NAMESPACE_HELP).join('\n\n')}\n\n${GLOBAL_FLAGS_HELP}`

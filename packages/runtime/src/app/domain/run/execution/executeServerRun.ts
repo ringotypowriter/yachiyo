@@ -363,6 +363,21 @@ export async function executeServerRun(
     toolCalls: toolLifecycle.getAllToolCalls()
   })
   const getCurrentOutputSnapshot = outputState.getSnapshot
+  const liveMessageCreatedAt = recoveryCheckpoint?.createdAt ?? deps.timestamp()
+  deps.onLiveMessageReady?.(() => {
+    const snapshot = getCurrentOutputSnapshot()
+    return {
+      id: messageId,
+      threadId: input.thread.id,
+      parentMessageId: input.requestMessageId,
+      role: 'assistant',
+      status: 'streaming',
+      content: snapshot.content,
+      reasoning: snapshot.reasoning,
+      textBlocks: snapshot.textBlocks,
+      createdAt: liveMessageCreatedAt
+    }
+  })
 
   const recoveryCheckpointManager = createRecoveryCheckpointManager({
     deps,

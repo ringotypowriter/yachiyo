@@ -702,6 +702,21 @@ export class YachiyoServerRunDomain {
     return projectQueuedFollowUpDraftSnapshot(this.queuedFollowUpDrafts, snapshot)
   }
 
+  withLiveMessages(threadId: string, messages: MessageRecord[]): MessageRecord[] {
+    const runId = this.activeRunByThread.get(threadId)
+    const live = runId ? this.activeRuns.get(runId)?.getLiveMessage?.() : undefined
+    if (!live) return messages
+    return [...messages.filter((message) => message.id !== live.id), live]
+  }
+
+  withLiveMessagesBootstrap<T extends BootstrapState>(bootstrap: T): T {
+    const messagesByThread = { ...bootstrap.messagesByThread }
+    for (const threadId of this.activeRunByThread.keys()) {
+      messagesByThread[threadId] = this.withLiveMessages(threadId, messagesByThread[threadId] ?? [])
+    }
+    return { ...bootstrap, messagesByThread }
+  }
+
   withQueuedFollowUpDraftsBootstrap(bootstrap: BootstrapState): BootstrapState
   withQueuedFollowUpDraftsBootstrap(bootstrap: BootstrapPayload): BootstrapPayload
   withQueuedFollowUpDraftsBootstrap(

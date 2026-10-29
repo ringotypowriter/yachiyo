@@ -210,6 +210,7 @@ export interface RunExecutionDeps {
   onAgentStepAdvanced?: (step: number) => void
   /** Called by execution to register the askUser answer handler. */
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
+  onLiveMessageReady?: (read: () => MessageRecord) => void
   onTerminalState?: () => void
   sentinelContext?: UseSentinelToolContext
   onBackgroundBashStarted?: (

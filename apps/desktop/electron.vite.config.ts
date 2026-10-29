@@ -50,7 +50,7 @@ const runtimeNodeModulesBanner = `
 try {
   const path = require('path');
   const Module = require('module');
-  const runtimeNodeModules = path.join(process.resourcesPath || '', 'node_modules');
+  const runtimeNodeModules = path.join(process.resourcesPath || process.env.YACHIYO_RESOURCES_PATH || '', 'node_modules');
   if (runtimeNodeModules && !Module.globalPaths.includes(runtimeNodeModules)) {
     process.env.NODE_PATH = process.env.NODE_PATH
       ? runtimeNodeModules + path.delimiter + process.env.NODE_PATH
@@ -122,10 +122,7 @@ export default defineConfig(({ command }) => ({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          'runtime-host': resolve('src/main/runtimeHost/runtimeHostMain.ts'),
-          ...(command === 'serve'
-            ? { 'runtime-host-spike': resolve('src/main/runtimeHost/spikeUtilityMain.ts') }
-            : {})
+          'app-server': resolve('src/main/runtimeHost/appServerMain.ts')
         },
         external: ['better-sqlite3', 'sharp', 'zlib-sync', 'bufferutil', 'utf-8-validate'],
         output: {
@@ -140,7 +137,7 @@ export default defineConfig(({ command }) => ({
       copyJiebaWasm(command === 'serve')
     ]
   },
-  preload: {},
+  preload: { build: { externalizeDeps: false } },
   renderer: {
     server: {
       host: '127.0.0.1',

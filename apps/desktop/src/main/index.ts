@@ -1,7 +1,6 @@
 import log from 'electron-log/main'
 import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain, nativeTheme } from 'electron'
 import {
-  DEFAULT_REMOTE_CONFIG,
   DEFAULT_THEME_APPEARANCE,
   type SettingsConfig,
   type SettingsUpdatedEvent
@@ -16,15 +15,11 @@ import {
   hydrateProxyFromSystemSettings
 } from './electron/userShellEnv'
 import { resolveYachiyoDataDir, resolveYachiyoSettingsPath } from '@yachiyo/runtime/config/paths'
-import {
-  registerYachiyoGateway,
-  type YachiyoGatewayHandle
-} from './yachiyoGateway/registerYachiyoGateway'
+import { registerYachiyoGateway } from './yachiyoGateway/registerYachiyoGateway'
 import { clearYachiyoNotificationBadge } from './yachiyoGateway/ipc'
 import { setupCLI } from './cli/setup'
 import { setupCoreSkills } from './skills/coreSkillsSetup'
 import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
-import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
 import {
   reportDesktopStartupFailure,
   prepareDesktopCredentialStorage,
@@ -94,8 +89,6 @@ if (!is.dev && !headlessCliArgs) {
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
 let mainWindowRef: BrowserWindow | null = null
-// Assigned once the runtime gateway finishes initializing (after first window).
-let gatewayServer: YachiyoGatewayHandle | null = null
 const keepAwakeController = createKeepAwakeController()
 
 function applyNativeTheme(config: SettingsConfig): void {
@@ -271,12 +264,6 @@ function createWindow(): void {
     if (mainWindowRef === mainWindow) mainWindowRef = null
     maybeDestroyHiddenJotdown()
   })
-  installActiveRunCloseGuard(mainWindow, {
-    cancelActiveRuns: () => gatewayServer?.cancelActiveRuns(),
-    isBypassed: () => isQuitting || isInstallingUpdate(),
-    listActiveRunIds: () => gatewayServer?.listActiveRunIds() ?? [],
-    platform: process.platform
-  })
   installEditableContextMenu(mainWindow)
   installGenerativeUiNavigationGuard(mainWindow.webContents)
   installGenerativeUiResourceGuard(mainWindow.webContents)
@@ -401,22 +388,8 @@ async function startDesktop(): Promise<void> {
   setupCLI()
   setupCoreSkills()
   const appUpdateController = setupAutoUpdate()
-  const server = registerYachiyoGateway({ appUpdateController })
-  gatewayServer = server
+  const server = registerYachiyoGateway({ appUpdateController, startupReady: proxyHydration })
   await proxyHydration
-
-  // Dev-only Phase-2 spike for the runtime process extraction: verify the
-  // utility-process hard points (docs/yachiyo-runtime-process-extraction.md §5).
-  if (import.meta.env.DEV && process.env['YACHIYO_SPIKE_UTILITY']) {
-    // Resolve the spike bundle here: this entry lives in out/main/, while the
-    // dynamically imported prober is code-split into out/main/chunks/.
-    const spikeEntryPath = join(__dirname, 'runtime-host-spike.js')
-    void import('./runtimeHost/runSpikeUtilityProbe.ts').then(({ runSpikeUtilityProbe }) =>
-      runSpikeUtilityProbe(spikeEntryPath).catch((error) =>
-        console.error('[spike-utility] probe failed:', error)
-      )
-    )
-  }
 
   // Initialize activity tracker (macOS only — relies on osascript)
   if (process.platform === 'darwin') {
@@ -456,7 +429,6 @@ async function startDesktop(): Promise<void> {
     applyAppLanguage(initialConfig)
     keepAwakeController.setEnabled(initialConfig.general?.preventSystemSleep === true)
     updateFloatWindowShortcuts(initialConfig)
-    server.applyRemoteSettings(initialConfig.remote ?? DEFAULT_REMOTE_CONFIG)
   })
 
   server.subscribe((event) => {
@@ -466,7 +438,6 @@ async function startDesktop(): Promise<void> {
       applyAppLanguage(config)
       keepAwakeController.setEnabled(config.general?.preventSystemSleep === true)
       updateFloatWindowShortcuts(config)
-      server.applyRemoteSettings(config.remote ?? DEFAULT_REMOTE_CONFIG)
     }
   })
 

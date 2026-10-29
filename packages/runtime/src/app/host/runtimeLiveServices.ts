@@ -58,7 +58,7 @@ export interface RuntimeLiveServicesOptions {
    * the production wiring cannot silently disable the receipt path.
    */
   updateReceiptLease: UpdateReceiptLease
-  /** Notification display; Electron-backed in main, reverse-RPC from a utility host. */
+  /** Notification display; reverse RPC to the attached Electron shell. */
   showNotification: (input: ShowNotificationInput) => void
   tempWorkspaceDir: string
   enableSchedules: boolean
@@ -72,18 +72,12 @@ export interface RuntimeLiveServices {
   shutdown(): Promise<void>
   /**
    * Host-level operations served over RPC next to the server's own methods
-   * (via mergeRpcTargets), so gateway handlers stay identical whether the
-   * runtime runs in-process or in a utility process.
+   * by the app server, so desktop and CLI clients use the same live services.
    */
   rpcOps: Record<string, (input: never) => unknown>
 }
 
-/**
- * Owns the runtime's live services — schedules, auto-sync, and channel
- * services — next to the server they drive. Runs in whichever process hosts
- * YachiyoServer: the utility runtime host by default, or the Electron main
- * process under YACHIYO_RUNTIME_UTILITY=0.
- */
+/** Owns schedules, channels and automatic sync for the independent app server. */
 export function createRuntimeLiveServices(
   options: RuntimeLiveServicesOptions
 ): RuntimeLiveServices {
@@ -388,8 +382,7 @@ export function createRuntimeLiveServices(
     'host.pokeChannels': (input: { reason: string }): void => {
       void channelSupervisor?.poke(input.reason)
     },
-    // Run perf records live in the process that runs the pipeline; the
-    // gateway merges them with main-side IPC stats for the Settings panel.
+    // Performance records belong to the app server that runs the pipeline.
     'host.getPerfStats': () => getPerfMonitor().getStats(),
     'host.stopLiveServices': (): Promise<void> => stop(),
     'host.shutdownRuntime': (): Promise<void> => shutdown(),

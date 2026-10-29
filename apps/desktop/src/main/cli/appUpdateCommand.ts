@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 
 import { formatAppUpdateBlockedError, type AppUpdateInstallResult } from '@yachiyo/shared/appUpdate'
 
+import type {
+  AppUpdateCommandInput,
+  AppUpdateCommandReply
+} from '@yachiyo/runtime/appServer/commandSocket'
 import {
   runInstallReceiptSequence,
   type InstallReceiptDeps,
@@ -11,7 +15,6 @@ import type {
   AppUpdateController,
   AppUpdateInstallReservation
 } from '../electron/appUpdateController.ts'
-import type { AppUpdateCommandInput, AppUpdateCommandReply } from './commandSocket.ts'
 
 interface InstallFailureReporter {
   reportInstallFailure(origin: UpdateReceiptOrigin, error: unknown): Promise<void>

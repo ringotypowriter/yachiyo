@@ -231,7 +231,7 @@ import {
 } from './composerPrediction.ts'
 import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
 import { openThreadWorkspacePath, pruneUnusedTemporaryWorkspaces } from './workspaces.ts'
-import { bootstrapYachiyoServer } from './bootstrap.ts'
+import { bootstrapYachiyoServer, initializeYachiyoServer } from './bootstrap.ts'
 import { downloadRemoteImageAndBuildReplacementEvent } from './remoteImages.ts'
 import { projectVisibleRunEvent, type YachiyoServerEventPayload } from './runEventProjection.ts'
 import { createSqliteYachiyoServerOptions } from './sqliteFactoryOptions.ts'
@@ -366,6 +366,7 @@ export class YachiyoServer {
   // Serializes every sync that spawns the binary (manual, auto, init) so two
   // export/import passes never run against the same files at once.
   private syncMutex: Promise<unknown> = Promise.resolve()
+  private initialization: Promise<string[]> | undefined
 
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
@@ -745,17 +746,44 @@ export class YachiyoServer {
   recoverInterruptedSaves(): string[] {
     return this.storage.recoverInterruptedSaves()
   }
-  async bootstrap(): Promise<BootstrapPayload> {
-    return bootstrapYachiyoServer({
-      configDomain: this.configDomain,
+  /** Runs startup recovery once, before the host accepts client requests or starts services. */
+  async initialize(): Promise<void> {
+    await this.initializeOnce()
+  }
+
+  private recoveredSaveThreadIds: string[] | undefined
+
+  private initializeOnce(): Promise<string[]> {
+    this.initialization ??= initializeYachiyoServer({
       developmentMode: this.developmentMode,
       readSoulDocument: this.readSoulDocumentFile,
       readUserDocument: this.readUserDocumentFile,
       recoverInterruptedRuns: () => this.recoverInterruptedRuns(),
       recoverInterruptedSaves: () => this.recoverInterruptedSaves(),
       runDomain: this.runDomain,
-      sentinelManager: this.sentinelManager,
       storage: this.storage
+    }).then((recovered) => {
+      this.recoveredSaveThreadIds = recovered
+      return recovered
+    })
+    return this.initialization
+  }
+
+  async bootstrap(): Promise<BootstrapPayload> {
+    await this.initializeOnce()
+    return this.getClientSnapshot()
+  }
+
+  /** Synchronous so the app-server cursor and snapshot share the same event position. */
+  getClientSnapshot(): BootstrapPayload {
+    const recoveredInterruptedSaveThreadIds = this.recoveredSaveThreadIds
+    if (!recoveredInterruptedSaveThreadIds) throw new Error('Yachiyo server has not initialized')
+    return bootstrapYachiyoServer({
+      configDomain: this.configDomain,
+      runDomain: this.runDomain,
+      sentinelManager: this.sentinelManager,
+      storage: this.storage,
+      recoveredInterruptedSaveThreadIds
     })
   }
   async getConfig(): Promise<SettingsConfig> {
@@ -2082,7 +2110,10 @@ export class YachiyoServer {
       : { messages, queuedFollowUpMessages: [], toolCalls }
 
     return {
-      messages: snapshot.messages,
+      messages:
+        includeMessages && options.beforeMessageId === undefined
+          ? this.runDomain.withLiveMessages(threadId, snapshot.messages)
+          : snapshot.messages,
       queuedFollowUpMessages: snapshot.queuedFollowUpMessages ?? [],
       toolCalls: snapshot.toolCalls,
       runs: this.storage.listThreadRuns(threadId),

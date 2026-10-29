@@ -659,13 +659,15 @@ test('YachiyoServer merges additional follow-ups into the queued follow-up for a
         )
         assert.deepEqual(persistedBootstrap.queuedFollowUpMessagesByThread[thread.id] ?? [], [])
         assert.deepEqual(
-          pendingBootstrap.messagesByThread[thread.id]?.map((message) => message.content),
-          ['First question']
-        )
-        assert.deepEqual(
           persistedBootstrap.messagesByThread[thread.id]?.map((message) => message.content),
           ['First question']
         )
+        assert.equal(pendingBootstrap.latestRunsByThread[thread.id]?.status, 'running')
+        assert.deepEqual(
+          pendingBootstrap.messagesByThread[thread.id]?.map((message) => message.content),
+          ['First question', 'Hello']
+        )
+        assert.equal(pendingBootstrap.messagesByThread[thread.id]?.at(-1)?.status, 'streaming')
       } finally {
         releaseFirstRun?.()
       }
@@ -1016,8 +1018,9 @@ test('YachiyoServer preserves a queued follow-up draft across later thread snaps
       assert.equal(persistedThread?.title, 'Renamed thread')
       assert.deepEqual(
         visibleMessages.map((message) => message.content),
-        ['First question']
+        ['First question', 'Hello']
       )
+      assert.equal(visibleMessages.at(-1)?.status, 'streaming')
       assert.deepEqual(
         visibleQueuedFollowUpMessages.map((message) => message.content),
         ['Queued follow-up']

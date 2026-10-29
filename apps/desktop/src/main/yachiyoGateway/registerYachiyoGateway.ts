@@ -1,175 +1,87 @@
-import type { ComposerPredictionInput } from '@yachiyo/shared/protocol/composerPrediction'
-import {
-  app,
-  BrowserWindow,
-  ipcMain,
-  net,
-  powerMonitor,
-  session,
-  systemPreferences
-} from 'electron'
 import { is } from '@electron-toolkit/utils'
-import { registerBrowserPreviewHandlers } from './browserPreviewHandlers'
 import { t } from '@yachiyo/i18n/index'
-import { spawn } from 'child_process'
-import { join } from 'node:path'
 import { getActivityTracker } from '@yachiyo/runtime/activity/ActivityTracker'
+import { createActivityTrackerRpcTarget } from '@yachiyo/runtime/activity/activityTrackerRpcBridge'
 import { resolveActivityTrackingPermissionForSave } from '@yachiyo/runtime/activity/activityTrackingPermission'
 import { probeFullActivityAccess } from '@yachiyo/runtime/activity/osascript'
-import { preserveUnsupportedPlatformSettings } from '@yachiyo/runtime/settings/settingsPlatformPreservation'
-import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
+import { type YachiyoServer } from '@yachiyo/runtime/app/host/YachiyoServer'
 import type {
-  AcceptThreadPlanDocumentInput,
-  AnswerToolQuestionInput,
-  BrowserAutomationSessionRecord,
-  ChannelsConfig,
-  LoadThreadDataInput,
-  CompactThreadInput,
-  ComposerReasoningSelection,
-  DeleteThingInput,
-  CreateScheduleInput,
-  DeleteMemoryTermInput,
-  DeleteMemoryTermResult,
-  EditMessageInput,
-  GetMemoryTermDocumentInput,
-  HideBrowserAutomationSessionInput,
-  ImportWebSearchBrowserSessionInput,
-  ListBrowserAutomationSessionsInput,
-  ListActivitySourceRecordsInput,
-  ListSkillsInput,
-  ProviderConfig,
-  ProviderSettings,
-  RemoteConfig,
-  RenameThingInput,
-  RemoveThingSourceInput,
-  ResolveSyncConflictInput,
-  RetryInput,
-  RunModeId,
-  SaveThreadInput,
-  SearchThreadsAndMessagesInput,
-  SearchWorkspaceFilesInput,
-  SetBrowserAutomationSessionBoundsInput,
-  SettingsConfig,
-  SendChatInput,
-  ShowBrowserAutomationSessionInput,
-  ShowNotificationInput,
-  MemoryTermDocument,
-  TestSubagentProfileInput,
-  ThreadColorTag,
-  ThreadModelOverride,
-  ToolCallName,
-  ToolPreferencesInput,
-  TranslateInput,
-  JotdownSaveInput,
-  UpdateChannelGroupInput,
-  UpdateChannelUserInput,
-  UpdateScheduleInput,
-  UsageStatsInput,
-  ChannelGroupRecord,
-  PerfStatsResponse,
-  YachiyoServerEvent
-} from '@yachiyo/shared/protocol'
-import { createLoopbackRpcHost, type LoopbackRpcHost } from '@yachiyo/shared/rpc/loopbackRpcHost'
-import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
-import {
-  createSqliteYachiyoServer,
-  type YachiyoServer
-} from '@yachiyo/runtime/app/host/YachiyoServer'
+  AppUpdateCommandInput,
+  AppUpdateCommandReply
+} from '@yachiyo/runtime/appServer/commandSocket'
 import {
   resolveYachiyoBrowserAutomationProfilePath,
-  resolveYachiyoDataDir,
-  resolveYachiyoDbPath,
-  resolveYachiyoJotdownsDir,
-  resolveYachiyoSettingsPath,
-  resolveYachiyoCommandEndpoint,
-  resolveYachiyoTempWorkspaceRoot
+  resolveYachiyoDataDir
 } from '@yachiyo/runtime/config/paths'
+import { createBrowserAutomationRpcTarget } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
 import {
   createElectronBrowserAutomationService,
   type BrowserAutomationService
 } from '@yachiyo/runtime/services/browserAutomation/electronBrowserAutomationService'
-import { createElectronBrowserSearchPageFactory } from '@yachiyo/runtime/services/webSearch/electronBrowserSearchSession'
-import { logBrowserSearchDiagnostic } from './browserSearchDiagnostics.ts'
-import { createActivityTrackerRpcTarget } from '@yachiyo/runtime/activity/activityTrackerRpcBridge'
-import { createBrowserAutomationRpcTarget } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
+import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createBrowserSearchPageFactoryRpcTarget } from '@yachiyo/runtime/services/webSearch/browserSearchPageFactoryRpcBridge'
+import { createElectronBrowserSearchPageFactory } from '@yachiyo/runtime/services/webSearch/electronBrowserSearchSession'
+import type {
+  BrowserAutomationSessionRecord,
+  HideBrowserAutomationSessionInput,
+  ListBrowserAutomationSessionsInput,
+  SetBrowserAutomationSessionBoundsInput,
+  SettingsConfig,
+  ShowBrowserAutomationSessionInput,
+  ShowNotificationInput,
+  YachiyoServerEvent
+} from '@yachiyo/shared/protocol'
+import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
+import { spawn } from 'child_process'
 import {
-  startUtilityRuntimeHost,
-  type UtilityRuntimeHost
-} from '../runtimeHost/startUtilityRuntimeHost.ts'
+  app,
+  BrowserWindow,
+  ipcMain,
+  powerMonitor,
+  powerSaveBlocker,
+  session,
+  systemPreferences
+} from 'electron'
+import { randomUUID } from 'node:crypto'
+import { join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createGatewayPendingUpdateReceiptDelivery } from '../appUpdate/gatewayPendingUpdateReceiptDelivery.ts'
+import { createGatewayRunAdmission } from '../appUpdate/gatewayRunAdmission.ts'
+import type { OriginLookup } from '../appUpdate/installReceiptSequence.ts'
 import {
   clearPendingUpdateReceipt,
   writePendingUpdateReceipt
 } from '../appUpdate/pendingUpdateReceipt.ts'
-import type { OriginLookup } from '../appUpdate/installReceiptSequence.ts'
-import { createGatewayPendingUpdateReceiptDelivery } from '../appUpdate/gatewayPendingUpdateReceiptDelivery.ts'
-import { createGatewayRunAdmission } from '../appUpdate/gatewayRunAdmission.ts'
-import {
-  createCommandSocketRestartPolicy,
-  startCommandSocket,
-  type CommandSocketHandle
-} from '../cli/commandSocket.ts'
-import { shouldEnableCommandSocket } from './commandSocketMode.ts'
-import { createGatewayRemoteBinding, registerRemoteIpc } from '../remote/gatewayRemote.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
-import { createProviderFetch } from '../net/providerFetch.ts'
-import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
-import { deferAppQuitUntil } from '../electron/deferredAppQuit.ts'
-import { readAppLogEntries } from '../logs/appLogFiles.ts'
 import { discoverApps, findDiscoveredApp, launchDiscoveredApp } from '../electron/appDiscovery.ts'
-import {
-  createRuntimeLiveServices,
-  type RuntimeLiveServices
-} from '@yachiyo/runtime/app/host/runtimeLiveServices'
-import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
-import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
-import jsReplWorkerPath from '@yachiyo/runtime/tools/agentTools/jsReplWorker?modulePath'
-import pyReplRunnerPath from '@yachiyo/runtime/tools/agentTools/pyReplRunner.py?asset'
-import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
-import {
-  createElectronProviderCredentialVault,
-  getProviderCredentialRuntimeStartupData
-} from '../security/providerCredentials.ts'
-import {
-  generateDiffForRun,
-  restoreToCheckpoint,
-  revertFile,
-  revertRun
-} from '@yachiyo/runtime/services/fileSnapshot/diffGenerator'
-import { hashWorkspacePath } from '@yachiyo/runtime/services/fileSnapshot/casStore'
-import { listSnapshotRuns } from '@yachiyo/runtime/services/fileSnapshot/snapshotIndex'
+import type { AppUpdateController } from '../electron/appUpdateController.ts'
+import { isInstallingUpdate } from '../electron/autoUpdate.ts'
+import { deferAppQuitUntil } from '../electron/deferredAppQuit.ts'
+import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
+import { readAppLogEntries } from '../logs/appLogFiles.ts'
+import { createDesktopAppServer, type DesktopAppServer } from '../runtimeHost/desktopAppServer.ts'
+import { registerBrowserPreviewHandlers } from './browserPreviewHandlers'
+import { logBrowserSearchDiagnostic } from './browserSearchDiagnostics.ts'
+
 import { registerGatewayFileHandlers } from './fileHandlers.ts'
 import { broadcastYachiyoEvent, handleYachiyoIpc, showYachiyoNotification } from './ipc.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
-import { registerBackgroundTaskIpc } from './backgroundTaskIpc.ts'
-import { registerPythonEnvironmentIpc } from './pythonEnvironmentIpc.ts'
-import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
 import { registerPngExportHandlers } from './pngExportHandlers.ts'
+import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
 import { registerProviderBackupHandlers } from './providerBackupHandlers.ts'
-import type { AppUpdateController } from '../electron/appUpdateController.ts'
 
-/**
- * Renderer-facing handlers use clone-safe RPC. Live-object getters and calls
- * using rpc:event / rpc:progress are excluded from plain dispatch.
- * Browser automation remains on the main-owned service.
- */
-type RpcSafeYachiyoServer = Omit<
+import { createRemoteKeepAwake } from '@yachiyo/runtime/remote/keepAwake'
+import { createRpcMethodProxy } from '@yachiyo/shared/rpc/rpcClient'
+
+type NativeServer = Pick<
   YachiyoServer,
-  | 'subscribe'
-  | 'translateStream'
-  | 'getStorage'
-  | 'getTtlReaper'
-  | 'getMemoryService'
-  | 'getWebSearchService'
-  | 'getImageToTextService'
-  | 'getAuxiliaryGenerationService'
+  | 'getConfig'
+  | 'cancelActiveRuns'
+  | 'listActiveRunIds'
+  | 'openThreadWorkspace'
+  | 'closeRunAdmissionAndGetActiveRunIds'
+  | 'openRunAdmission'
 >
-
-/**
- * The slice of the runtime that main-process callers outside the gateway
- * (window lifecycle, menu/shortcut wiring) are allowed to touch. Both runtime
- * modes satisfy it: the in-process server directly, the utility mode via RPC.
- */
 export interface YachiyoGatewayHandle {
   getConfig(): Promise<SettingsConfig>
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
@@ -177,120 +89,46 @@ export interface YachiyoGatewayHandle {
   listActiveRunIds(): string[]
   closeRunAdmissionAndGetActiveRunIds(ownerId: string): Promise<string[]>
   openRunAdmission(ownerId: string): Promise<void>
-  /** Starts, reconfigures, or stops the remote service to match `remote` settings. */
-  applyRemoteSettings(config: RemoteConfig): void
 }
-
-// The extracted runtime is the default: the agent loop, sqlite, memory
-// pipeline, and live services (schedules/channels/auto-sync) all run in a
-// utilityProcess instead of this process. Set YACHIYO_RUNTIME_UTILITY=0 to
-// fall back to the legacy in-process runtime.
-const USE_UTILITY_RUNTIME = process.env['YACHIYO_RUNTIME_UTILITY'] !== '0'
-
-let server: YachiyoServer | null = null
-type ServerRpcHost =
-  | LoopbackRpcHost<RpcSafeYachiyoServer>
-  | UtilityRuntimeHost<RpcSafeYachiyoServer>
-let serverRpc: ServerRpcHost | null = null
+let serverRpc: DesktopAppServer | null = null
 let gatewayHandle: YachiyoGatewayHandle | null = null
-// Mirrors the runtime's active runs from its event stream, so the window
-// close guard keeps a synchronous answer in utility mode.
-const utilityActiveRunIds = new Set<string>()
-// Owned by the gateway, not the server: the sessions hold WebContentsViews,
-// which must stay in the main process when the runtime is extracted.
 let browserAutomationService: BrowserAutomationService | null = null
-let webExternalFetchImpl: typeof globalThis.fetch | undefined
-// In-process mode only; the utility runtime host owns its own instance.
-let liveServices: RuntimeLiveServices | null = null
-let channelPokesRegistered = false
-// Crash policy for the utility runtime: refork on unexpected exit, but stop
-// trying when it keeps dying (a crash loop would thrash the user's session).
-const RUNTIME_RESTART_WINDOW_MS = 60_000
-const RUNTIME_RESTART_LIMIT = 3
-let runtimeRestartTimes: number[] = []
-const intentionallyStoppedUtilityRuntimeHosts = new WeakSet<
-  UtilityRuntimeHost<RpcSafeYachiyoServer>
->()
-// True once the crash-loop breaker trips; the renderer shows a blocking
-// overlay with a manual restart action.
+const activeRunIds = new Set<string>()
 let runtimeCrashed = false
-
-function broadcastRuntimeHealth(): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) {
-      window.webContents.send(IPC_CHANNELS.runtimeHealthStatus, { crashed: runtimeCrashed })
-    }
-  }
-}
-const remote = createGatewayRemoteBinding({
-  server: () => rpc(),
-  hostCall: (method, args) => hostCall(method, args)
-})
-let commandSocket: CommandSocketHandle | null = null
-let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
-let commandSocketRecoveryRegistered = false
-let commandSocketRestartInFlight: Promise<void> | null = null
-let commandSocketRestartTimer: ReturnType<typeof setTimeout> | null = null
 let appUpdateController: AppUpdateController | null = null
-let fatalRunRecoveryRegistered = false
-function rpc(): RpcMethods<RpcSafeYachiyoServer> {
-  if (!serverRpc) {
-    throw new Error('Yachiyo server is not running')
-  }
-  return serverRpc.proxy
-}
+let channelPokesRegistered = false
 
-/** Calls a host-level operation (RuntimeLiveServices.rpcOps) on the runtime. */
+function rpc(): RpcMethods<NativeServer> {
+  if (!serverRpc) throw new Error('App server connection is not initialized')
+  return createRpcMethodProxy<NativeServer>(serverRpc.client)
+}
 function hostCall<TResult = unknown>(method: string, args: unknown[] = []): Promise<TResult> {
-  if (!serverRpc) {
-    return Promise.reject(new Error('Yachiyo server is not running'))
-  }
+  if (!serverRpc) return Promise.reject(new Error('App server connection is not initialized'))
   return serverRpc.client.call(`host.${method}`, args) as Promise<TResult>
 }
-
-const {
-  closeRunAdmissionAndGetActiveRunIds,
-  openRunAdmission,
-  getOwnerId: getRunAdmissionOwnerId
-} = createGatewayRunAdmission<ServerRpcHost>({
-  closeRuntime: async (ownerId) =>
-    USE_UTILITY_RUNTIME
-      ? rpc().closeRunAdmissionAndGetActiveRunIds(ownerId)
-      : (server?.closeRunAdmissionAndGetActiveRunIds(ownerId) ?? []),
-  getRuntime: () => serverRpc,
-  openRuntime: async (ownerId, runtime) => {
-    if (USE_UTILITY_RUNTIME) {
-      if (!runtime) throw new Error('Yachiyo server is not running')
-      await runtime.proxy.openRunAdmission(ownerId)
-    } else {
-      server?.openRunAdmission(ownerId)
-    }
-  },
-  recoverRuntime: (runtime) => {
-    if (!USE_UTILITY_RUNTIME || serverRpc !== runtime) return
-    markUtilityRuntimeHostStopping(runtime)
-    runtime?.dispose()
-    serverRpc = null
-    browserAutomationService?.dispose()
-    browserAutomationService = null
-    utilityActiveRunIds.clear()
-    runtimeCrashed = true
-    try {
-      startUtilityRuntime()
-    } finally {
-      broadcastRuntimeHealth()
-    }
-  },
-  onOpenError: (error) => console.error('[yachiyo] reopening run admission failed:', error)
-})
-
 function browserAutomation(): BrowserAutomationService {
-  if (!browserAutomationService) {
-    throw new Error('Yachiyo server is not running')
-  }
+  if (!browserAutomationService) throw new Error('Native browser host is unavailable')
   return browserAutomationService
 }
-
+function broadcastRuntimeHealth(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed())
+      window.webContents.send(IPC_CHANNELS.runtimeHealthStatus, { crashed: runtimeCrashed })
+  }
+}
+const { closeRunAdmissionAndGetActiveRunIds, openRunAdmission } =
+  createGatewayRunAdmission<DesktopAppServer>({
+    closeRuntime: (ownerId) => rpc().closeRunAdmissionAndGetActiveRunIds(ownerId),
+    getRuntime: () => serverRpc,
+    openRuntime: async (ownerId, runtime) => {
+      if (!runtime) throw new Error('App server is not connected')
+      await runtime.client.call('openRunAdmission', [ownerId])
+    },
+    recoverRuntime: (runtime) => {
+      if (runtime) void runtime.reconnect().catch(console.error)
+    },
+    onOpenError: (error) => console.error('[app-server] reopening admission failed:', error)
+  })
 const {
   updateReceiptCoordinator,
   receiptPath: pendingUpdateReceiptPath,
@@ -298,213 +136,70 @@ const {
 } = createGatewayPendingUpdateReceiptDelivery({
   userDataPath: () => app.getPath('userData'),
   currentVersion: () => app.getVersion(),
-  useUtilityRuntime: USE_UTILITY_RUNTIME,
+  useUtilityRuntime: true,
   hostCall,
-  getLiveServices: () => liveServices
+  getLiveServices: () => null
 })
-
-const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
-const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
-const commandSocketRestartPolicy = createCommandSocketRestartPolicy({
-  initialDelayMs: 250,
-  maxAttempts: 3
-})
-
-function createCommandSocketHandle(): CommandSocketHandle {
-  return startCommandSocket({
-    endpoint: resolveYachiyoCommandEndpoint(),
-    onNotification: (input) => showYachiyoNotification(input),
-    onSendChannel: (input) => {
-      void hostCall('sendChannelMessage', [input]).catch((error) => {
-        console.error('[send-channel] failed:', error)
-      })
-    },
-    onUpdateChannelGroupStatus: (input) => {
-      void hostCall<ChannelGroupRecord>('updateChannelGroupAndNotify', [input])
-        .then((updated) => {
-          console.log(
-            `[channel-group-status] updated ${updated.platform}:${updated.name} -> ${updated.status}`
-          )
-        })
-        .catch((error) => {
-          console.error('[channel-group-status] failed:', error)
-        })
-    },
-    onUpdateChannelGroupLabel: (input) => {
-      void hostCall<ChannelGroupRecord>('updateChannelGroupAndNotify', [input])
-        .then((updated) => {
-          console.log(
-            `[channel-group-label] updated ${updated.platform}:${updated.name} label="${updated.label}"`
-          )
-        })
-        .catch((error) => {
-          console.error('[channel-group-label] failed:', error)
-        })
-    },
-    onMarkThreadReviewed: (input) => {
-      void rpc()
-        .markThreadReviewed(input)
-        .then(() => {
-          console.log(`[mark-thread-reviewed] marked ${input.threadId}`)
-        })
-        .catch((error) => {
-          console.error('[mark-thread-reviewed] failed:', error)
-        })
-    },
-    onAppUpdate: async (input) => {
-      if (!appUpdateController) {
-        throw new Error('App updater is not running.')
-      }
-      return createAppUpdateCommandHandler({
-        controller: appUpdateController,
-        getRunningVersion: () => app.getVersion(),
-        getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? [],
-        closeRunAdmissionAndGetActiveRunIds,
-        openRunAdmission,
-        receipt: {
-          resolveOrigin: (runId) =>
-            hostCall<
-              | { kind: 'origin'; channelId: string; threadId: string; messageId: string }
-              | { kind: 'no-channel' }
-              | { kind: 'lookup-failed'; reason: string }
-            >('resolveRunChannelOrigin', [runId]).then(
-              (result): OriginLookup =>
-                result.kind === 'origin'
-                  ? {
-                      kind: 'origin',
-                      origin: {
-                        channelId: result.channelId,
-                        threadId: result.threadId,
-                        messageId: result.messageId
-                      }
-                    }
-                  : result,
-              // A lookup we could not perform is reported as exactly that.
-              // Reporting it as "no channel" is what let an unreachable RPC
-              // disguise itself as a local thread and skip the receipt in
-              // silence.
-              (error): OriginLookup => ({
-                kind: 'lookup-failed',
-                reason: error instanceof Error ? error.message : String(error)
-              })
-            ),
-          persist: (record) => writePendingUpdateReceipt(pendingUpdateReceiptPath(), record),
-          clear: (attemptId) => clearPendingUpdateReceipt(pendingUpdateReceiptPath(), attemptId),
-          announce: async (origin, signal, notAfterMs) => {
-            // If the bounded wait already elapsed, the caller has moved on;
-            // sending now would promise a return for an install that may
-            // never have started.
-            if (signal.aborted) return
-            await hostCall('sendChannelMessage', [
-              { id: origin.channelId, message: '开始更新，稍后回来。', notAfterMs }
-            ])
-          },
-          reportInstallFailure: async (origin) => {
-            await hostCall('sendChannelMessage', [
-              { id: origin.channelId, message: '更新未能启动，请稍后重试。' }
-            ])
-          },
-          reportInstallFailureTimeoutMs: 2_000,
-          announceTimeoutMs: 2_000,
-          now: () => Date.now(),
-          targetVersion: () => appUpdateController?.getPreparedVersion()
-        }
-      })(input)
-    },
-    onRemote: (request) => remote.handleCommand(request),
-    onError: (error) => {
-      console.error('[command-socket] server error:', error)
-      scheduleCommandSocketRestart('socket error')
+async function handleAppUpdate(input: AppUpdateCommandInput): Promise<AppUpdateCommandReply> {
+  if (!appUpdateController) {
+    throw new Error('App updater is not running.')
+  }
+  return createAppUpdateCommandHandler({
+    controller: appUpdateController,
+    getRunningVersion: () => app.getVersion(),
+    getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? [],
+    closeRunAdmissionAndGetActiveRunIds,
+    openRunAdmission,
+    receipt: {
+      resolveOrigin: (runId) =>
+        hostCall<
+          | { kind: 'origin'; channelId: string; threadId: string; messageId: string }
+          | { kind: 'no-channel' }
+          | { kind: 'lookup-failed'; reason: string }
+        >('resolveRunChannelOrigin', [runId]).then(
+          (result): OriginLookup =>
+            result.kind === 'origin'
+              ? {
+                  kind: 'origin',
+                  origin: {
+                    channelId: result.channelId,
+                    threadId: result.threadId,
+                    messageId: result.messageId
+                  }
+                }
+              : result,
+          // A lookup we could not perform is reported as exactly that.
+          // Reporting it as "no channel" is what let an unreachable RPC
+          // disguise itself as a local thread and skip the receipt in
+          // silence.
+          (error): OriginLookup => ({
+            kind: 'lookup-failed',
+            reason: error instanceof Error ? error.message : String(error)
+          })
+        ),
+      persist: (record) => writePendingUpdateReceipt(pendingUpdateReceiptPath(), record),
+      clear: (attemptId) => clearPendingUpdateReceipt(pendingUpdateReceiptPath(), attemptId),
+      announce: async (origin, signal, notAfterMs) => {
+        // If the bounded wait already elapsed, the caller has moved on;
+        // sending now would promise a return for an install that may
+        // never have started.
+        if (signal.aborted) return
+        await hostCall('sendChannelMessage', [
+          { id: origin.channelId, message: '开始更新，稍后回来。', notAfterMs }
+        ])
+      },
+      reportInstallFailure: async (origin) => {
+        await hostCall('sendChannelMessage', [
+          { id: origin.channelId, message: '更新未能启动，请稍后重试。' }
+        ])
+      },
+      reportInstallFailureTimeoutMs: 2_000,
+      announceTimeoutMs: 2_000,
+      now: () => Date.now(),
+      targetVersion: () => appUpdateController?.getPreparedVersion()
     }
-  })
+  })(input)
 }
-
-function scheduleCommandSocketRestart(reason: string): void {
-  if (commandSocketRestartTimer || commandSocketRestartInFlight) return
-  const delayMs = commandSocketRestartPolicy.nextDelay()
-  if (delayMs === null) {
-    console.error('[command-socket] restart limit reached; waiting for health recovery trigger')
-    return
-  }
-
-  console.warn(`[command-socket] retrying in ${delayMs}ms (${reason})`)
-  commandSocketRestartTimer = setTimeout(() => {
-    commandSocketRestartTimer = null
-    void restartCommandSocket(reason)
-  }, delayMs)
-}
-
-function startCommandSocketNow(reason: string): void {
-  commandSocket = createCommandSocketHandle()
-  console.log(`[command-socket] listening (${reason})`)
-}
-
-async function restartCommandSocket(reason: string): Promise<void> {
-  if (commandSocketRestartInFlight) {
-    return commandSocketRestartInFlight
-  }
-
-  commandSocketRestartInFlight = (async () => {
-    const existing = commandSocket
-    commandSocket = null
-
-    if (existing) {
-      try {
-        await existing.close()
-      } catch (error) {
-        console.error('[command-socket] close before restart failed:', error)
-      }
-    }
-
-    startCommandSocketNow(reason)
-  })().finally(() => {
-    commandSocketRestartInFlight = null
-  })
-
-  return commandSocketRestartInFlight
-}
-
-async function ensureCommandSocketHealthy(reason: string): Promise<void> {
-  if (commandSocketRestartInFlight) {
-    return commandSocketRestartInFlight
-  }
-
-  const handle = commandSocket
-  if (!handle) {
-    return restartCommandSocket(reason)
-  }
-
-  const healthy = await handle.healthCheck(COMMAND_SOCKET_HEALTH_TIMEOUT_MS)
-  if (healthy) {
-    commandSocketRestartPolicy.reset()
-  } else {
-    console.warn(`[command-socket] unhealthy; restarting (${reason})`)
-    await restartCommandSocket(reason)
-  }
-}
-
-function registerCommandSocketRecovery(): void {
-  if (commandSocketRecoveryRegistered) {
-    return
-  }
-
-  commandSocketRecoveryRegistered = true
-  commandSocketHealthTimer = setInterval(() => {
-    void ensureCommandSocketHealthy('periodic health check')
-  }, COMMAND_SOCKET_HEALTH_INTERVAL_MS)
-
-  const scheduleHealthCheck = (reason: string, delayMs = 0): void => {
-    setTimeout(() => {
-      void ensureCommandSocketHealthy(reason)
-    }, delayMs)
-  }
-
-  powerMonitor.on('lock-screen', () => scheduleHealthCheck('lock-screen', 1_000))
-  powerMonitor.on('unlock-screen', () => scheduleHealthCheck('unlock-screen'))
-  powerMonitor.on('resume', () => scheduleHealthCheck('resume'))
-  powerMonitor.on('user-did-become-active', () => scheduleHealthCheck('user-did-become-active'))
-}
-
 function registerChannelHealthPokes(): void {
   if (channelPokesRegistered) return
 
@@ -525,126 +220,60 @@ function registerChannelHealthPokes(): void {
   powerMonitor.on('user-did-become-active', () => poke('user-did-become-active'))
 }
 
-function toFatalRunError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error ?? '')
-  const trimmed = message.trim()
-  return trimmed
-    ? `Fatal main-process error interrupted the run: ${trimmed}`
-    : 'Fatal main-process error interrupted the run.'
-}
-
-function registerFatalRunRecovery(): void {
-  if (fatalRunRecoveryRegistered) {
-    return
-  }
-
-  process.on('uncaughtExceptionMonitor', (error) => {
-    try {
-      server?.recoverInterruptedRuns(toFatalRunError(error))
-    } catch (recoveryError) {
-      console.error(
-        '[yachiyo] failed to persist interrupted runs after a fatal error',
-        recoveryError
-      )
-    }
-  })
-
-  // Keep the main process alive long enough to persist interrupted-run diagnostics
-  // instead of letting Electron replace the application error with a native dialog.
-  process.on('uncaughtException', (error) => {
-    console.error('[yachiyo] uncaughtException:', error)
-  })
-
-  process.on('unhandledRejection', (reason) => {
-    console.error('[yachiyo] unhandledRejection:', reason)
-  })
-
-  fatalRunRecoveryRegistered = true
-}
-
-import { getPerfMonitor, stopPerfMonitor } from '@yachiyo/runtime/services/perfMonitor'
-
-function createConfiguredServer(
-  input: {
-    jotdownStore?: import('@yachiyo/runtime/services/jotdownStore').JotdownStore
-    webExternalFetchImpl?: typeof globalThis.fetch
-  } = {}
-): YachiyoServer {
-  browserAutomationService = createElectronBrowserAutomationService({
-    profilePath: resolveYachiyoBrowserAutomationProfilePath()
-  })
-  const nextServer = createSqliteYachiyoServer({
-    dbPath: resolveYachiyoDbPath(),
-    settingsPath: resolveYachiyoSettingsPath(),
-    developmentMode: is.dev,
-    seedPresetProviders: true,
-    jsReplWorkerPath,
-    pyReplRunnerPath,
-    providerCredentialVault: createElectronProviderCredentialVault(resolveYachiyoSettingsPath()),
-    fetchImpl: createProviderFetch({
-      env: process.env,
-      netFetch: (input, init) =>
-        net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
-    }),
-    webExternalFetchImpl: input.webExternalFetchImpl,
-    jotdownStore: input.jotdownStore,
-    browserAutomationService,
-    browserSearchPageFactory: createElectronBrowserSearchPageFactory({
-      log: logBrowserSearchDiagnostic
-    })
-  })
-  liveServices = createRuntimeLiveServices({
-    server: nextServer,
-    showNotification: showYachiyoNotification,
-    updateReceiptLease: {
-      claim: async (channelId) => updateReceiptCoordinator.claim(channelId),
-      ack: async (claimToken) => updateReceiptCoordinator.ack(claimToken),
-      release: async (claimToken) => updateReceiptCoordinator.release(claimToken)
-    },
-    tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
-    // In dev mode, schedules and channels are skipped by default to avoid
-    // unintended automated runs / outbound connections. Opt in with
-    // YACHIYO_DEV_SCHEDULES=1 / YACHIYO_DEV_CHANNELS=1.
-    enableSchedules: !is.dev || Boolean(process.env['YACHIYO_DEV_SCHEDULES']),
-    enableChannels: !is.dev || Boolean(process.env['YACHIYO_DEV_CHANNELS'])
-  })
-  serverRpc = createLoopbackRpcHost<RpcSafeYachiyoServer>(
-    mergeRpcTargets(liveServices.rpcOps, nextServer) as RpcSafeYachiyoServer,
-    {
-      subscribe: (listener) => nextServer.subscribe(listener)
-    }
+export function registerYachiyoGateway(options: {
+  appUpdateController: AppUpdateController
+  startupReady: Promise<void>
+}): YachiyoGatewayHandle {
+  if (gatewayHandle) return gatewayHandle
+  appUpdateController = options.appUpdateController
+  // A dedicated session for external web content (webRead direct-fetch path).
+  // SSL-intercepting proxies re-sign certificates, so we relax verification
+  // here only — provider API traffic stays on the default session with full TLS.
+  const webExternalSession = session.fromPartition('persist:web-external', { cache: true })
+  const webExternalProxyUrl = (
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy ??
+    process.env.ALL_PROXY ??
+    process.env.all_proxy
+  )?.trim()
+  void webExternalSession.setProxy(
+    webExternalProxyUrl
+      ? { mode: 'fixed_servers' as const, proxyRules: webExternalProxyUrl }
+      : { mode: 'system' as const }
   )
-  serverRpc.client.subscribe((event) => broadcastYachiyoEvent(event as YachiyoServerEvent))
-  nextServer.getTtlReaper().start()
-  return nextServer
-}
+  webExternalSession.setCertificateVerifyProc((_request, callback) => callback(0))
+  const webExternalFetchImpl: typeof fetch = (input, init?) =>
+    webExternalSession.fetch(
+      input instanceof URL ? input.toString() : (input as string | Request),
+      init
+    )
 
-function trackActiveRunEvent(event: YachiyoServerEvent): void {
-  if (event.type === 'run.created') {
-    utilityActiveRunIds.add(event.runId)
-  } else if (
-    event.type === 'run.completed' ||
-    event.type === 'run.failed' ||
-    event.type === 'run.cancelled'
-  ) {
-    utilityActiveRunIds.delete(event.runId)
-  }
-}
-
-function startUtilityRuntime(): void {
-  if (!webExternalFetchImpl) {
-    throw new Error('startUtilityRuntime called before the web-external session was created')
-  }
   browserAutomationService = createElectronBrowserAutomationService({
     profilePath: resolveYachiyoBrowserAutomationProfilePath()
   })
-  const host = startUtilityRuntimeHost<RpcSafeYachiyoServer>({
-    entryPath: join(__dirname, 'runtime-host.js'),
+  const pendingReplies = new Map<
+    string,
+    { reply: AppUpdateCommandReply; timer: ReturnType<typeof setTimeout> }
+  >()
+  const remoteKeepAwake = createRemoteKeepAwake({
+    startBlocker: () => powerSaveBlocker.start('prevent-app-suspension'),
+    stopBlocker: (id) => powerSaveBlocker.stop(id),
+    isOnBattery: () => powerMonitor.isOnBatteryPower(),
+    onPowerSourceChange: (listener) => {
+      powerMonitor.on('on-ac', listener)
+      powerMonitor.on('on-battery', listener)
+      return () => {
+        powerMonitor.off('on-ac', listener)
+        powerMonitor.off('on-battery', listener)
+      }
+    }
+  })
+  serverRpc = createDesktopAppServer({
+    entryPath: join(__dirname, 'app-server.js'),
     isDev: is.dev,
-    startupData: {
-      ...getProviderCredentialRuntimeStartupData(resolveYachiyoSettingsPath()),
-      runAdmissionOwnerId: getRunAdmissionOwnerId()
-    },
+    startupReady: options.startupReady,
     mainServicesTarget: {
       ...createBrowserAutomationRpcTarget(browserAutomationService),
       ...createBrowserSearchPageFactoryRpcTarget(
@@ -667,180 +296,122 @@ function startUtilityRuntime(): void {
       },
       'mainHost.releaseUpdateReceipt': (input: { claimToken: string }) => {
         updateReceiptCoordinator.release(input.claimToken)
-      }
-    }
-  })
-  host.client.subscribe((event) => {
-    const serverEvent = event as YachiyoServerEvent
-    trackActiveRunEvent(serverEvent)
-    broadcastYachiyoEvent(serverEvent)
-  })
-  runtimeCrashed = false
-  host.child.on('exit', (code) => {
-    if (intentionallyStoppedUtilityRuntimeHosts.has(host)) return
-    // A stale exit must not mutate its replacement's runtime or receipt lease.
-    if (serverRpc !== host) return
-    updateReceiptCoordinator.releaseAllClaims()
-    console.error(`[runtime-host] utility process exited unexpectedly (code=${code})`)
-    host.dispose()
-    serverRpc = null
-    browserAutomationService?.dispose()
-    browserAutomationService = null
-    utilityActiveRunIds.clear()
-
-    const now = Date.now()
-    runtimeRestartTimes = runtimeRestartTimes.filter(
-      (time) => now - time < RUNTIME_RESTART_WINDOW_MS
-    )
-    if (runtimeRestartTimes.length >= RUNTIME_RESTART_LIMIT) {
-      console.error(
-        '[runtime-host] crashed repeatedly; giving up on automatic restarts — waiting for a manual restart'
-      )
-      runtimeCrashed = true
-      broadcastRuntimeHealth()
-      return
-    }
-    runtimeRestartTimes.push(now)
-    startUtilityRuntime()
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        window.webContents.reloadIgnoringCache()
-      }
-    }
-  })
-  serverRpc = host
-  void requestPendingUpdateReceiptDelivery()
-}
-
-function isUtilityRuntimeHost(
-  host: typeof serverRpc
-): host is UtilityRuntimeHost<RpcSafeYachiyoServer> {
-  return host !== null && 'child' in host
-}
-
-function markUtilityRuntimeHostStopping(host: typeof serverRpc): void {
-  if (!isUtilityRuntimeHost(host)) return
-  intentionallyStoppedUtilityRuntimeHosts.add(host)
-  // Release before a replacement can acquire the lease.
-  updateReceiptCoordinator.releaseAllClaims()
-}
-
-async function restartServerForDemoModeChange(): Promise<void> {
-  const previousServer = server
-  await liveServices?.stop()
-  liveServices = null
-  markUtilityRuntimeHostStopping(serverRpc)
-  serverRpc?.dispose()
-  serverRpc = null
-  browserAutomationService?.dispose()
-  browserAutomationService = null
-  await previousServer?.close()
-  if (USE_UTILITY_RUNTIME) {
-    server = null
-    startUtilityRuntime()
-  } else {
-    server = createConfiguredServer({ webExternalFetchImpl })
-    const admissionOwnerId = getRunAdmissionOwnerId()
-    if (admissionOwnerId) {
-      server.closeRunAdmissionAndGetActiveRunIds(admissionOwnerId)
-    }
-    await (liveServices as RuntimeLiveServices | null)?.start()
-    void requestPendingUpdateReceiptDelivery()
-  }
-
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) {
-      window.webContents.reloadIgnoringCache()
-    }
-  }
-}
-
-async function resolveActivityTrackingPermission(
-  config: SettingsConfig,
-  currentConfig: SettingsConfig
-): Promise<SettingsConfig> {
-  return resolveActivityTrackingPermissionForSave(config, currentConfig, {
-    platform: process.platform,
-    requestAccessibilityTrust: () => systemPreferences.isTrustedAccessibilityClient(true),
-    probeFullActivityAccess
-  })
-}
-
-export function registerYachiyoGateway(options: {
-  appUpdateController: AppUpdateController
-}): YachiyoGatewayHandle {
-  if (gatewayHandle) {
-    return gatewayHandle
-  }
-  appUpdateController = options.appUpdateController
-
-  // Route global fetch through Electron's net module so libraries using the
-  // global fetch (e.g. discord.js) go through Chromium's network stack.
-  // The default session keeps strict TLS — provider API keys travel over it.
-  // Note: Telegraf uses node-fetch internally and needs its own proxy agent.
-  globalThis.fetch = (input, init?) =>
-    net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
-
-  // A dedicated session for external web content (webRead direct-fetch path).
-  // SSL-intercepting proxies re-sign certificates, so we relax verification
-  // here only — provider API traffic stays on the default session with full TLS.
-  const webExternalSession = session.fromPartition('persist:web-external', { cache: true })
-  const webExternalProxyUrl = (
-    process.env.HTTPS_PROXY ??
-    process.env.https_proxy ??
-    process.env.HTTP_PROXY ??
-    process.env.http_proxy ??
-    process.env.ALL_PROXY ??
-    process.env.all_proxy
-  )?.trim()
-  void webExternalSession.setProxy(
-    webExternalProxyUrl
-      ? { mode: 'fixed_servers' as const, proxyRules: webExternalProxyUrl }
-      : { mode: 'system' as const }
-  )
-  webExternalSession.setCertificateVerifyProc((_request, callback) => callback(0))
-  webExternalFetchImpl = (input, init?) =>
-    webExternalSession.fetch(
-      input instanceof URL ? input.toString() : (input as string | Request),
-      init
-    )
-
-  const jotdownStore = createJotdownStore(resolveYachiyoJotdownsDir())
-  if (USE_UTILITY_RUNTIME) {
-    console.log(
-      '[yachiyo] runtime host: utility process (default; YACHIYO_RUNTIME_UTILITY=0 opts out)'
-    )
-    startUtilityRuntime()
-    gatewayHandle = {
-      getConfig: () => rpc().getConfig(),
-      subscribe: (listener) =>
-        serverRpc!.client.subscribe((event) => listener(event as YachiyoServerEvent)),
-      cancelActiveRuns: () => {
-        void rpc()
-          .cancelActiveRuns()
-          .catch((error) => console.error('[yachiyo] cancel active runs failed:', error))
       },
-      listActiveRunIds: () => [...utilityActiveRunIds],
-      closeRunAdmissionAndGetActiveRunIds,
-      openRunAdmission,
-      applyRemoteSettings: remote.apply
+      'mainHost.prepareAppUpdate': async (input: AppUpdateCommandInput) => {
+        const reply = await handleAppUpdate(input)
+        const id = randomUUID()
+        const timer = setTimeout(() => {
+          pendingReplies.delete(id)
+          void reply.onReplyFailure?.()
+        }, 30_000)
+        pendingReplies.set(id, { reply, timer })
+        return { id, result: reply.result }
+      },
+      'mainHost.finishAppUpdate': (id: string, delivered: boolean) => {
+        const pending = pendingReplies.get(id)
+        if (!pending) throw new Error('App update response expired')
+        pendingReplies.delete(id)
+        clearTimeout(pending.timer)
+        // Send the RPC acknowledgement before an installer closes this shell.
+        setTimeout(() => {
+          void Promise.resolve(
+            delivered ? pending.reply.afterReply?.() : pending.reply.onReplyFailure?.()
+          ).catch(console.error)
+        }, 0)
+      },
+      'mainHost.prepareConfig': async (input: SettingsConfig, current: SettingsConfig) =>
+        resolveActivityTrackingPermissionForSave(input, current, {
+          platform: process.platform,
+          requestAccessibilityTrust: () => systemPreferences.isTrustedAccessibilityClient(true),
+          probeFullActivityAccess
+        }),
+      'mainHost.remoteKeepAwake': (wanted: boolean) => remoteKeepAwake.setWanted(wanted)
+    },
+    onConnectionChange: (connected) => {
+      runtimeCrashed = !connected
+      broadcastRuntimeHealth()
+    },
+    onConnected: () => {
+      void rpc()
+        .listActiveRunIds()
+        .then((ids) => {
+          activeRunIds.clear()
+          for (const id of ids) activeRunIds.add(id)
+        })
+        .catch(console.error)
+      void rpc()
+        .getConfig()
+        .then((config) =>
+          remoteKeepAwake.setWanted(
+            config.remote?.enabled === true && config.remote.keepAwakeOnPower
+          )
+        )
+        .catch(console.error)
+      void requestPendingUpdateReceiptDelivery()
     }
-  } else {
-    console.log('[yachiyo] runtime host: in-process (YACHIYO_RUNTIME_UTILITY=0)')
-    server = createConfiguredServer({ jotdownStore, webExternalFetchImpl })
-    gatewayHandle = {
-      getConfig: () => server!.getConfig(),
-      subscribe: (listener) => server!.subscribe(listener),
-      cancelActiveRuns: () => server!.cancelActiveRuns(),
-      listActiveRunIds: () => server!.listActiveRunIds(),
-      closeRunAdmissionAndGetActiveRunIds,
-      openRunAdmission,
-      applyRemoteSettings: remote.apply
+  })
+  serverRpc.client.subscribe((payload) => {
+    const event = payload as YachiyoServerEvent
+    if (event.type === 'run.created') activeRunIds.add(event.runId)
+    if (
+      event.type === 'run.completed' ||
+      event.type === 'run.failed' ||
+      event.type === 'run.cancelled'
+    )
+      activeRunIds.delete(event.runId)
+    if (event.type === 'settings.updated' && process.platform === 'darwin') {
+      const tracking = event.config.general?.activityTracking
+      if (tracking) {
+        const tracker = getActivityTracker(tracking.mode)
+        tracker.setMode(
+          tracking.mode,
+          tracking.mode === 'full'
+            ? { fullModeAvailable: tracking.accessibilityDenied !== true }
+            : undefined
+        )
+        tracker.setOcrConfig(tracking.ocr)
+      }
     }
-    void requestPendingUpdateReceiptDelivery()
+    broadcastYachiyoEvent(event)
+  })
+  gatewayHandle = {
+    getConfig: () => rpc().getConfig(),
+    subscribe: (listener) =>
+      serverRpc!.client.subscribe((event) => listener(event as YachiyoServerEvent)),
+    cancelActiveRuns: () => {
+      void rpc().cancelActiveRuns().catch(console.error)
+    },
+    listActiveRunIds: () => [...activeRunIds],
+    closeRunAdmissionAndGetActiveRunIds,
+    openRunAdmission
   }
-  registerFatalRunRecovery()
-
+  ipcMain.handle('yachiyo:app-server-session', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window || event.senderFrame !== event.sender.mainFrame)
+      throw new Error('App server access requires a trusted app window')
+    const url = new URL(event.senderFrame.url)
+    const devOrigin =
+      is.dev && process.env.ELECTRON_RENDERER_URL
+        ? new URL(process.env.ELECTRON_RENDERER_URL).origin
+        : undefined
+    const packagedPage =
+      url.protocol === 'file:'
+        ? relative(resolve(__dirname, '../renderer'), fileURLToPath(url)).replaceAll('\\', '/')
+        : undefined
+    if (
+      packagedPage
+        ? !['index.html', 'translator/index.html', 'jotdown/index.html'].includes(packagedPage)
+        : url.origin !== devOrigin
+    ) {
+      throw new Error('Untrusted app server client origin')
+    }
+    return serverRpc!.createClientSession(url.protocol === 'file:' ? 'file://' : url.origin)
+  })
+  void serverRpc.ready().catch((error) => {
+    runtimeCrashed = true
+    broadcastRuntimeHealth()
+    console.error('[app-server] startup failed:', error)
+  })
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: ShowNotificationInput) => {
     showYachiyoNotification(input)
@@ -853,107 +424,15 @@ export function registerYachiyoGateway(options: {
     }
   })
 
-  // In development, leave a production instance's endpoint untouched unless
-  // dev:cli explicitly opts in. Starting the socket removes an existing Unix socket.
-  if (shouldEnableCommandSocket(is.dev)) {
-    startCommandSocketNow('initial startup')
-    registerCommandSocketRecovery()
-  }
   registerChannelHealthPokes()
 
-  handleYachiyoIpc(IPC_CHANNELS.searchThreadsAndMessages, (input: SearchThreadsAndMessagesInput) =>
-    rpc().searchThreadsAndMessages(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.searchWorkspaceFiles, (input: SearchWorkspaceFilesInput) =>
-    rpc().searchWorkspaceFiles(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.listThings, (input?: { includeInactive?: boolean }) =>
-    rpc().listThings(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.getThing, (input: { name: string }) => rpc().getThing(input))
-  handleYachiyoIpc(IPC_CHANNELS.restoreThing, (input: { name: string }) =>
-    rpc().restoreThing(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.renameThing, (input: RenameThingInput) => rpc().renameThing(input))
-  handleYachiyoIpc(IPC_CHANNELS.deleteThing, (input: DeleteThingInput) => rpc().deleteThing(input))
-  handleYachiyoIpc(IPC_CHANNELS.removeThingSource, (input: RemoveThingSourceInput) =>
-    rpc().removeThingSource(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.continueThingInNewChat, (input: { name: string }) =>
-    rpc().continueThingInNewChat(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.bootstrap, () => rpc().bootstrap())
-  handleYachiyoIpc(
-    IPC_CHANNELS.createThread,
-    (input?: {
-      workspacePath?: string
-      createdFromEssentialId?: string
-      privacyMode?: boolean
-      modelOverride?: ThreadModelOverride
-      enabledTools?: ToolCallName[]
-      runMode?: RunModeId
-      reasoningEffort?: ComposerReasoningSelection
-    }) => rpc().createThread(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.createBranch,
-    (input: { threadId: string; messageId: string; truncateBeforeToolCallId?: string }) =>
-      rpc().createBranch(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.compactThreadToAnotherThread, (input: CompactThreadInput) =>
-    rpc().compactThreadToAnotherThread(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.createFolderForThreads, (input: { threadIds: string[] }) =>
-    rpc().createFolderForThreads(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.renameFolder, (input: { folderId: string; title: string }) =>
-    rpc().renameFolder(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setFolderColor,
-    (input: { folderId: string; colorTag: string | null }) => rpc().setFolderColor(input as never)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.deleteFolder, (input: { folderId: string }) =>
-    rpc().deleteFolder(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.moveThreadToFolder,
-    (input: { threadId: string; folderId: string | null }) => rpc().moveThreadToFolder(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
-    rpc().renameThread(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setThreadColor,
-    (input: { threadId: string; colorTag: ThreadColorTag | null }) => rpc().setThreadColor(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.setThreadIcon, (input: { threadId: string; icon: string | null }) =>
-    rpc().setThreadIcon(input)
-  )
   handleYachiyoIpc(IPC_CHANNELS.showEmojiPanel, () => {
     app.showEmojiPanel()
   })
-  handleYachiyoIpc(IPC_CHANNELS.archiveThread, (input: { threadId: string }) =>
-    rpc().archiveThread(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.deleteThread, (input: { threadId: string }) =>
-    rpc().deleteThread(input)
-  )
   handleYachiyoIpc(IPC_CHANNELS.openThreadWorkspace, (input: { threadId: string }) =>
     rpc()
       .openThreadWorkspace(input)
       .then((workspacePath) => openThreadWorkspace(input.threadId, workspacePath))
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.getThreadWorkspaceChangeDecision,
-    (input: { threadId: string; workspacePath?: string | null }) =>
-      rpc().getThreadWorkspaceChangeDecision(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.readThreadPlanDocument, (input: { threadId: string }) =>
-    rpc().readThreadPlanDocument(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.acceptThreadPlanDocument, (input: AcceptThreadPlanDocumentInput) =>
-    rpc().acceptThreadPlanDocument(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.listDiscoveredApps, () => discoverApps())
   handleYachiyoIpc(
@@ -972,11 +451,6 @@ export function registerYachiyoGateway(options: {
         }
       })
     }
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.updateThreadWorkspace,
-    (input: { threadId: string; workspacePath?: string | null; confirmed?: boolean }) =>
-      rpc().updateThreadWorkspace(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.pickCodexSessionFile, async () => {
     const { dialog } = await import('electron')
@@ -1008,146 +482,6 @@ export function registerYachiyoGateway(options: {
 
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })
-  handleYachiyoIpc(IPC_CHANNELS.restoreThread, (input: { threadId: string }) =>
-    rpc().restoreThread(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.saveToolPreferences, (input: ToolPreferencesInput) =>
-    rpc().saveToolPreferences(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.clearRecapText, (input: { threadId: string }) =>
-    rpc().clearRecapText(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.requestRecap, (input: { threadId: string }) =>
-    rpc().requestRecap(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.sendChat, (input: SendChatInput) => {
-    const safeInput: SendChatInput = { ...input }
-    delete (
-      safeInput as SendChatInput & {
-        toolPreset?: unknown
-      }
-    ).toolPreset
-    return rpc().sendChat(safeInput)
-  })
-  handleYachiyoIpc(IPC_CHANNELS.retryMessage, (input: RetryInput) => rpc().retryMessage(input))
-  handleYachiyoIpc(IPC_CHANNELS.saveThread, (input: SaveThreadInput) => rpc().saveThread(input))
-  handleYachiyoIpc(
-    IPC_CHANNELS.selectReplyBranch,
-    (input: { threadId: string; assistantMessageId: string }) => rpc().selectReplyBranch(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.deleteMessage, (input: { threadId: string; messageId: string }) =>
-    rpc().deleteMessageFromHere(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.editMessage, (input: EditMessageInput) => rpc().editMessage(input))
-  handleYachiyoIpc(IPC_CHANNELS.cancelRun, (input: { runId: string }) => rpc().cancelRun(input))
-  handleYachiyoIpc(IPC_CHANNELS.withdrawPendingSteer, (input: { threadId: string }) =>
-    rpc().withdrawPendingSteer(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.answerToolQuestion, (input: AnswerToolQuestionInput) =>
-    rpc().answerToolQuestion(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.getConfig, () => rpc().getConfig())
-  handleYachiyoIpc(IPC_CHANNELS.getSoulDocument, () => rpc().getSoulDocument())
-  handleYachiyoIpc(IPC_CHANNELS.addSoulTrait, (input: { trait: string }) =>
-    rpc().addSoulTrait(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.deleteSoulTrait, (input: { trait: string }) =>
-    rpc().deleteSoulTrait(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.getMemoryTermDocument,
-    (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
-      rpc().getMemoryTermDocument(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.deleteMemoryTerm,
-    (input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> => rpc().deleteMemoryTerm(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.listActivitySourceRecords,
-    (input?: ListActivitySourceRecordsInput) => rpc().listActivitySourceRecords(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.getUserDocument, () => rpc().getUserDocument())
-  handleYachiyoIpc(IPC_CHANNELS.testSubagentProfile, (input: TestSubagentProfileInput) =>
-    rpc().testSubagentProfile(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.getSettings, () => rpc().getSettings())
-  registerPythonEnvironmentIpc(rpc)
-  handleYachiyoIpc(IPC_CHANNELS.getSyncStatus, () => rpc().getSyncStatus())
-  registerRemoteIpc(remote)
-  handleYachiyoIpc(IPC_CHANNELS.initSync, () => rpc().initSync())
-  handleYachiyoIpc(IPC_CHANNELS.runSyncNow, () => rpc().runSyncNow())
-  handleYachiyoIpc(IPC_CHANNELS.listSyncConflicts, () => rpc().listSyncConflicts())
-  handleYachiyoIpc(IPC_CHANNELS.resolveSyncConflict, (input: ResolveSyncConflictInput) =>
-    rpc().resolveSyncConflict(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.saveConfig, async (input: SettingsConfig) => {
-    const currentConfig = await rpc().getConfig()
-    const demoModeBeforeSave = is.dev && currentConfig.general?.demoMode === true
-    const platformCapabilities = resolvePlatformCapabilities(process.platform)
-    const platformSafeConfig = preserveUnsupportedPlatformSettings({
-      platform: process.platform,
-      previous: currentConfig,
-      submitted: input
-    })
-    const configToSave = platformCapabilities.activityTracking
-      ? await resolveActivityTrackingPermission(platformSafeConfig, currentConfig)
-      : platformSafeConfig
-    const saved = await rpc().saveConfig(configToSave)
-    const demoModeAfterSave = is.dev && saved.general?.demoMode === true
-
-    if (demoModeBeforeSave !== demoModeAfterSave) {
-      setTimeout(() => {
-        void restartServerForDemoModeChange()
-      }, 0)
-    }
-
-    // Sync activity tracking settings
-    if (platformCapabilities.activityTracking) {
-      const activityTracking = saved.general?.activityTracking ?? {
-        mode: 'simple' as const,
-        ocr: { enabled: false, excludedApps: [] }
-      }
-      const tracker = getActivityTracker(activityTracking.mode)
-      tracker.setMode(
-        activityTracking.mode,
-        activityTracking.mode === 'full'
-          ? { fullModeAvailable: activityTracking.accessibilityDenied !== true }
-          : undefined
-      )
-      tracker.setOcrConfig(activityTracking.ocr)
-    }
-
-    return saved
-  })
-  handleYachiyoIpc(IPC_CHANNELS.saveUserDocument, (input: { content: string }) =>
-    rpc().saveUserDocument(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.saveSettings, (input: Partial<ProviderSettings>) =>
-    rpc().saveSettings(input)
-  )
-  registerProviderBackupHandlers()
-  handleYachiyoIpc(IPC_CHANNELS.upsertProvider, (input: ProviderConfig) =>
-    rpc().upsertProvider(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.removeProvider, (input: { name: string }) =>
-    rpc().removeProvider(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.enableProviderModel, (input: { name: string; model: string }) =>
-    rpc().enableProviderModel(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.disableProviderModel, (input: { name: string; model: string }) =>
-    rpc().disableProviderModel(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.fetchProviderModels, (input: ProviderConfig) =>
-    rpc().fetchProviderModels(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.listWebSearchBrowserImportSources, () =>
-    rpc().listWebSearchBrowserImportSources()
-  )
-  handleYachiyoIpc(IPC_CHANNELS.listSkills, (input: ListSkillsInput | undefined) =>
-    rpc().listSkills(input)
-  )
   handleYachiyoIpc(IPC_CHANNELS.openSkillsFolder, async () => {
     const { shell } = await import('electron')
     const { mkdir } = await import('node:fs/promises')
@@ -1157,25 +491,8 @@ export function registerYachiyoGateway(options: {
   })
   handleYachiyoIpc(IPC_CHANNELS.runtimeHealth, () => ({ crashed: runtimeCrashed }))
   handleYachiyoIpc(IPC_CHANNELS.restartRuntime, async () => {
-    // Manual recovery, only meaningful after the crash-loop breaker tripped:
-    // the child is dead and no 'exit' event is pending. Restarting a LIVE
-    // runtime would race its async exit delivery.
-    if (!USE_UTILITY_RUNTIME || !runtimeCrashed) return { restarted: false }
-    markUtilityRuntimeHostStopping(serverRpc)
-    serverRpc?.dispose()
-    serverRpc = null
-    browserAutomationService?.dispose()
-    browserAutomationService = null
-    utilityActiveRunIds.clear()
-    // Clearing the restart history re-arms the automatic refork policy.
-    runtimeRestartTimes = []
-    startUtilityRuntime()
-    broadcastRuntimeHealth()
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        window.webContents.reloadIgnoringCache()
-      }
-    }
+    await serverRpc!.reconnect()
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.reloadIgnoringCache()
     return { restarted: true }
   })
   handleYachiyoIpc(IPC_CHANNELS.openLogsFolder, async () => {
@@ -1186,13 +503,20 @@ export function registerYachiyoGateway(options: {
     readAppLogEntries({ logsDir: app.getPath('logs'), afterByte: input?.afterByte })
   )
   handleYachiyoIpc(
-    IPC_CHANNELS.importWebSearchBrowserSession,
-    (input: ImportWebSearchBrowserSessionInput) => rpc().importWebSearchBrowserSession(input)
-  )
-  handleYachiyoIpc(
     IPC_CHANNELS.listBrowserAutomationSessions,
     (input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[] =>
       browserAutomation().listSessions(input)
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.hideBrowserAutomationSession,
+    (input: HideBrowserAutomationSessionInput): void => {
+      browserAutomation().hideSessionView(input)
+    }
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.setBrowserAutomationSessionBounds,
+    (input: SetBrowserAutomationSessionBoundsInput): BrowserAutomationSessionRecord =>
+      browserAutomation().setSessionViewBounds(input)
   )
   registerBrowserPreviewHandlers(browserAutomation)
   ipcMain.removeHandler(IPC_CHANNELS.showBrowserAutomationSession)
@@ -1206,130 +530,9 @@ export function registerYachiyoGateway(options: {
       return browserAutomation().showSessionView({ ...input, window })
     }
   )
-  handleYachiyoIpc(
-    IPC_CHANNELS.hideBrowserAutomationSession,
-    (input: HideBrowserAutomationSessionInput): void => {
-      browserAutomation().hideSessionView(input)
-    }
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setBrowserAutomationSessionBounds,
-    (input: SetBrowserAutomationSessionBoundsInput): BrowserAutomationSessionRecord =>
-      browserAutomation().setSessionViewBounds(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setThreadPrivacyMode,
-    (input: { threadId: string; enabled: boolean }) => rpc().setThreadPrivacyMode(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setThreadModelOverride,
-    (input: { threadId: string; modelOverride: ThreadModelOverride | null }) =>
-      rpc().setThreadModelOverride(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setThreadReasoningEffort,
-    (input: { threadId: string; reasoningEffort: ComposerReasoningSelection | null }) =>
-      rpc().setThreadReasoningEffort(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setThreadToolMode,
-    (input: { threadId: string; runMode: RunModeId }) => rpc().setThreadToolMode(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.setThreadRuntimeBinding,
-    (input: {
-      threadId: string
-      runtimeBinding: import('@yachiyo/shared/protocol').ThreadRuntimeBinding | null
-    }) => rpc().setThreadRuntimeBinding(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.regenerateThreadTitle, (input: { threadId: string }) =>
-    rpc().regenerateThreadTitle(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.starThread, (input: { threadId: string; starred: boolean }) =>
-    rpc().starThread(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.loadThreadData, (input: LoadThreadDataInput) =>
-    rpc().loadThreadData(input.threadId, {
-      includeMessages: input.includeMessages,
-      ...(input.limit === undefined ? {} : { limit: input.limit }),
-      ...(input.beforeMessageId === undefined ? {} : { beforeMessageId: input.beforeMessageId })
-    })
-  )
-  const backgroundTaskIpc = registerBackgroundTaskIpc(rpc)
-  handleYachiyoIpc(IPC_CHANNELS.listSubagents, (input?: { threadId?: string }) =>
-    rpc().listSubagents(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.cancelSubagent, (input: { agentId: string }) =>
-    rpc().cancelSubagent(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.closeSubagent, (input: { agentId: string }) =>
-    rpc().closeSubagent(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.cancelRunningSubagents, (input: { threadId: string }) =>
-    rpc().cancelRunningSubagents(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.listExternalThreads, () => rpc().listExternalThreads())
-  handleYachiyoIpc(IPC_CHANNELS.listChannelUsers, () => rpc().listChannelUsers())
-  handleYachiyoIpc(IPC_CHANNELS.updateChannelUser, (input: UpdateChannelUserInput) =>
-    rpc().updateChannelUser(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.listChannelGroups, () => rpc().listChannelGroups())
-  handleYachiyoIpc(IPC_CHANNELS.updateChannelGroup, (input: UpdateChannelGroupInput) =>
-    hostCall('updateChannelGroupAndNotify', [input])
-  )
-  handleYachiyoIpc(IPC_CHANNELS.clearGroupMonitorBuffer, (input: { groupId: string }) =>
-    hostCall('clearChannelGroupHistory', [input])
-  )
-  handleYachiyoIpc(IPC_CHANNELS.getChannelsConfig, () => rpc().getChannelsConfig())
-  handleYachiyoIpc(IPC_CHANNELS.saveChannelsConfig, (input: ChannelsConfig) =>
-    hostCall('saveChannelsConfigAndReconcile', [input])
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.restartChannelService,
-    (input: { platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all' }) =>
-      hostCall('restartChannelServices', [input])
-  )
-  // Schedule CRUD
-  handleYachiyoIpc(IPC_CHANNELS.listSchedules, () => rpc().listSchedules())
-  handleYachiyoIpc(IPC_CHANNELS.createSchedule, async (input: CreateScheduleInput) => {
-    const schedule = await rpc().createSchedule(input)
-    await hostCall('reloadSchedules')
-    return schedule
-  })
-  handleYachiyoIpc(IPC_CHANNELS.updateSchedule, async (input: UpdateScheduleInput) => {
-    const schedule = await rpc().updateSchedule(input)
-    await hostCall('reloadSchedules')
-    return schedule
-  })
-  handleYachiyoIpc(IPC_CHANNELS.deleteSchedule, async (input: { id: string }) => {
-    await rpc().deleteSchedule(input.id)
-    await hostCall('reloadSchedules')
-  })
-  handleYachiyoIpc(IPC_CHANNELS.enableSchedule, async (input: { id: string }) => {
-    const result = await rpc().enableSchedule(input.id)
-    await hostCall('reloadSchedules')
-    return result
-  })
-  handleYachiyoIpc(IPC_CHANNELS.disableSchedule, async (input: { id: string }) => {
-    const result = await rpc().disableSchedule(input.id)
-    await hostCall('reloadSchedules')
-    return result
-  })
-  handleYachiyoIpc(IPC_CHANNELS.listScheduleRuns, (input: { scheduleId: string; limit?: number }) =>
-    rpc().listScheduleRuns(input.scheduleId, input.limit)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.listRecentScheduleRuns, (input?: { limit?: number }) =>
-    rpc().listRecentScheduleRuns(input?.limit)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.triggerScheduleNow, (input: { scheduleId: string }) =>
-    hostCall('triggerScheduleNow', [input])
-  )
-  handleYachiyoIpc(IPC_CHANNELS.markThreadAsRead, (input: { threadId: string }) =>
-    rpc().markThreadAsRead(input)
-  )
 
+  registerProviderBackupHandlers()
   registerGatewayFileHandlers(handleYachiyoIpc)
-
   registerPngExportHandlers(ipcMain, BrowserWindow)
 
   ipcMain.removeHandler(IPC_CHANNELS.savePngFile)
@@ -1354,146 +557,23 @@ export function registerYachiyoGateway(options: {
     return { canceled: false, filePath: result.filePath }
   })
 
-  handleYachiyoIpc(
-    IPC_CHANNELS.downloadRemoteImageForMessage,
-    (input: { threadId: string; messageId: string; url: string }) =>
-      rpc().downloadRemoteImageForMessage(input)
-  )
-
-  handleYachiyoIpc(IPC_CHANNELS.predictComposer, (input: ComposerPredictionInput) =>
-    rpc().predictComposer(input)
-  )
-
-  ipcMain.removeHandler(IPC_CHANNELS.translate)
-  ipcMain.handle(IPC_CHANNELS.translate, async (event, input: TranslateInput) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!serverRpc) {
-      throw new Error('Yachiyo server is not running')
-    }
-    // translateStream's trailing onDelta callback maps onto the RPC progress
-    // channel; deltas cross the same clone boundary the extraction will use.
-    return serverRpc.client.call('translateStream', [input], {
-      onProgress: (delta) => {
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('translator:delta', delta)
-        }
-      }
-    })
-  })
-
-  // ── Jotdown handlers ──────────────────────────────────────────────
-
-  handleYachiyoIpc(IPC_CHANNELS.jotdownList, () => jotdownStore.list())
-  handleYachiyoIpc(IPC_CHANNELS.jotdownLoad, (input: { id: string }) => jotdownStore.load(input.id))
-  handleYachiyoIpc(IPC_CHANNELS.jotdownCreate, () => jotdownStore.create())
-  handleYachiyoIpc(IPC_CHANNELS.jotdownSave, (input: JotdownSaveInput) => jotdownStore.save(input))
-  handleYachiyoIpc(IPC_CHANNELS.jotdownDelete, (input: { id: string }) =>
-    jotdownStore.delete(input.id)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.pruneEmptyTemporaryWorkspaces, () =>
-    rpc().pruneEmptyTemporaryWorkspaces()
-  )
-
-  handleYachiyoIpc(IPC_CHANNELS.getUsageStats, (input: UsageStatsInput) =>
-    rpc().getUsageStats(input)
-  )
-
-  handleYachiyoIpc(IPC_CHANNELS.getPerfStats, async () => {
-    // Run records live in the runtime's process, IPC/event-loop stats in this
-    // one; in-process mode both come from the same singleton.
-    const runtimeStats = await hostCall<PerfStatsResponse>('getPerfStats')
-    if (!USE_UTILITY_RUNTIME) {
-      return runtimeStats
-    }
-    const mainStats = getPerfMonitor().getStats()
-    return {
-      ...mainStats,
-      recentRuns: runtimeStats.recentRuns,
-      activeRunCount: runtimeStats.activeRunCount
-    }
-  })
-
-  handleYachiyoIpc(
-    IPC_CHANNELS.getSnapshotDiff,
-    async (input: { runId: string; workspacePath: string }) => {
-      const changes = await generateDiffForRun(input.workspacePath, input.runId)
-      if (!changes) await rpc().clearRunSnapshotFileCounts({ runIds: [input.runId] })
-      return changes
-    }
-  )
-
-  handleYachiyoIpc(
-    IPC_CHANNELS.revertSnapshotFile,
-    (input: { runId: string; workspacePath: string; relativePath: string }) =>
-      revertFile(input.workspacePath, input.runId, input.relativePath)
-  )
-
-  handleYachiyoIpc(
-    IPC_CHANNELS.revertSnapshotRun,
-    (input: { runId: string; workspacePath: string }) => revertRun(input.workspacePath, input.runId)
-  )
-
-  handleYachiyoIpc(IPC_CHANNELS.listRunSnapshots, (input: { workspacePath: string }) =>
-    listSnapshotRuns(hashWorkspacePath(input.workspacePath))
-  )
-
-  handleYachiyoIpc(
-    IPC_CHANNELS.restoreToCheckpoint,
-    async (input: { runId: string; workspacePath: string }) => {
-      const destroyedRunIds = await restoreToCheckpoint(input.workspacePath, input.runId)
-      await rpc().clearRunSnapshotFileCounts({ runIds: destroyedRunIds })
-      return destroyedRunIds
-    }
-  )
-
   deferAppQuitUntil({
-    app: {
-      onBeforeQuit: (listener) => {
-        app.on('before-quit', listener)
-      },
-      quit: () => app.quit()
-    },
+    app: { onBeforeQuit: (listener) => app.on('before-quit', listener), quit: () => app.quit() },
     cleanup: async () => {
-      stopPerfMonitor()
-      markUtilityRuntimeHostStopping(serverRpc)
-      await backgroundTaskIpc.beginShutdown()
-      if (commandSocketHealthTimer) {
-        clearInterval(commandSocketHealthTimer)
-        commandSocketHealthTimer = null
+      for (const { reply, timer } of pendingReplies.values()) {
+        clearTimeout(timer)
+        await reply.onReplyFailure?.()
       }
-      const socket = commandSocket
-      commandSocketRestartInFlight = null
-      commandSocket = null
-
-      try {
-        await remote.stop()
-        if (USE_UTILITY_RUNTIME) {
-          if (serverRpc) await hostCall('shutdownRuntime')
-        } else if (liveServices) {
-          await liveServices.shutdown()
-        } else {
-          await server?.close()
-        }
-      } finally {
-        try {
-          await socket?.close()
-        } finally {
-          liveServices = null
-          serverRpc?.dispose()
-          serverRpc = null
-          browserAutomationService?.dispose()
-          browserAutomationService = null
-          server = null
-          gatewayHandle = null
-        }
-      }
+      pendingReplies.clear()
+      updateReceiptCoordinator.releaseAllClaims()
+      remoteKeepAwake.dispose()
+      if (isInstallingUpdate()) await serverRpc?.shutdown()
+      serverRpc?.dispose()
+      browserAutomationService?.dispose()
+      gatewayHandle = null
     },
-    onCleanupError: (error) => {
-      console.error('[yachiyo] shutdown failed:', error)
-    }
+    onCleanupError: (error) => console.error('[desktop] detach failed:', error)
   })
-
   return gatewayHandle
 }
-
 export { IPC_CHANNELS }
