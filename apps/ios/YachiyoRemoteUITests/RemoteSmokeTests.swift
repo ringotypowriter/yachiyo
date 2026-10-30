@@ -28,6 +28,56 @@ final class RemoteSmokeTests: XCTestCase {
         app.launch()
     }
 
+    func testRunErrorsShowDuringRetryAndAfterHardFailure() throws {
+        continueAfterPairing()
+        let url = try XCTUnwrap(ProcessInfo.processInfo.environment["YACHIYO_PAIRING_URL"])
+        let encoded = try XCTUnwrap(URLComponents(string: url)?.queryItems?.first { $0.name == "d" }?.value)
+            .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let data = try XCTUnwrap(Data(base64Encoded: encoded + String(repeating: "=", count: (4 - encoded.count % 4) % 4)))
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let desktopId = try XCTUnwrap(payload["remoteDeviceId"] as? String)
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "inbox", "-inboxDesktopId", desktopId]
+        app.launch()
+        let list = app.collectionViews["inbox.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 30))
+        let first = list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'inbox.thread.'")).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        first.tap()
+        send("retry: Connection reset by server")
+        let retry = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Retrying' AND label CONTAINS 'Connection reset by server'")).firstMatch
+        XCTAssertTrue(retry.waitForExistence(timeout: 15))
+        XCTAssertTrue(element("composer.stop").exists)
+        let retryShot = XCTAttachment(screenshot: app.screenshot())
+        retryShot.name = "run-retrying-error"
+        retryShot.lifetime = .keepAlways
+        add(retryShot)
+        element("composer.stop").tap()
+        let stopped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element("composer.stop"))
+        XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 15), .completed)
+
+        let error = "No API key configured. Open Settings and add a provider key first."
+        send("error: \(error)")
+        let failure = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Failed:' AND label CONTAINS %@", error)).firstMatch
+        XCTAssertTrue(failure.waitForExistence(timeout: 15))
+        XCTAssertFalse(element("composer.stop").exists)
+        let failureShot = XCTAttachment(screenshot: app.screenshot())
+        failureShot.name = "run-hard-error"
+        failureShot.lifetime = .keepAlways
+        add(failureShot)
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        first.tap()
+        XCTAssertTrue(failure.waitForExistence(timeout: 15))
+
+        // A fast failure can finish before the new thread's screen subscribes to events.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["inbox.new"].tap()
+        send("error: \(error)")
+        XCTAssertTrue(element("thread.timeline").waitForExistence(timeout: 15))
+        XCTAssertTrue(failure.waitForExistence(timeout: 15))
+    }
+
     func testMarkAllAsRead() throws {
         continueAfterPairing()
         // Existing simulators can retain other desktops; select this test's harness.

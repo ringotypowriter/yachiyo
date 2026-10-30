@@ -15,7 +15,7 @@ enum ThreadOutboundState: Equatable {
 }
 
 enum ThreadReplyState: Equatable {
-    case idle, waiting, responding
+    case idle, waiting, responding, retrying
 }
 
 /// The open thread: its loaded branch, live streaming state, and the actions the phone can
@@ -95,8 +95,9 @@ final class ThreadStore: ChatMessageSource {
     }
     /// Oldest first; a footer attaches only to a message of its own run.
     private var runFooters: [RunFooter] = []
+    private var retryFooter: RunFooter?
     /// A terminal run with no message to carry its footer (for example, it failed before
-    /// replying) shows the footer on its own row until the next run or send.
+    /// replying) shows the footer on its own row until the next run.
     private var standaloneFooterRunId: String?
     private var pendingPlanContent: String?
     private var planReadToken: UUID?
@@ -173,6 +174,7 @@ final class ThreadStore: ChatMessageSource {
             .sink { [weak self] update in
                 guard let self, summary != update.summary else { return }
                 summary = update.summary
+                rebuild(scrolling: false)
             }
             .store(in: &cancellables)
     }
@@ -405,8 +407,12 @@ final class ThreadStore: ChatMessageSource {
     // MARK: Events
 
     private func updateReplyState() {
+        if retryFooter?.runId != activeRunId { retryFooter = nil }
         let next: ThreadReplyState
-        if let activeRunId { next = respondingRunIds.contains(activeRunId) ? .responding : .waiting }
+        if let activeRunId {
+            if retryFooter?.runId == activeRunId { next = .retrying }
+            else { next = respondingRunIds.contains(activeRunId) ? .responding : .waiting }
+        }
         else { next = .idle }
         if replyState != next { replyState = next }
     }
@@ -431,8 +437,12 @@ final class ThreadStore: ChatMessageSource {
             activeRunId = runId
             activeRunObservedAt = Date()
             standaloneFooterRunId = nil
+            retryFooter = nil
         }
-        if responding { respondingRunIds.insert(runId) }
+        if responding {
+            respondingRunIds.insert(runId)
+            retryFooter = nil
+        }
         updateReplyState()
     }
 
@@ -442,6 +452,21 @@ final class ThreadStore: ChatMessageSource {
             if finishedRunIds.count > Self.maxFinishedRuns { finishedRunIds.removeFirst() }
         }
         respondingRunIds.remove(runId)
+        if retryFooter?.runId == runId { retryFooter = nil }
+    }
+
+    private func recordRunFooter(runId: String, status: RemoteRunStatus, error: String?, createdAt: Date) {
+        let text: String
+        switch status {
+        case .cancelled: text = String(localized: "Stopped")
+        case .failed:
+            text = error.map { String(localized: "Failed: \($0)") } ?? String(localized: "Failed")
+        default: return
+        }
+        runFooters.removeAll { $0.runId == runId }
+        runFooters.append(RunFooter(runId: runId, text: text, createdAt: createdAt))
+        if runFooters.count > Self.maxRunFooters { runFooters.removeFirst() }
+        standaloneFooterRunId = runId
     }
 
     private func beginStreaming(_ messageId: String, runId: String?) {
@@ -547,6 +572,18 @@ final class ThreadStore: ChatMessageSource {
                 liveToolCalls[toolCall.id] = toolCall
                 scheduleDeltaRebuild(scrolling: event.summaryOnly != true)
             }
+        case .runRetrying:
+            guard let runId = event.runId, !finishedRunIds.contains(runId),
+                  let attempt = event.attempt, let maxAttempts = event.maxAttempts,
+                  let error = event.error else { return }
+            observeRun(runId)
+            retryFooter = RunFooter(
+                runId: runId,
+                text: String(localized: "Retrying (\(attempt)/\(maxAttempts))… \(error)"),
+                createdAt: Date()
+            )
+            updateReplyState()
+            rebuild(scrolling: false)
         case .runStatus:
             guard let runId = event.runId, let status = event.status else { return }
             if status == .running {
@@ -555,18 +592,7 @@ final class ThreadStore: ChatMessageSource {
                 finishRun(runId)
                 if activeRunId == runId { activeRunId = nil }
                 updateReplyState()
-                runFooters.removeAll { $0.runId == runId }
-                let footer: String?
-                switch status {
-                case .cancelled: footer = String(localized: "Stopped")
-                case .failed: footer = String(localized: "Failed: \(event.error ?? "")")
-                default: footer = nil
-                }
-                if let footer {
-                    runFooters.append(RunFooter(runId: runId, text: footer, createdAt: Date()))
-                    if runFooters.count > Self.maxRunFooters { runFooters.removeFirst() }
-                    standaloneFooterRunId = runId
-                }
+                recordRunFooter(runId: runId, status: status, error: event.error, createdAt: Date())
                 // The finished branch (sibling ids, final tool summaries) comes from a reload.
                 if !isReplayingLoadEvents { invalidate() }
             }
@@ -603,7 +629,6 @@ final class ThreadStore: ChatMessageSource {
     private func upsertLoaded(_ message: RemoteMessage) {
         guard var window = history else { return }
         window.upsert(message)
-        if message.role == .user { standaloneFooterRunId = nil }
         history = window
         store.cacheThread(desktopId: desktopId, detail: window.latestPage, needsRefresh: true)
     }
@@ -627,6 +652,16 @@ final class ThreadStore: ChatMessageSource {
         deltaRebuildTask = nil
         pendingRebuildScrolls = false
         guard !isReplayingLoadEvents else { return }
+        // A fast failure may precede this screen's subscription, or the load watermark may
+        // already include its event. The persisted summary must also restore the error.
+        if let run = summary?.latestRun, run.status == .failed || run.status == .cancelled,
+           activeRunId == nil || activeRunId == run.runId,
+           !runFooters.contains(where: { $0.runId == run.runId }) {
+            finishRun(run.runId)
+            if activeRunId == run.runId { activeRunId = nil }
+            updateReplyState()
+            recordRunFooter(runId: run.runId, status: run.status, error: run.error, createdAt: run.startedAt.isoDate ?? Date())
+        }
         let toolCalls = allToolCalls
         let loaded = detail?.messages ?? []
         let callsByMessage = Dictionary(grouping: toolCalls.filter { $0.assistantMessageId != nil }) { $0.assistantMessageId! }
@@ -729,7 +764,8 @@ final class ThreadStore: ChatMessageSource {
     private func footersByMessage(
         loaded: [RemoteMessage], callsByMessage: [String: [RemoteToolCall]]
     ) -> (byMessage: [String: String], standalone: RunFooter?) {
-        guard !runFooters.isEmpty else { return ([:], nil) }
+        let footers = runFooters + (retryFooter.map { [$0] } ?? [])
+        guard !footers.isEmpty else { return ([:], nil) }
         func runId(of messageId: String) -> String? {
             messageRunIds[messageId] ?? callsByMessage[messageId]?.lazy.compactMap(\.runId).first
         }
@@ -739,9 +775,10 @@ final class ThreadStore: ChatMessageSource {
         for id in assistantIds { if let run = runId(of: id) { lastByRun[run] = id } }
         var byMessage: [String: String] = [:]
         var standalone: RunFooter?
-        for footer in runFooters {
+        for footer in footers {
             if let messageId = lastByRun[footer.runId] { byMessage[messageId] = footer.text }
             else if footer.runId == standaloneFooterRunId, activeRunId == nil { standalone = footer }
+            else if footer.runId == retryFooter?.runId, activeRunId == footer.runId { standalone = footer }
         }
         return (byMessage, standalone)
     }

@@ -102,6 +102,28 @@ test('remote projections never contain provider credentials', async () => {
   })
 })
 
+test('a run that fails before replying exposes its error in the loaded thread', async () => {
+  await withFakeDesktop(async ({ server, ops }) => {
+    const thread = await server.createThread()
+    const failed = waitForEvent(server, (event) => event.type === 'run.failed')
+    const error = 'Unauthorized (HTTP 401)'
+    const accepted = await server.sendChat({ threadId: thread.id, content: `error: ${error}` })
+    const event = await failed
+    assert.equal(event.type, 'run.failed')
+    if (event.type !== 'run.failed') return
+    assert.equal(event.error, error)
+
+    const detail = ops['host.remote.loadThread']({ threadId: thread.id })
+    assert.equal(detail.activeRunId, undefined)
+    assert.deepEqual(detail.thread.latestRun, {
+      runId: accepted.runId,
+      status: 'failed',
+      startedAt: detail.thread.latestRun?.startedAt,
+      error
+    })
+  })
+})
+
 test('background tasks project user cancellation and errors without log tails', async () => {
   await withFakeDesktop(async ({ server, ops }) => {
     const thread = await server.createThread()

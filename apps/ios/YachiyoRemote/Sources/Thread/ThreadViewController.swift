@@ -501,6 +501,7 @@ final class ThreadViewController: UIViewController {
         switch thread.replyState {
         case .waiting: return String(localized: "Sent — waiting for Yachiyo…")
         case .responding: return String(localized: "Yachiyo is responding…")
+        case .retrying: return nil // The timeline shows the attempt and provider error together.
         case .idle: return thread.outboundState == .accepted ? String(localized: "Sent to your Mac") : nil
         }
     }

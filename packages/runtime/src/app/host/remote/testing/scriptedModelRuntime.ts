@@ -11,6 +11,8 @@ import type { ModelRuntime, ModelStreamRequest } from '../../../../runtime/model
  * - `ask: <question>` — calls askUser with Yes/No choices and replies with the answer.
  * - `tool: <text>` — reports a completed bash-like tool call before replying.
  * - `background: <text>` — launches a fixed background command for live task UI acceptance.
+ * - `error: <text>` — fails before replying.
+ * - `retry: <text>` — reports a provider retry, then waits before resuming so it can be cancelled.
  * - `slow: <text>` — streams 40 chunks `slowChunkDelayMs` apart (50 ms by default), so
  *   steer/cancel can land mid-run.
  * - In Plan Mode, writes the plan document and calls exitPlanMode.
@@ -105,6 +107,13 @@ export function createScriptedModelRuntime(options: ScriptedModelOptions = {}): 
       // Per-turn reminders are appended to the last user message, so commands are read from
       // its first line only.
       const text = latestUserText(request).trimStart().split('\n')[0] ?? ''
+      const failure = text.match(/^(error|retry):\s*(.+)/i)
+      if (failure) {
+        if (failure[1].toLowerCase() === 'error') throw new Error(failure[2])
+        const delayMs = slowChunkDelayMs * 40
+        request.onRetry?.(1, 3, delayMs, new Error(failure[2]))
+        await sleep(delayMs, request.signal)
+      }
       request.onReasoningDelta?.('Considering the request. ')
 
       // exitPlanMode is always registered (disabled outside Plan Mode); the plan path only

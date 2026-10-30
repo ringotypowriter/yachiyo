@@ -17,6 +17,7 @@ final class HintMessageView: MessageListRowView {
         super.init(frame: frame)
 
         label.textAlignment = .center
+        label.numberOfLines = 0
         label.alpha = 0.5
         updateLabelStyle()
         contentView.addSubview(label)

@@ -835,7 +835,7 @@ final class RemoteStore {
             if let threadId = event.threadId, let runId = event.runId, let status = event.status,
                let summary = items[link.id]?[threadId]?.summary {
                 let startedAt = summary.latestRun?.runId == runId ? summary.latestRun!.startedAt : Self.isoFormat.format(Date())
-                storeSummary(summary.with(latestRun: LatestRun(runId: runId, startedAt: startedAt, status: status)), desktopId: link.id)
+                storeSummary(summary.with(latestRun: LatestRun(error: event.error, runId: runId, startedAt: startedAt, status: status)), desktopId: link.id)
                 let key = "\(link.id)/\(threadId)"
                 let isOpen = openThread?.desktopId == link.id && openThread?.threadId == threadId
                 if status == .completed, !isOpen, !unreadCompletions.contains(key) { unreadCompletions.insert(key) }

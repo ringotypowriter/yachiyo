@@ -20,6 +20,7 @@ import {
 import {
   remoteMessageSchema,
   remoteThreadDetailSchema,
+  remoteThreadSummarySchema,
   type RemoteMessage,
   type RemoteThreadSummary
 } from './projections.ts'
@@ -32,6 +33,27 @@ test('remote thread summary exposes the persisted mode rather than a run snapsho
     { needsAttention: false }
   )
   assert.equal(summary.runMode, 'plan')
+})
+
+test('remote thread snapshots retain the latest run failure for phones opening after the error', () => {
+  const createdAt = '2026-10-30T00:00:00.000Z'
+  const error = 'Unauthorized (HTTP 401)'
+  const summary = remoteThreadSummarySchema.parse(
+    projectThreadSummary(
+      { id: 'thread-1', title: 'Thread', updatedAt: createdAt },
+      {
+        needsAttention: false,
+        latestRun: { id: 'run-1', threadId: 'thread-1', status: 'failed', createdAt, error }
+      }
+    )
+  )
+
+  assert.deepEqual(summary.latestRun, {
+    runId: 'run-1',
+    status: 'failed',
+    startedAt: createdAt,
+    error
+  })
 })
 
 test('relay bearer is separate from a WSS phone base URL and can accompany an encrypted grant', () => {

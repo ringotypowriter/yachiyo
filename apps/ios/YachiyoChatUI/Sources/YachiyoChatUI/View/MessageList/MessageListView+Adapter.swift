@@ -139,8 +139,10 @@ extension MessageListView: ListViewAdapter {
             markdownViewForSizeCalculation.setMarkdownManually(package)
             // Pixel-rounded by Litext; the row height applies the whole-point rounding.
             return markdownViewForSizeCalculation.boundingSize(for: containerWidth).height
-        case .hint:
-            return ceil(theme.fonts.footnote.lineHeight + 16)
+        case let .hint(_, content):
+            return ceil(boundingSize(with: containerWidth - 16, for: NSAttributedString(string: content, attributes: [
+                .font: theme.fonts.footnote,
+            ])).height + 16)
         case let .activityReporting(content):
             let textHeight = boundingSize(with: .greatestFiniteMagnitude, for: NSAttributedString(string: content, attributes: [
                 .font: theme.fonts.body,

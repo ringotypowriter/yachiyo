@@ -45,7 +45,8 @@ export const remoteThreadSummarySchema = z
       .object({
         runId: idSchema,
         status: remoteRunStatusSchema,
-        startedAt: isoDateTimeSchema
+        startedAt: isoDateTimeSchema,
+        error: z.string().optional()
       })
       .optional(),
     needsAttention: z.boolean(),

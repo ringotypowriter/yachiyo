@@ -58,7 +58,8 @@ export function projectThreadSummary(
           latestRun: {
             runId: state.latestRun.id,
             status: state.latestRun.status,
-            startedAt: state.latestRun.createdAt
+            startedAt: state.latestRun.createdAt,
+            ...(state.latestRun.error ? { error: state.latestRun.error } : {})
           }
         }
       : {}),

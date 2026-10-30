@@ -460,6 +460,33 @@ test('tool start prevents pending text deltas on either side from merging', asyn
   hub.stop()
 })
 
+test('run failures carry the error to watching phones and reconnecting phones', async () => {
+  const { hub, source } = createHub()
+  try {
+    const watching = collect(hub, ['t1'])
+    await subscribe(watching.subscription)
+    const from = { epoch: hub.epoch, seq: hub.headSeq }
+    const error = 'Unauthorized (HTTP 401)'
+    source.emit({ type: 'run.failed', threadId: 't1', runId: 'r1', error })
+    hub.flush()
+
+    const expected = { type: 'run.status', threadId: 't1', runId: 'r1', status: 'failed', error }
+    assert.deepEqual(
+      events(watching.pushes).find((event) => event.type === 'run.status'),
+      expected
+    )
+
+    const reconnected = collect(hub, ['t1'])
+    await subscribe(reconnected.subscription, from)
+    assert.deepEqual(
+      events(reconnected.pushes).find((event) => event.type === 'run.status'),
+      expected
+    )
+  } finally {
+    hub.stop()
+  }
+})
+
 test('completed messages and terminal runs leave no stale snapshot', () => {
   const { hub, source } = createHub()
   source.emit(delta('m1', 'first')) // A missing start still captures live content.

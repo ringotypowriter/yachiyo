@@ -560,11 +560,13 @@ public enum ColorTag: String, Codable, Equatable, Sendable {
 
 // MARK: - LatestRun
 public struct LatestRun: Codable, Equatable, Sendable {
+    public let error: String?
     public let runId: String
     public let startedAt: String
     public let status: RemoteRunStatus
 
-    public init(runId: String, startedAt: String, status: RemoteRunStatus) {
+    public init(error: String?, runId: String, startedAt: String, status: RemoteRunStatus) {
+        self.error = error
         self.runId = runId
         self.startedAt = startedAt
         self.status = status
