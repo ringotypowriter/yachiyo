@@ -20,7 +20,10 @@ import {
   mergeProviderCredentials,
   stripProviderCredentials
 } from './providerCredentialConfig.ts'
-import type { ProviderCredentialVault } from './providerCredentialVault.ts'
+import type {
+  ProviderCredentialSnapshot,
+  ProviderCredentialVault
+} from './providerCredentialVault.ts'
 
 export {
   DEFAULT_SETTINGS_CONFIG,
@@ -39,10 +42,9 @@ export interface SettingsStore {
   write: (settings: SettingsConfig, options?: SettingsWriteOptions) => boolean
 }
 
-export interface SettingsWriteOptions {
-  /** Synced public settings never replace this device's credentials. */
-  providerCredentials?: 'replace' | 'preserve'
-}
+export type SettingsWriteOptions =
+  | { providerCredentials?: 'replace' | 'preserve' }
+  | { providerCredentials: 'sync'; credentials: ProviderCredentialSnapshot }
 
 export interface SettingsStoreOptions {
   /** Seed preset providers on first launch when no config file exists. */
@@ -183,11 +185,23 @@ export function createSettingsStore(
 
       if (providerCredentialVault) {
         const currentCredentials = providerCredentialVault.read()
-        const suppliedCredentials = extractProviderCredentials(normalized)
-        const nextCredentials =
-          writeOptions?.providerCredentials === 'preserve'
-            ? currentCredentials
-            : suppliedCredentials
+        let nextCredentials: ProviderCredentialSnapshot
+        if (writeOptions?.providerCredentials === 'sync') {
+          nextCredentials = writeOptions.credentials
+        } else if (writeOptions?.providerCredentials === 'preserve') {
+          nextCredentials = currentCredentials
+        } else {
+          // Encrypted credentials can arrive before their public provider settings.
+          // Keep those entries until the provider appears; only remove known providers.
+          nextCredentials = { ...currentCredentials }
+          const previousProviders = existsSync(settingsPath)
+            ? parseSettingsToml(readFileSync(settingsPath, 'utf8')).providers
+            : []
+          for (const provider of [...previousProviders, ...normalized.providers]) {
+            if (provider.id) delete nextCredentials[provider.id]
+          }
+          Object.assign(nextCredentials, extractProviderCredentials(normalized))
+        }
         credentialsChanged = !isDeepStrictEqual(currentCredentials, nextCredentials)
         if (credentialsChanged) {
           providerCredentialVault.write(nextCredentials)

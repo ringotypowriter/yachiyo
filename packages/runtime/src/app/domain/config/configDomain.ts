@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util'
+
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   type ImportWebSearchBrowserSessionInput,
@@ -29,6 +31,7 @@ import {
 } from '../../../settings/settingsStore.ts'
 import type { EmitServerEvent } from '../shared/shared.ts'
 import { preserveLocalCodexSessionPaths } from '../../../settings/settingsFieldMerge.ts'
+import type { ProviderCredentialSnapshot } from '../../../settings/providerCredentialVault.ts'
 
 export interface WebSearchSettingsDeps {
   importBrowserSession?: (
@@ -143,6 +146,7 @@ export class YachiyoServerConfigDomain {
   private readonly emit: EmitServerEvent
   private readonly webSearchDeps: WebSearchSettingsDeps
   private readonly fetchImpl: typeof globalThis.fetch
+  private lastEmittedConfig: SettingsConfig | undefined
 
   constructor(input: {
     settingsStore: SettingsStore
@@ -188,6 +192,20 @@ export class YachiyoServerConfigDomain {
     return this.persistConfig(preserveLocalCodexSessionPaths(this.readConfig(), input), {
       providerCredentials: 'preserve'
     })
+  }
+
+  applySyncedProviderCredentials(credentials: ProviderCredentialSnapshot): SettingsConfig {
+    return this.persistConfig(this.readConfig(), { providerCredentials: 'sync', credentials })
+  }
+
+  refreshSyncedConfig(previous: SettingsConfig): void {
+    const current = this.readConfig()
+    if (
+      !isDeepStrictEqual(previous, current) &&
+      !isDeepStrictEqual(this.lastEmittedConfig, current)
+    ) {
+      this.emitConfig(current)
+    }
   }
 
   getSettings(): ProviderSettings {
@@ -414,13 +432,16 @@ export class YachiyoServerConfigDomain {
     const config = this.readConfig()
     // A no-op save must not fan out (subscribers include the auto-sync scheduler,
     // which spawns sync-core processes on every settings.updated).
-    if (changed) {
-      this.emit<SettingsUpdatedEvent>({
-        type: 'settings.updated',
-        config,
-        settings: toProviderSettings(config)
-      })
-    }
+    if (changed) this.emitConfig(config)
     return config
+  }
+
+  private emitConfig(config: SettingsConfig): void {
+    this.lastEmittedConfig = structuredClone(config)
+    this.emit<SettingsUpdatedEvent>({
+      type: 'settings.updated',
+      config,
+      settings: toProviderSettings(config)
+    })
   }
 }

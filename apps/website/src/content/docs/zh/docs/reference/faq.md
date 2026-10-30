@@ -65,7 +65,7 @@ Windows v1 不提供 Activity/OCR、开机自启、保持唤醒、Kagete、Ghost
 
 ## 我的 API key 安全吗？
 
-模型供应商 API key 和 Vertex 私钥会加密存放在由操作系统保护的本机凭据库中。它们不会写进 `config.toml`，也不会被[同步](/zh/docs/guides/sync/)复制。命令行输出会把 API key 打码。
+模型供应商 API key 和 Vertex 私钥会加密存放在由操作系统保护的本机凭据库中。它们不会写进 `config.toml`。开启[同步](/zh/docs/guides/sync/)后，设备会自动协商密钥，凭据以密文传输。命令行输出会把 API key 打码。
 
 其他密钥有各自的规则：Exa 网页搜索 key 可能存在 `config.toml` 中，频道凭据则在 `channels.toml` 中。这两个文件都应保持私密。
 

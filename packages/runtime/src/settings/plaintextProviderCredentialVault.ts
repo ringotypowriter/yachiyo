@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { hkdfSync, randomBytes, randomUUID } from 'node:crypto'
 import {
   closeSync,
   constants,
@@ -106,6 +106,25 @@ export function createPlaintextProviderCredentialVault(input: {
   }
 
   return {
+    deriveSyncKey(universeId): Buffer {
+      const keyPath = `${input.vaultPath}.sync-key`
+      mkdirSync(dirname(keyPath), { recursive: true, mode: 0o700 })
+      try {
+        writeFileSync(keyPath, randomBytes(32), { flag: 'wx', mode: 0o600 })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+      const fd = openSync(keyPath, constants.O_RDONLY | constants.O_NOFOLLOW)
+      try {
+        const key = readFileSync(fd)
+        if (key.length !== 32) throw new Error('Provider sync identity has an invalid key length')
+        return Buffer.from(
+          hkdfSync('sha256', key, universeId, 'yachiyo-provider-sync-identity:v1', 32)
+        )
+      } finally {
+        closeSync(fd)
+      }
+    },
     exists: () => vaultExists(input.vaultPath),
     read,
     write(credentials: ProviderCredentialSnapshot): void {

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -18,6 +18,8 @@ export interface ProviderCredentialVault {
   exists: () => boolean
   read: () => ProviderCredentialSnapshot
   write: (credentials: ProviderCredentialSnapshot) => void
+  /** Device-private X25519 seed, scoped to one sync universe. Never publish this value. */
+  deriveSyncKey: (universeId: string) => Buffer
 }
 
 interface ProviderCredentialEnvelope {
@@ -52,6 +54,11 @@ export function createProviderCredentialVault(input: {
   }
 
   return {
+    deriveSyncKey(universeId): Buffer {
+      return Buffer.from(
+        hkdfSync('sha256', encryptionKey, universeId, 'yachiyo-provider-sync-identity:v1', 32)
+      )
+    },
     exists(): boolean {
       return existsSync(input.vaultPath)
     },

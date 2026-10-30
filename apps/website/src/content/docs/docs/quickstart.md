@@ -15,7 +15,7 @@ On first launch, an onboarding overlay asks for three things in order:
    DeepSeek, Moonshot, OpenRouter, Ollama, and a dozen more). The preset fills in
    the API type and base URL for you.
 2. **API key** — paste it. It is encrypted in this device's provider credential
-   vault and is not synced.
+   vault. Enabling [sync](/docs/guides/sync/) also sends it encrypted to your other devices.
 3. **Model** — choose the one new chats should start with.
 
 If you skipped the overlay, the same thing lives in **Settings → Providers**.

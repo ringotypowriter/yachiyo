@@ -15,6 +15,7 @@ provider vault; there is no Yachiyo server holding a copy.
 | `config.toml`                     | Settings and provider metadata; model-provider secrets are excluded. May include an Exa key. [Reference](/docs/reference/config-toml/) |
 | `provider-credentials.enc`        | Encrypted model-provider API keys and Vertex private keys                                                                              |
 | `provider-credentials.key`        | Vault key wrapped by the operating system's credential encryption                                                                      |
+| `provider-credential-sync.json`   | Local device public-key pins and credential revision records; contains no credentials                                                  |
 | `channels.toml`                   | Channel credentials and tuning. [Reference](/docs/reference/channels-toml/)                                                            |
 | `yachiyo.sqlite`                  | Threads, messages, tool calls, memory, schedules, run history                                                                          |
 | `SOUL.md`                         | Assistant persona and evolving trait log                                                                                               |
@@ -60,15 +61,15 @@ yachiyo soul traits list --soul /path/to/SOUL.md
 
 ## What to back up
 
-| Priority | Path                                                                                           | Why                                                                  |
-| -------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| High     | `yachiyo.sqlite`                                                                               | Your entire conversation history                                     |
-| High     | `SOUL.md`, `USER.md`                                                                           | Persona and profile — small, and slow to rebuild                     |
-| High     | `skills/custom/`                                                                               | Skills you wrote                                                     |
-| Medium   | `config.toml`                                                                                  | Settings; may contain an Exa web-search key. Keep it private.        |
-| Medium   | `provider-credentials.enc`, `provider-credentials.key`                                         | Device-local provider secrets. Configure them again on a new device. |
-| Medium   | `channels.toml`                                                                                | Bot credentials. Keep it private.                                    |
-| Skip     | `temp-workspace/`, `file-history/`, `workspace-indexes/`, `web-search/`, `browser-automation/` | Regenerated, and large                                               |
+| Priority | Path                                                                                           | Why                                                                               |
+| -------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| High     | `yachiyo.sqlite`                                                                               | Your entire conversation history                                                  |
+| High     | `SOUL.md`, `USER.md`                                                                           | Persona and profile — small, and slow to rebuild                                  |
+| High     | `skills/custom/`                                                                               | Skills you wrote                                                                  |
+| Medium   | `config.toml`                                                                                  | Settings; may contain an Exa web-search key. Keep it private.                     |
+| Medium   | `provider-credentials.enc`, `provider-credentials.key`, `provider-credential-sync.json`        | Local provider secrets and sync state. Sync transfers credentials to new devices. |
+| Medium   | `channels.toml`                                                                                | Bot credentials. Keep it private.                                                 |
+| Skip     | `temp-workspace/`, `file-history/`, `workspace-indexes/`, `web-search/`, `browser-automation/` | Regenerated, and large                                                            |
 
 ## What leaves your machine
 
@@ -78,6 +79,6 @@ no hosted backend.
 
 [Sync](/docs/guides/sync/) is the one exception, and it is opt-in and points at a
 folder you choose. It copies settings data in `config.toml`, `skills/custom/`
-(including script contents), and chat archives; the provider vault and its key
-stay on this device. Because settings or custom scripts may still contain other
+(including script contents), and chat archives. Provider credentials travel in
+separate encrypted snapshots; the vault key stays on this device. Because settings or custom scripts may still contain other
 secrets such as an Exa key, keep the sync folder private.

@@ -80,6 +80,7 @@ disabled = []
   try {
     const store = createSettingsStore(settingsPath, {
       providerCredentialVault: {
+        deriveSyncKey: () => Buffer.alloc(32),
         exists: () => false,
         read: () => ({}),
         write: () => {

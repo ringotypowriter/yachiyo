@@ -136,8 +136,10 @@ yachiyo provider set-default openai --model <model-name>
 
 Full details in the [`provider` CLI reference](/docs/cli/provider/).
 
-:::note[Device-local provider credentials]
+:::note[Encrypted provider credential sync]
 Model-provider API keys and Vertex private keys are not stored in `config.toml`
-and are not synced. Configure them separately on each device. CLI output also
-replaces API key values with `***`.
+and remain in each device's local vault. With sync enabled, joined devices exchange
+them in encrypted snapshots automatically, without another password or import step.
+Codex OAuth session files remain device-local. CLI output replaces API key values
+with `***`.
 :::

@@ -212,5 +212,5 @@ runMode = "auto"
 | `order`         | `number`               | 排序位置                  |
 
 :::caution
-模型供应商密钥不存放在这个文件中；本机加密凭据库也不会参与同步。但 `config.toml` 仍可能包含 `webSearch.exa.apiKey` 等其他密钥，而且[同步](/zh/docs/guides/sync/)会复制这个文件。别把它提交进版本库，也别放进共享文件夹。
+模型供应商密钥不存放在这个文件中。[同步](/zh/docs/guides/sync/)通过加密快照交换这些凭据，各设备的凭据库密钥只保留在本机。但 `config.toml` 仍可能包含 `webSearch.exa.apiKey` 等其他密钥，而且同步会复制这个文件。别把它提交进版本库，也别放进共享文件夹。
 :::

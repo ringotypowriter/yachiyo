@@ -52,7 +52,7 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 
 ## 输出中的密钥
 
-每条命令在打印之前都会把 `apiKey` 的值替换成 `***`，`yachiyo config get` 也不例外。供应商 API key 存放在本机加密凭据库中，而不是 `config.toml`，也不会参与同步。
+每条命令在打印之前都会把 `apiKey` 的值替换成 `***`，`yachiyo config get` 也不例外。供应商 API key 存放在本机加密凭据库中，而不是 `config.toml`。开启[同步](/zh/docs/guides/sync/)后，已加入的设备会自动加密交换凭据。
 
 `channels.toml` 里的频道机器人 token **不在**这个打码范围内。
 

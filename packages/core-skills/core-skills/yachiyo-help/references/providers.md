@@ -3,6 +3,9 @@
 Manage the AI providers configured by Yachiyo. Public provider settings live in
 `~/.yachiyo/config.toml`; API keys and service-account private keys live in the
 keychain-protected credential store. API keys are redacted in output.
+With sync enabled, joined devices exchange provider credentials in encrypted
+snapshots after automatically exchanging public keys. No separate sync password
+or credential import is required. Codex OAuth session files stay device-local.
 
 ## Anthropic thinking
 

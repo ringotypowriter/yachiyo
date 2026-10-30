@@ -33,6 +33,17 @@ and scripts. Generated dependency and version-control trees (`node_modules` and
 `.git`), `.DS_Store`, and symbolic links are excluded. Bundled `skills/core/`
 content is installed with the app and does not sync.
 
+**Provider API keys and Vertex private keys** sync as encrypted snapshots. Joined
+devices automatically exchange public keys and agree encryption keys. No sync
+password or separate credential import is needed. Received credentials go into
+the receiving device's local vault; they stay out of `config.toml`.
+
+Both devices must support encrypted credential sync. When a device first joins,
+an existing device needs to sync again after receiving its public key. Background
+sync handles this exchange as the shared folder delivers the files. A device
+that already received the credentials can also pass them to another joined
+device while the original source is offline.
+
 **Chat archives** from other devices arrive **read-only** — you can read a
 conversation that started on your laptop from your desktop, but you cannot
 continue it there. Threads stay owned by the device that created them.
@@ -47,6 +58,15 @@ Two devices editing the same setting or custom-skill file produce a conflict,
 and Yachiyo does not guess. **Settings → Sync → Conflicts** lists each one.
 Settings conflicts include the fields that differ; skill conflicts identify the
 file and the hashes of both versions.
+
+Edits to different existing providers merge automatically when both devices share
+the same provider list. A choice for one provider does not discard changes to
+another. Adding, removing, renaming, or reordering providers still treats the list
+as one setting when checking conflicts.
+
+Credential updates and deletions carry versions so old files cannot restore an
+older key. If two devices change the same credential while offline, they choose
+the same version using a deterministic order.
 
 - **Keep This Device** — your local value wins.
 - **Use Synced Version** — replaces this device's setting or skill file with the
@@ -71,9 +91,11 @@ The pane reports one of:
 It also shows the device count and how many conflicts are pending.
 
 :::caution[Keep the sync folder private]
-Model-provider API keys and Vertex private keys stay in the device-local
-encrypted vault and are not synced. Settings sync still copies `config.toml`,
-which can contain other sensitive values such as an Exa web-search API key. Do
-not use a shared team drive or a public link. Custom skills are copied as a full
+Provider credentials are encrypted in the sync folder. Access to that folder
+establishes trust when a device first joins; previously seen device keys are
+pinned, and an unexpected key change stops credential exchange. Do not grant
+other people write access to this folder. Settings sync still copies `config.toml`,
+which can contain an Exa web-search API key. Do not use a shared team drive or a
+public link. Custom skills are copied as a full
 tree, including script contents, so remove hard-coded keys before enabling sync.
 :::

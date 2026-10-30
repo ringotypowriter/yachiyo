@@ -12,6 +12,7 @@ description: ~/.yachiyo 下都有什么，以及如何用 YACHIYO_HOME 把它挪
 | `config.toml`                     | 设置和供应商元数据；不含模型供应商密钥，但可能包含 Exa key。[参考](/zh/docs/reference/config-toml/) |
 | `provider-credentials.enc`        | 加密后的模型供应商 API key 和 Vertex 私钥                                                           |
 | `provider-credentials.key`        | 由操作系统凭据加密封装的凭据库密钥                                                                  |
+| `provider-credential-sync.json`   | 本机保存的设备公钥和凭据版本记录，不包含凭据                                                        |
 | `channels.toml`                   | 频道凭据与调参。[参考](/zh/docs/reference/channels-toml/)                                           |
 | `yachiyo.sqlite`                  | 线程、消息、工具调用、记忆、定时任务、运行历史                                                      |
 | `SOUL.md`                         | 助手人格与演化中的特质日志                                                                          |
@@ -53,18 +54,18 @@ yachiyo soul traits list --soul /path/to/SOUL.md
 
 ## 该备份什么
 
-| 优先级 | 路径                                                                                           | 为什么                                      |
-| ------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| 高     | `yachiyo.sqlite`                                                                               | 你的全部对话历史                            |
-| 高     | `SOUL.md`、`USER.md`                                                                           | 人格与档案 —— 很小，但重建起来很慢          |
-| 高     | `skills/custom/`                                                                               | 你写的技能                                  |
-| 中     | `config.toml`                                                                                  | 设置；可能含 Exa 网页搜索 key。请保持私密。 |
-| 中     | `provider-credentials.enc`、`provider-credentials.key`                                         | 本机供应商密钥；换设备后需要重新配置。      |
-| 中     | `channels.toml`                                                                                | 机器人凭据。请保持私密。                    |
-| 跳过   | `temp-workspace/`、`file-history/`、`workspace-indexes/`、`web-search/`、`browser-automation/` | 可再生成，而且很大                          |
+| 优先级 | 路径                                                                                           | 为什么                                             |
+| ------ | ---------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| 高     | `yachiyo.sqlite`                                                                               | 你的全部对话历史                                   |
+| 高     | `SOUL.md`、`USER.md`                                                                           | 人格与档案 —— 很小，但重建起来很慢                 |
+| 高     | `skills/custom/`                                                                               | 你写的技能                                         |
+| 中     | `config.toml`                                                                                  | 设置；可能含 Exa 网页搜索 key。请保持私密。        |
+| 中     | `provider-credentials.enc`、`provider-credentials.key`、`provider-credential-sync.json`        | 本机供应商密钥与同步记录；同步会向新设备传输凭据。 |
+| 中     | `channels.toml`                                                                                | 机器人凭据。请保持私密。                           |
+| 跳过   | `temp-workspace/`、`file-history/`、`workspace-indexes/`、`web-search/`、`browser-automation/` | 可再生成，而且很大                                 |
 
 ## 什么会离开你的机器
 
 只有你引发的那些请求：发给你自己配置的供应商的调用、智能体抓取的页面、你执行的搜索，以及频道消息。没有遥测，也没有托管后端。
 
-[同步](/zh/docs/guides/sync/)是唯一的例外，而且它需要主动开启并指向一个你自己选的文件夹。它会把 `config.toml` 中的设置数据和聊天存档复制进去；供应商凭据库及其密钥只留在本设备。由于 `config.toml` 仍可能包含 Exa key 等其他密钥，同步目录也应保持私密。
+[同步](/zh/docs/guides/sync/)是唯一的例外，而且它需要主动开启并指向一个你自己选的文件夹。它会把 `config.toml` 中的设置数据和聊天存档复制进去。供应商凭据通过单独的加密快照传输，凭据库密钥只留在本设备。由于 `config.toml` 仍可能包含 Exa key 等其他密钥，同步目录也应保持私密。

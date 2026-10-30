@@ -1,13 +1,17 @@
 import { createHash } from 'node:crypto'
 
-import type { SettingsConfig, SyncSettingsFieldDiff } from '@yachiyo/shared/protocol'
+import type {
+  ProviderConfig,
+  SettingsConfig,
+  SyncSettingsFieldDiff
+} from '@yachiyo/shared/protocol'
 import { stripProviderCredentials } from './providerCredentialConfig.ts'
 
 /**
  * Field-level diff/merge for settings conflicts. Settings are compared at leaf
- * granularity (e.g. `general.themeId`, `chat.model`); arrays (providers, prompts,
- * channels…) are treated as atomic units because element-wise array merging needs
- * stable identity we don't have. Operates on already-normalized config objects.
+ * granularity (e.g. `general.themeId`, `chat.model`). Providers are compared by id
+ * when the snapshots agree on membership, names, and order. Changes to that list
+ * structure and other arrays remain atomic. Operates on normalized config objects.
  */
 
 const MAX_DISPLAY = 160
@@ -42,7 +46,31 @@ function flatten(value: unknown, prefix: string, out: Map<string, unknown>): voi
   out.set(prefix, value)
 }
 
-function flattenConfig(config: unknown): Map<string, unknown> {
+function providerFieldPath(provider: ProviderConfig): string {
+  // Conflict paths are shown in settings; keep the provider name readable there.
+  return `providers[${provider.name}]`
+}
+
+function haveMatchingProviderLists(configs: SettingsConfig[]): boolean {
+  const providers = configs[0].providers
+  return (
+    Array.isArray(providers) &&
+    providers.every((provider) => Boolean(provider.id)) &&
+    configs
+      .slice(1)
+      .every(
+        (config) =>
+          Array.isArray(config.providers) &&
+          config.providers.length === providers.length &&
+          config.providers.every(
+            (provider, index) =>
+              provider.id === providers[index].id && provider.name === providers[index].name
+          )
+      )
+  )
+}
+
+function flattenConfig(config: unknown, separateProviders = false): Map<string, unknown> {
   const out = new Map<string, unknown>()
   const publicConfig =
     isPlainObject(config) && Array.isArray(config['providers'])
@@ -55,7 +83,13 @@ function flattenConfig(config: unknown): Map<string, unknown> {
   }
   if (isPlainObject(publicConfig)) {
     for (const key of Object.keys(publicConfig)) {
-      flatten(publicConfig[key], key, out)
+      if (key === 'providers' && separateProviders) {
+        for (const provider of publicConfig[key] as ProviderConfig[]) {
+          out.set(providerFieldPath(provider), provider)
+        }
+      } else {
+        flatten(publicConfig[key], key, out)
+      }
     }
   }
   return out
@@ -92,13 +126,21 @@ function fingerprint(value: unknown): string {
   return createHash('sha256').update(stableStringify(value)).digest('hex')
 }
 
-/** Leaf fields whose values differ, including full-value fingerprints for resolution memory. */
+/**
+ * Fields whose values differ, with full-value fingerprints for resolution memory.
+ * Pass the third snapshot during a three-way comparison so every pair uses the
+ * same provider granularity, including concurrent list changes and provider edits.
+ */
 export function diffSettingsForResolution(
   local: SettingsConfig,
-  remote: SettingsConfig
+  remote: SettingsConfig,
+  providerContext?: SettingsConfig
 ): SettingsFieldDifference[] {
-  const localFields = flattenConfig(local)
-  const remoteFields = flattenConfig(remote)
+  const separateProviders = haveMatchingProviderLists(
+    providerContext ? [local, remote, providerContext] : [local, remote]
+  )
+  const localFields = flattenConfig(local, separateProviders)
+  const remoteFields = flattenConfig(remote, separateProviders)
   const paths = new Set([...localFields.keys(), ...remoteFields.keys()])
   const diffs: SettingsFieldDifference[] = []
   for (const path of [...paths].sort()) {
@@ -164,20 +206,35 @@ export function mergeSettings(
   selections: Record<string, 'local' | 'remote'>
 ): SettingsConfig {
   const remoteFields = flattenConfig(remote)
-  const merged = structuredClone(local) as unknown as Record<string, unknown>
+  const merged = structuredClone(local)
+  let providersChanged = false
   for (const [path, choice] of Object.entries(selections)) {
     if (isLocalOnlySettingPath(path)) continue
     if (choice !== 'remote') continue
-    if (remoteFields.has(path)) {
-      setByPath(merged, path, structuredClone(remoteFields.get(path)))
-    } else {
-      deleteByPath(merged, path)
+    if (path.startsWith('providers[')) {
+      const index = merged.providers.findIndex((provider) => providerFieldPath(provider) === path)
+      const remoteProvider = (remoteFields.get('providers') as ProviderConfig[]).find(
+        (provider) => providerFieldPath(provider) === path
+      )
+      if (index < 0 || !remoteProvider || merged.providers[index].id !== remoteProvider.id) {
+        throw new Error(`Provider no longer exists for settings field "${path}"`)
+      }
+      merged.providers[index] = structuredClone(remoteProvider)
+      providersChanged = true
+      continue
     }
+    if (remoteFields.has(path)) {
+      setByPath(
+        merged as unknown as Record<string, unknown>,
+        path,
+        structuredClone(remoteFields.get(path))
+      )
+    } else {
+      deleteByPath(merged as unknown as Record<string, unknown>, path)
+    }
+    if (path === 'providers') providersChanged = true
   }
-  const result = merged as unknown as SettingsConfig
-  return selections['providers'] === 'remote'
-    ? preserveLocalCodexSessionPaths(local, result)
-    : result
+  return providersChanged ? preserveLocalCodexSessionPaths(local, merged) : merged
 }
 
 /** OAuth session files are device-local, even when the provider configuration is synced. */

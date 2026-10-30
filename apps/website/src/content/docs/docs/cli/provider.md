@@ -38,8 +38,8 @@ yachiyo provider update my-openai --payload '{"baseUrl":"https://proxy.internal/
 ```
 
 Supplying an `apiKey` or Vertex private key writes it to this device's encrypted
-vault. Provider credentials are not synced, so configure them separately on each
-device.
+vault. With [sync](/docs/guides/sync/) enabled, joined devices exchange credentials
+automatically using negotiated encryption keys.
 
 ## `provider set-default`
 

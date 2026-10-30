@@ -67,7 +67,8 @@ The path flags exist so you can point the CLI at an isolated workspace. Setting
 
 Every command replaces `apiKey` values with `***` before printing, including
 `yachiyo config get`. Provider API keys are stored in the encrypted,
-device-local credential vault rather than `config.toml`, and are not synced.
+device-local credential vault rather than `config.toml`. With [sync](/docs/guides/sync/)
+enabled, they are exchanged between joined devices in encrypted snapshots.
 
 Channel bot tokens in `channels.toml` are **not** covered by that redaction.
 

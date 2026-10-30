@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import type { SyncConflictRecord } from '@yachiyo/shared/protocol'
+import type { ProviderConfig, SyncConflictRecord } from '@yachiyo/shared/protocol'
+import { stringifySettingsToml } from '../../../settings/settingsTomlCodec.ts'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
 import type { YachiyoStorage } from '../../../storage/storage.ts'
 import { YachiyoServer } from '../YachiyoServer.ts'
@@ -155,6 +156,101 @@ test('settings changes on different fields merge without asking the user', async
       const text = await readFile(settingsPath, 'utf8')
       assert.match(text, /chatFontSize = 18/)
       assert.match(text, /chatPanelOpacity = 0\.36/)
+    }
+  )
+})
+
+test('changes to different providers sync without discarding either device edits', async () => {
+  const providers: ProviderConfig[] = ['first', 'second'].map((id) => ({
+    id,
+    name: id,
+    type: 'openai',
+    apiKey: '',
+    baseUrl: 'https://original.example/v1',
+    modelList: { enabled: ['original-model'], disabled: [] }
+  }))
+  const local = structuredClone(providers)
+  local[0].baseUrl = 'https://local.example/v1'
+  const remote = structuredClone(providers)
+  remote[1].modelList.enabled = ['remote-model']
+
+  await withSnapshotConflict(
+    'disjoint-providers',
+    stringifySettingsToml({ providers: local }),
+    stringifySettingsToml({ providers: remote }),
+    stringifySettingsToml({ providers }),
+    async (server, _settingsPath, pending) => {
+      assert.equal(pending().length, 0)
+      const merged = await server.getConfig()
+      assert.equal(merged.providers[0].baseUrl, 'https://local.example/v1')
+      assert.deepEqual(merged.providers[1].modelList.enabled, ['remote-model'])
+    }
+  )
+})
+
+test('keeping a conflicting provider still syncs changes to another provider', async () => {
+  const providers: ProviderConfig[] = ['first', 'second'].map((id) => ({
+    id,
+    name: id,
+    type: 'openai',
+    apiKey: '',
+    baseUrl: 'https://original.example/v1',
+    modelList: { enabled: ['original-model'], disabled: [] }
+  }))
+  const local = structuredClone(providers)
+  local[0].baseUrl = 'https://local.example/v1'
+  const remote = structuredClone(providers)
+  remote[0].baseUrl = 'https://remote.example/v1'
+  remote[1].modelList.enabled = ['remote-model']
+
+  await withSnapshotConflict(
+    'overlapping-providers',
+    stringifySettingsToml({ providers: local }),
+    stringifySettingsToml({ providers: remote }),
+    stringifySettingsToml({ providers }),
+    async (server, _settingsPath, pending) => {
+      assert.equal(pending().length, 1)
+      const { conflicts } = await server.listSyncConflicts()
+      assert.deepEqual(
+        conflicts[0].settingsFields?.map(({ path }) => path),
+        ['providers[first]']
+      )
+      await server.resolveSyncConflict({
+        conflictId: 'overlapping-providers',
+        resolution: 'keep_local'
+      })
+      const merged = await server.getConfig()
+      assert.equal(merged.providers[0].baseUrl, 'https://local.example/v1')
+      assert.deepEqual(merged.providers[1].modelList.enabled, ['remote-model'])
+      assert.equal(pending().length, 0)
+    }
+  )
+})
+
+test('provider deletion concurrent with a provider edit remains a conflict', async () => {
+  const provider: ProviderConfig = {
+    id: 'provider',
+    name: 'Provider',
+    type: 'openai',
+    apiKey: '',
+    baseUrl: 'https://original.example/v1',
+    modelList: { enabled: ['original-model'], disabled: [] }
+  }
+  await withSnapshotConflict(
+    'deleted-provider',
+    stringifySettingsToml({ providers: [{ ...provider, baseUrl: 'https://local.example/v1' }] }),
+    stringifySettingsToml({ providers: [] }),
+    stringifySettingsToml({ providers: [provider] }),
+    async (server, _settingsPath, pending) => {
+      assert.equal(pending().length, 1)
+      const { conflicts } = await server.listSyncConflicts()
+      assert.deepEqual(
+        conflicts[0].settingsFields?.map(({ path }) => path),
+        ['providers']
+      )
+      assert.equal((await server.getConfig()).providers[0].baseUrl, 'https://local.example/v1')
+      await server.resolveSyncConflict({ conflictId: 'deleted-provider', resolution: 'use_remote' })
+      assert.deepEqual((await server.getConfig()).providers, [])
     }
   )
 })

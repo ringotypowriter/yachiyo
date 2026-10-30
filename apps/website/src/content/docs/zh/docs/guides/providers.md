@@ -112,6 +112,6 @@ yachiyo provider set-default openai --model <model-name>
 
 细节见 [`provider` 命令行参考](/zh/docs/cli/provider/)。
 
-:::note[每台设备单独保存供应商凭据]
-模型供应商 API key 和 Vertex 私钥不存进 `config.toml`，也不参与同步。请在每台设备上分别配置。命令行输出也会把 API key 值替换成 `***`。
+:::note[供应商凭据加密同步]
+模型供应商 API key 和 Vertex 私钥保存在各设备的本机凭据库，不存进 `config.toml`。启用同步后，已加入的设备会自动协商密钥、加密传输凭据，无需额外密码或导入步骤。Codex OAuth 登录文件仍由各设备单独管理。命令行输出会把 API key 值替换成 `***`。
 :::

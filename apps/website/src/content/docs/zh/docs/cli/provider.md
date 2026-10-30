@@ -34,7 +34,7 @@ yachiyo provider update my-openai --payload '{"apiKey":"sk-..."}'
 yachiyo provider update my-openai --payload '{"baseUrl":"https://proxy.internal/v1"}'
 ```
 
-提供 `apiKey` 或 Vertex 私钥时，它会写入当前设备的加密凭据库。供应商凭据不会同步，因此每台设备都需要单独配置。
+提供 `apiKey` 或 Vertex 私钥时，它会写入当前设备的加密凭据库。开启[同步](/zh/docs/guides/sync/)后，已加入的设备会自动协商密钥并加密传输凭据。
 
 ## `provider set-default`
 

@@ -24,8 +24,70 @@ it('ignores Codex OAuth path differences while syncing other provider settings',
   remote.providers[0].codexFastMode = true
   assert.deepEqual(
     diffSettings(local, remote).map(({ path }) => path),
-    ['providers']
+    ['providers[Codex]']
   )
+})
+
+it('merges one provider without replacing other providers or importing credentials', () => {
+  const local = config({
+    providers: [
+      { ...codexProvider, codexFastMode: true },
+      { ...codexProvider, id: 'custom.provider]', name: 'Custom [OAuth]', apiKey: 'local-key' }
+    ]
+  })
+  const remote = structuredClone(local)
+  remote.providers[0].codexFastMode = false
+  remote.providers[1].modelList.enabled = ['remote-model']
+  remote.providers[1].apiKey = 'remote-key'
+  remote.providers[1].codexSessionPath = '/remote/auth.json'
+  const before = structuredClone(local)
+  const diffs = diffSettings(local, remote)
+  const field = diffs.find(({ path }) => path === 'providers[Custom [OAuth]]')!
+  const merged = mergeSettings(local, remote, { [field.path]: 'remote' })
+
+  assert.equal(merged.providers[0].codexFastMode, true)
+  assert.equal(merged.providers[1].id, 'custom.provider]')
+  assert.deepEqual(merged.providers[1].modelList.enabled, ['remote-model'])
+  assert.equal(merged.providers[1].codexSessionPath, '/local/auth.json')
+  assert.equal(merged.providers[1].apiKey, '')
+  assert.doesNotMatch(JSON.stringify(diffs), /local-key|remote-key|auth\.json/)
+  assert.deepEqual(local, before)
+})
+
+it('rejects a provider choice after the provider was replaced with a different identity', () => {
+  const local = config({ providers: [codexProvider] })
+  const remote = config({ providers: [{ ...codexProvider, codexFastMode: true }] })
+  const [field] = diffSettings(local, remote)
+  local.providers = [{ ...codexProvider, id: 'replacement' }]
+
+  assert.throws(() => mergeSettings(local, remote, { [field.path]: 'remote' }), /no longer exists/)
+  assert.equal(local.providers[0].id, 'replacement')
+  assert.equal(local.providers[0].codexFastMode, undefined)
+})
+
+it('keeps provider list changes atomic across all three snapshots', () => {
+  const second = { ...codexProvider, id: 'second', name: 'Second' }
+  const base = config({ providers: [codexProvider, second] })
+  const local = structuredClone(base)
+  local.providers[0].codexFastMode = true
+
+  for (const providers of [
+    [codexProvider],
+    [codexProvider, second, { ...codexProvider, id: 'new', name: 'New' }],
+    [{ ...codexProvider, name: 'Renamed' }, second],
+    [second, codexProvider],
+    [{ ...codexProvider, id: 'replacement' }, second]
+  ]) {
+    const remote = config({ providers })
+    assert.deepEqual(
+      diffSettingsForResolution(base, local, remote).map(({ path }) => path),
+      ['providers']
+    )
+    assert.deepEqual(
+      diffSettingsForResolution(base, remote, local).map(({ path }) => path),
+      ['providers']
+    )
+  }
 })
 
 it('keeps OAuth paths attached to local provider identities during a remote merge', () => {

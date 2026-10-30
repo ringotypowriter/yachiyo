@@ -5,6 +5,9 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
 
+import { syncProviderCredentials } from '../../services/providerCredentialSync.ts'
+import type { ProviderCredentialVault } from '../../settings/providerCredentialVault.ts'
+
 import type {
   BootstrapPayload,
   BackgroundTaskLogSnapshot,
@@ -359,6 +362,8 @@ export class YachiyoServer {
   private readonly developmentMode: boolean
   private readonly remoteImageDomain: ReturnType<typeof createRemoteImageDomain>
   private readonly settingsPath: string
+  private readonly providerCredentialVault: ProviderCredentialVault | undefined
+  private providerCredentialSyncError: string | undefined
   private readonly unsubscribePythonEnvironmentStatus: () => void
   private pythonEnvironmentStatus: ManagedPythonEnvironmentStatus | undefined
   private pythonEnvironmentStatusRequest: Promise<ManagedPythonEnvironmentStatus> | undefined
@@ -375,6 +380,7 @@ export class YachiyoServer {
     this.processBroker = options.processBroker ?? new NativeProcessBroker()
 
     this.settingsPath = options.settingsPath ?? resolveYachiyoSettingsPath()
+    this.providerCredentialVault = options.providerCredentialVault
     const settingsStore = createSettingsStore(this.settingsPath, {
       seedPresetProviders: options.seedPresetProviders,
       providerCredentialVault: options.providerCredentialVault
@@ -853,7 +859,10 @@ export class YachiyoServer {
         '--sync-dir',
         syncDir
       ])
-      return parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir).status
+      const status = parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir).status
+      return this.providerCredentialSyncError
+        ? { ...status, state: 'needs_attention', lastError: this.providerCredentialSyncError }
+        : status
     } catch (reason) {
       return {
         state: 'needs_attention',
@@ -937,6 +946,7 @@ export class YachiyoServer {
     syncDir: string,
     recommendedSyncDir: string
   ): Promise<SyncStatus> {
+    const previousConfig = this.configDomain.getConfig()
     const { stdout: exportStdout } = await execFileAsync(binary, [
       'export',
       '--home',
@@ -962,8 +972,35 @@ export class YachiyoServer {
     }
     this.reconcileSyncConflicts()
     this.emitSyncedThreadRefreshes(changedThreadIds)
+    try {
+      this.syncProviderCredentials(status)
+    } finally {
+      this.configDomain.refreshSyncedConfig(previousConfig)
+    }
     // The binary's own count predates reconciliation; report the live count.
     return { ...status, pendingConflictCount: this.storage.countPendingSyncConflicts() }
+  }
+
+  private syncProviderCredentials(status: SyncStatus): void {
+    if (!status.deviceId || !this.providerCredentialVault) return
+    try {
+      syncProviderCredentials({
+        home: dirname(this.settingsPath),
+        syncDir: status.syncDir,
+        deviceId: status.deviceId,
+        vault: this.providerCredentialVault,
+        providerIds: this.configDomain.getConfig().providers.map((provider) => {
+          if (!provider.id) throw new Error(`Provider "${provider.name}" is missing a stable id`)
+          return provider.id
+        }),
+        apply: (credentials) => this.configDomain.applySyncedProviderCredentials(credentials)
+      })
+      this.providerCredentialSyncError = undefined
+    } catch (error) {
+      this.providerCredentialSyncError =
+        error instanceof Error ? error.message : 'Failed to sync provider credentials'
+      throw error
+    }
   }
 
   private emitCustomSkillsDisclosure(): void {
@@ -1059,11 +1096,11 @@ export class YachiyoServer {
       let autoSelections: Record<string, 'remote'> = {}
       if (base) {
         const localEdits = new Set(
-          diffSettingsForResolution(base, local).map((field) => field.path)
+          diffSettingsForResolution(base, local, remote).map((field) => field.path)
         )
-        const remoteEdits = diffSettingsForResolution(base, remote)
+        const remoteEdits = diffSettingsForResolution(base, remote, local)
         const differing = new Set(
-          diffSettingsForResolution(local, remote).map((field) => field.path)
+          diffSettingsForResolution(local, remote, base).map((field) => field.path)
         )
         const overlapping = remoteEdits.some(
           (field) => localEdits.has(field.path) && differing.has(field.path)
@@ -1199,11 +1236,15 @@ export class YachiyoServer {
     local: SettingsConfig,
     remote: SettingsConfig
   ): ReturnType<typeof diffSettingsForResolution> {
-    const fields = diffSettingsForResolution(local, remote)
     const base = this.parseConflictBaseSettings(conflict)
+    const fields = diffSettingsForResolution(local, remote, base ?? undefined)
     if (!base) return fields
-    const localEdits = new Set(diffSettingsForResolution(base, local).map(({ path }) => path))
-    const remoteEdits = new Set(diffSettingsForResolution(base, remote).map(({ path }) => path))
+    const localEdits = new Set(
+      diffSettingsForResolution(base, local, remote).map(({ path }) => path)
+    )
+    const remoteEdits = new Set(
+      diffSettingsForResolution(base, remote, local).map(({ path }) => path)
+    )
     return fields.filter(({ path }) => localEdits.has(path) && remoteEdits.has(path))
   }
 
@@ -1250,8 +1291,10 @@ export class YachiyoServer {
 
     const base = remote && this.parseConflictBaseSettings(conflict)
     if (remote && base) {
-      const localEdits = new Set(diffSettingsForResolution(base, local).map(({ path }) => path))
-      for (const { path } of diffSettingsForResolution(base, remote)) {
+      const localEdits = new Set(
+        diffSettingsForResolution(base, local, remote).map(({ path }) => path)
+      )
+      for (const { path } of diffSettingsForResolution(base, remote, local)) {
         if (!localEdits.has(path)) fieldSelections[path] = 'remote'
       }
     }

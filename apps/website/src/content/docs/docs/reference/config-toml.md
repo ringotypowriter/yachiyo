@@ -232,8 +232,9 @@ Preset thread launchers.
 | `order`         | `number`               | Sort position                    |
 
 :::caution
-Model-provider secrets are not stored in this file; their encrypted vault stays
-on this device and is not synced. `config.toml` can still contain other secrets,
-including `webSearch.exa.apiKey`, and [sync](/docs/guides/sync/) copies the file.
+Model-provider secrets are not stored in this file. [Sync](/docs/guides/sync/)
+exchanges them in encrypted snapshots and keeps each device's vault key local.
+`config.toml` can still contain other secrets, including `webSearch.exa.apiKey`,
+and sync copies the file.
 Do not commit it or put it in a shared folder.
 :::

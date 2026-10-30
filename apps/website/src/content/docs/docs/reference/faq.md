@@ -103,7 +103,8 @@ diff.
 
 Model-provider API keys and Vertex private keys are encrypted in a device-local
 vault protected by the operating system. They are not written to `config.toml`
-or copied by [sync](/docs/guides/sync/). CLI output redacts API keys.
+and travel between joined devices only as encrypted snapshots when [sync](/docs/guides/sync/)
+is enabled. Devices negotiate encryption keys automatically. CLI output redacts API keys.
 
 Other secrets have separate rules: the Exa web-search key can live in
 `config.toml`, while channel credentials live in `channels.toml`. Keep both
