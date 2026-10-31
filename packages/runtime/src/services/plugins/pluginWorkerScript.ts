@@ -1,11 +1,29 @@
 import { normalizePluginValue } from './pluginWire.ts'
+import { PLUGIN_HOOK_NAMES } from './pluginContract.ts'
 
 // A self-contained worker also runs from the bundled desktop and headless servers.
 export const PLUGIN_WORKER_SCRIPT = String.raw`
 const { parentPort } = require('node:worker_threads')
 const normalizePluginValue = ${normalizePluginValue.toString()}
 const plugins = []
-const hookNames = new Set(['beforeModel', 'beforeTool', 'afterTool'])
+const hookNames = new Set(${JSON.stringify(PLUGIN_HOOK_NAMES)})
+const stateCalls = new Map()
+let nextStateId = 0
+
+function createApi(request) {
+  const call = (input) => {
+    const stateId = ++nextStateId
+    const promise = new Promise((resolve, reject) => {
+      stateCalls.set(stateId, { resolve, reject })
+      parentPort.postMessage({ type: 'state', id: request.id, stateId, input })
+    })
+    return promise
+  }
+  return { state: {
+    read: (scope, key) => call({ operation: 'read', scope, key }),
+    write: (scope, key, expectedVersion, value) => call({ operation: 'write', scope, key, expectedVersion, value })
+  } }
+}
 
 function assertObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -46,10 +64,18 @@ async function initialize(sources) {
 }
 
 parentPort.on('message', async (request) => {
+  if (request.type === 'state-result') {
+    const call = stateCalls.get(request.stateId)
+    if (!call) return
+    stateCalls.delete(request.stateId)
+    if (request.error !== undefined) call.reject(new Error(request.error))
+    else call.resolve(request.value)
+    return
+  }
   try {
     const value = request.type === 'initialize'
       ? await initialize(request.sources)
-      : await plugins[request.pluginIndex].hooks[request.hook](request.event)
+      : await plugins[request.pluginIndex].hooks[request.hook](request.event, createApi(request))
     parentPort.postMessage({ id: request.id, value: normalizePluginValue(value) })
   } catch (error) {
     parentPort.postMessage({

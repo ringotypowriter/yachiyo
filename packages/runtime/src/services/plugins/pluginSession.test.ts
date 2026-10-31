@@ -147,7 +147,7 @@ test('blocking a tool prevents its side effect and afterTool can observe success
       }
     }
   }
-  applyPluginToolHooks(tools, session, context, signal)
+  applyPluginToolHooks(tools, () => ({ session, context, signal }))
   const execute = async (blocked: boolean): Promise<unknown[]> => {
     const output: unknown = Reflect.apply(tools.write.execute!, tools.write, [
       { blocked },
@@ -194,7 +194,7 @@ test('streaming tools preserve every result and report errors to afterTool', asy
       }
     }
   }
-  applyPluginToolHooks(tools, session, context, signal)
+  applyPluginToolHooks(tools, () => ({ session, context, signal }))
   const items: unknown[] = []
   await assert.rejects(async () => {
     const result: unknown = Reflect.apply(tools.read.execute!, tools.read, [

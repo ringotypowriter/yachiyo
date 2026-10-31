@@ -19,6 +19,16 @@ import type {
 } from './subagentManager.ts'
 import { SubagentTurnError } from './subagentManager.ts'
 import { createWorkerHistoryCompactor } from './workerSubagentCompaction.ts'
+import {
+  startPluginRun,
+  finishPluginRun,
+  createPluginModelHooks
+} from '../../../services/plugins/pluginHarness.ts'
+import {
+  applyPluginToolHooks,
+  type PluginToolInvocation
+} from '../../../services/plugins/pluginToolHooks.ts'
+import type { PluginRunSnapshot } from '../../../services/plugins/pluginTypes.ts'
 import { createWorkerTranscriptRecorder } from './workerTranscriptRecorder.ts'
 import {
   ReadRecordCache,
@@ -107,6 +117,7 @@ function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunne
   const parentToolContextInput = input.dependencies.parentToolContext
   const parentDependenciesInput = input.dependencies.parentDependencies
   const parentDependencies: AgentToolDependencies = {
+    readConfig: parentDependenciesInput.readConfig,
     unavailableTools: parentDependenciesInput.unavailableTools,
     ...(parentDependenciesInput.availableSkills
       ? { availableSkills: [...parentDependenciesInput.availableSkills] }
@@ -333,6 +344,13 @@ function createWorkerRunner(
       ? { taskContext: workerTaskContext }
       : {})
   } as AgentToolDependencies
+  let pluginInvocation: PluginToolInvocation | undefined
+  let pluginConfig = config
+  const pluginsAllowed = input.dependencies.parentToolContext.sandboxed !== true
+  if (pluginsAllowed && (config || parentDependenciesInput.readConfig)) {
+    workerDependencies.applyToolHooks = (tools) =>
+      applyPluginToolHooks(tools, () => pluginInvocation)
+  }
   const tools = createAgentToolSet(workerContext, workerDependencies)
   const workerSettings = config
     ? toSubagentProviderSettings(config, launch.agentType, settings)
@@ -356,7 +374,11 @@ function createWorkerRunner(
           systemPrompt: workerSystemPrompt,
           thresholdTokens:
             config?.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
-          toolCount: Object.keys(tools ?? {}).length
+          toolCount: Object.keys(tools ?? {}).length,
+          getPlugins: () =>
+            pluginInvocation && pluginConfig
+              ? { ...pluginInvocation, config: pluginConfig }
+              : undefined
         })
   let previousPromptTokens: number | undefined
 
@@ -386,7 +408,39 @@ function createWorkerRunner(
       let compactionPromptTokens = 0
       let compactionCompletionTokens = 0
       let hasCompactionUsage = false
+      const pluginSnapshot: PluginRunSnapshot = {}
+      let pluginStatus = 'failed'
       try {
+        pluginConfig = parentDependenciesInput.readConfig?.() ?? config
+        if (pluginsAllowed && pluginConfig) {
+          const context = {
+            runId: turn.turnId,
+            threadId: launch.parentThreadId,
+            workspacePath: launch.workspacePath,
+            runMode: workerRunMode ?? ('custom' as const),
+            purpose: 'subagent' as const
+          }
+          const session = await startPluginRun({
+            snapshot: pluginSnapshot,
+            config: pluginConfig,
+            context,
+            maxSteps: profileSnapshot.maxToolSteps ?? 999,
+            signal: turn.signal
+          })
+          if (session) {
+            pluginInvocation = { session, context, signal: turn.signal }
+            for (const message of turnMessages) {
+              if (message.role !== 'user' || typeof message.content !== 'string') continue
+              const transformed = await session.dispatch(
+                'beforeInput',
+                context,
+                { text: message.content },
+                turn.signal
+              )
+              if (transformed) message.content = transformed.text
+            }
+          }
+        }
         const compaction = historyCompactor
           ? await historyCompactor.compactIfNeeded({
               history,
@@ -427,12 +481,21 @@ function createWorkerRunner(
           let historyCommitted = false
           try {
             for await (const delta of modelRuntime.streamReply({
+              ...(pluginInvocation && pluginConfig
+                ? createPluginModelHooks({
+                    ...pluginInvocation,
+                    config: pluginConfig,
+                    toolCount: reportOnly ? 0 : Object.keys(tools ?? {}).length
+                  })
+                : {}),
               messages: history,
               settings: workerSettings,
               signal: turn.signal,
               purpose: `worker:${launch.agentType}`,
               promptCacheKey: `${launch.parentThreadId}:subagent:${launch.agentId}`,
-              maxToolSteps: reportOnly ? 1 : (profileSnapshot.maxToolSteps ?? 999),
+              maxToolSteps: reportOnly
+                ? 1
+                : (pluginSnapshot.maxSteps ?? profileSnapshot.maxToolSteps ?? 999),
               stopWhen:
                 tools && !reportOnly
                   ? [
@@ -602,8 +665,11 @@ function createWorkerRunner(
             : {})
         }
         transcript?.finish(result)
+        pluginStatus = result.yielded ? 'yielded' : 'completed'
         return result
       } catch (error) {
+        pluginStatus = turn.signal.aborted ? 'cancelled' : 'failed'
+        pluginSnapshot.error = error instanceof Error ? error.message : String(error)
         const failure =
           error instanceof SubagentTurnError ||
           (promptTokens === undefined && completionTokens === undefined && !hasCompactionUsage)
@@ -614,6 +680,9 @@ function createWorkerRunner(
               })
         transcript?.fail(failure, turn.signal.aborted)
         throw failure
+      } finally {
+        await finishPluginRun(pluginSnapshot, pluginStatus)
+        pluginInvocation = undefined
       }
     },
     async close(): Promise<void | { snapshotId?: string }> {

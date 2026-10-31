@@ -295,7 +295,8 @@ export function buildRunExecutionDeps(
             context.seamlessHandoffCoordinator!.handoffAtCheckpoint(
               handoffInput.threadId,
               handoffInput.checkpointMessageId,
-              handoffInput.reason
+              handoffInput.reason,
+              handoffInput.pluginSnapshot
             )
         }
       : {}),

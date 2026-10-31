@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { ProviderSettings, ComposerReasoningSelection } from '@yachiyo/shared/protocol'
 import { ToolInputProgress } from './toolInputProgress.ts'
 
 import {
@@ -14,6 +15,9 @@ import { prepareAiSdkMessages } from '../messages/messagePrepare.ts'
 import type {
   ModelMessage,
   ModelRuntime,
+  ModelStreamRequest,
+  ModelStepControl,
+  ModelGenerationOptions,
   ModelToolCall,
   ModelToolCallFinishEvent
 } from './types.ts'
@@ -38,6 +42,7 @@ import type { RuntimeProviderOptions } from '../providers/shared.ts'
 import {
   isContextWindowExceededError,
   isTransientTransportError,
+  PluginExecutionError,
   toRunBoundaryError,
   unwrapResponseStreamError
 } from './runtimeErrors.ts'
@@ -468,69 +473,90 @@ export async function fetchModels(
   return fetchModelsImpl(provider, fetchImpl, dependencies)
 }
 
+async function prepareModelCall(
+  request: ModelStreamRequest,
+  settings: ProviderSettings,
+  messages: ModelMessage[],
+  requestedReasoning: ComposerReasoningSelection | undefined
+): Promise<{
+  settings: ProviderSettings
+  messages: ModelMessage[]
+  providerOptions: RuntimeProviderOptions
+}> {
+  // Resolve Codex OAuth token if using openai-codex provider
+  if (settings.provider === 'openai-codex' && settings.codexSessionPath?.trim()) {
+    const { readCodexSessionAuth } = await import('../providers/codexSessionAuth.ts')
+    const { accessToken, accountId } = await readCodexSessionAuth(settings.codexSessionPath)
+    settings = {
+      ...settings,
+      apiKey: accessToken,
+      ...(accountId ? { codexAccountId: accountId } : {})
+    }
+  }
+
+  assertConfigured(settings)
+  const reasoningEffort = resolveReasoningSelection({
+    provider: settings,
+    model: settings.model,
+    requested: requestedReasoning
+  })
+  settings = {
+    ...settings,
+    reasoningEffort,
+    thinkingEnabled: reasoningEffort !== 'off'
+  }
+
+  const provider = settings.provider
+
+  let preparedMessages = patchReasoningSignatures(
+    prepareAiSdkMessages(messages) as unknown[],
+    provider,
+    settings.model
+  ) as ModelMessage[]
+
+  const baseProviderOptions = createProviderOptions(
+    settings,
+    request.providerOptionsMode ?? 'default',
+    reasoningEffort,
+    request.processingTier ?? 'standard'
+  )
+  // Merge prompt cache key into OpenAI provider options when present.
+  let providerOptions: RuntimeProviderOptions =
+    request.promptCacheKey && 'openai' in baseProviderOptions
+      ? (() => {
+          const openai = (baseProviderOptions as { openai: Record<string, unknown> }).openai
+          return {
+            ...baseProviderOptions,
+            openai: { ...openai, promptCacheKey: request.promptCacheKey }
+          } as typeof baseProviderOptions
+        })()
+      : baseProviderOptions
+
+  // Codex backend requires `instructions` field for system prompt
+  if (settings.provider === 'openai-codex') {
+    const { prepareCodexMessages } = await import('../providers/codexOpenai.ts')
+    const prepared = prepareCodexMessages(preparedMessages, providerOptions)
+    preparedMessages = prepared.messages
+    providerOptions = prepared.options
+  }
+  return { settings, messages: preparedMessages, providerOptions }
+}
+
 export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies = {}): ModelRuntime {
   const resolvedDependencies = resolveAiSdkRuntimeDependencies(dependencies)
 
   return {
     async *streamReply(request) {
-      let settings = request.settings
-
-      // Resolve Codex OAuth token if using openai-codex provider
-      if (settings.provider === 'openai-codex' && settings.codexSessionPath?.trim()) {
-        const { readCodexSessionAuth } = await import('../providers/codexSessionAuth.ts')
-        const { accessToken, accountId } = await readCodexSessionAuth(settings.codexSessionPath)
-        settings = {
-          ...settings,
-          apiKey: accessToken,
-          ...(accountId ? { codexAccountId: accountId } : {})
-        }
-      }
-
-      assertConfigured(settings)
-      const reasoningEffort = resolveReasoningSelection({
-        provider: settings,
-        model: settings.model,
-        requested: request.reasoningEffort
-      })
-      settings = {
-        ...settings,
-        reasoningEffort,
-        thinkingEnabled: reasoningEffort !== 'off'
-      }
-
-      const provider = settings.provider
-
-      let preparedMessages = patchReasoningSignatures(
-        prepareAiSdkMessages(request.messages) as unknown[],
-        provider,
-        settings.model
-      ) as ModelMessage[]
-
-      const baseProviderOptions = createProviderOptions(
-        settings,
-        request.providerOptionsMode ?? 'default',
-        reasoningEffort,
-        request.processingTier ?? 'standard'
+      const initial = await prepareModelCall(
+        request,
+        request.settings,
+        request.messages,
+        request.reasoningEffort
       )
-      // Merge prompt cache key into OpenAI provider options when present.
-      let providerOptions: RuntimeProviderOptions =
-        request.promptCacheKey && 'openai' in baseProviderOptions
-          ? (() => {
-              const openai = (baseProviderOptions as { openai: Record<string, unknown> }).openai
-              return {
-                ...baseProviderOptions,
-                openai: { ...openai, promptCacheKey: request.promptCacheKey }
-              } as typeof baseProviderOptions
-            })()
-          : baseProviderOptions
-
-      // Codex backend requires `instructions` field for system prompt
-      if (settings.provider === 'openai-codex') {
-        const { prepareCodexMessages } = await import('../providers/codexOpenai.ts')
-        const prepared = prepareCodexMessages(preparedMessages, providerOptions)
-        preparedMessages = prepared.messages
-        providerOptions = prepared.options
-      }
+      let { settings, messages: preparedMessages } = initial
+      const { providerOptions } = initial
+      const provider = settings.provider
+      let harnessMessages = request.messages
 
       const purpose = request.purpose ?? 'unspecified'
       const model = request.settings.model
@@ -641,6 +667,42 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         }
 
         const inputAbort = new AbortController()
+        let currentStepMessages = harnessMessages
+        const harnessResponseMessages: unknown[] = []
+        let currentStepSettings = settings
+        let currentStepOptions: ModelGenerationOptions = {
+          ...(request.reasoningEffort !== undefined
+            ? { reasoningEffort: request.reasoningEffort }
+            : {})
+        }
+        let stepControl: ModelStepControl | undefined
+        let currentStepNumber = 0
+        let stopRequested = false
+        const hasStepHooks = Boolean(request.prepareStep || request.onStepEnd)
+        const compactMessages = async (
+          messages: ModelMessage[],
+          threshold: number
+        ): Promise<ModelMessage[]> =>
+          request.compactMessages
+            ? request.compactMessages(messages, threshold)
+            : applyStripCompact(
+                messages,
+                request.tools ? Object.keys(request.tools).length : 0,
+                undefined,
+                threshold
+              )
+        const createStepModel = (
+          stepSettings: ProviderSettings,
+          messages: ModelMessage[]
+        ): ReturnType<typeof createLanguageModel> =>
+          createLanguageModel(stepSettings, resolvedDependencies, request.providerOptionsMode, {
+            onReasoningDelta: interceptReasoningDelta,
+            processingTier: request.processingTier,
+            sessionId: request.promptCacheKey,
+            ...(stepSettings.provider === 'openai'
+              ? { historicalReasoningContents: extractHistoricalReasoningContents(messages) }
+              : {})
+          })
         try {
           const result = resolvedDependencies.streamTextImpl({
             abortSignal: AbortSignal.any([request.signal, inputAbort.signal]),
@@ -649,29 +711,99 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             // after unwrapping transport causes instead of the SDK's HTTP 200 envelope.
             onError: () => {},
             messages: preparedMessages,
-            ...(request.prepareMessages
+            ...(hasStepHooks
               ? {
-                  prepareStep: async ({ messages, stepNumber }) => ({
-                    messages: await request.prepareMessages!({ messages, stepNumber })
-                  })
+                  prepareStep: async ({ stepNumber }) => {
+                    currentStepNumber = stepNumber
+                    if (stepControl?.messages) currentStepMessages = stepControl.messages
+                    if (stepControl?.compact)
+                      currentStepMessages = await compactMessages(currentStepMessages, 1)
+                    stepControl = undefined
+                    const change = await request.prepareStep?.({
+                      messages: currentStepMessages,
+                      stepNumber,
+                      settings: currentStepSettings,
+                      options: currentStepOptions
+                    })
+                    currentStepMessages = change?.messages ?? currentStepMessages
+                    currentStepSettings = change?.settings ?? currentStepSettings
+                    currentStepOptions = { ...currentStepOptions, ...change?.options }
+                    if (stepNumber === 0) harnessMessages = currentStepMessages
+                    const { reasoningEffort, ...sampling } = currentStepOptions
+                    const prepared = await prepareModelCall(
+                      request,
+                      currentStepSettings,
+                      currentStepMessages,
+                      reasoningEffort
+                    )
+                    currentStepSettings = prepared.settings
+                    return {
+                      messages: prepared.messages,
+                      model: createStepModel(prepared.settings, prepared.messages),
+                      providerOptions: prepared.providerOptions,
+                      ...(request.max_token != null
+                        ? {
+                            maxOutputTokens:
+                              prepared.settings.provider === 'gemini' ||
+                              prepared.settings.provider === 'vertex'
+                                ? getGeminiMaxOutputTokens(prepared.settings.model)
+                                : request.max_token +
+                                  extractThinkingBudget(
+                                    prepared.providerOptions,
+                                    prepared.settings
+                                  ) *
+                                    2
+                          }
+                        : {}),
+                      ...sampling
+                    }
+                  },
+                  onStepEnd: async (event) => {
+                    const response = patchReasoningSignatures(
+                      injectStepReasoning(
+                        event.response.messages,
+                        currentStepSettings.provider === 'openai'
+                          ? [stepReasoningChunks[event.stepNumber]?.join('') ?? '']
+                          : []
+                      ),
+                      currentStepSettings.provider,
+                      currentStepSettings.model
+                    ) as ModelMessage[]
+                    harnessResponseMessages.push(...response)
+                    currentStepMessages = [...currentStepMessages, ...response]
+                    stepControl = await request.onStepEnd?.({
+                      stepNumber: event.stepNumber,
+                      text: event.text,
+                      finishReason: event.finishReason,
+                      messages: currentStepMessages,
+                      usage: {
+                        promptTokens: event.usage.inputTokens ?? 0,
+                        completionTokens: event.usage.outputTokens ?? 0
+                      }
+                    })
+                    stopRequested = stepControl?.stop === true
+                    currentStepNumber = event.stepNumber + 1
+                  }
                 }
               : {}),
-            model: createLanguageModel(
-              settings,
-              resolvedDependencies,
-              request.providerOptionsMode,
-              {
-                onReasoningDelta: interceptReasoningDelta,
-                processingTier: request.processingTier,
-                sessionId: request.promptCacheKey,
-                ...(provider === 'openai'
-                  ? {
-                      historicalReasoningContents:
-                        extractHistoricalReasoningContents(preparedMessages)
-                    }
-                  : {})
-              }
-            ),
+            ...(request.transformText
+              ? {
+                  experimental_transform: () =>
+                    new TransformStream({
+                      async transform(part, controller) {
+                        controller.enqueue(
+                          part.type === 'text-delta'
+                            ? {
+                                ...part,
+                                text: await request.transformText!(part.text, currentStepNumber)
+                              }
+                            : part
+                        )
+                      }
+                    })
+                }
+              : {}),
+            model: createStepModel(settings, preparedMessages),
             providerOptions,
             ...(request.max_token != null
               ? {
@@ -685,8 +817,18 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               ? {
                   tools: request.tools,
                   ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
-                  stopWhen:
-                    request.stopWhen ?? isStepCount(request.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
+                  stopWhen: hasStepHooks
+                    ? [
+                        ...(request.stopWhen
+                          ? Array.isArray(request.stopWhen)
+                            ? request.stopWhen
+                            : [request.stopWhen]
+                          : []),
+                        isStepCount(request.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS),
+                        () => stopRequested
+                      ]
+                    : (request.stopWhen ??
+                      isStepCount(request.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS))
                 }
               : {}),
             onToolExecutionStart: trackToolCallStart,
@@ -1028,13 +1170,15 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   ? stepReasoningChunks.map((chunks) => chunks.join(''))
                   : []
                 const enrichedResponseMessages =
-                  Array.isArray(responseMessages) && responseMessages.length > 0
-                    ? patchReasoningSignatures(
-                        injectStepReasoning(responseMessages, perStepReasoning) as unknown[],
-                        provider,
-                        model
-                      )
-                    : undefined
+                  hasStepHooks && harnessResponseMessages.length > 0
+                    ? harnessResponseMessages
+                    : Array.isArray(responseMessages) && responseMessages.length > 0
+                      ? patchReasoningSignatures(
+                          injectStepReasoning(responseMessages, perStepReasoning) as unknown[],
+                          provider,
+                          model
+                        )
+                      : undefined
                 request.onFinish({
                   promptTokens: usage.inputTokens,
                   lastCompletionTokens: usage.outputTokens,
@@ -1085,28 +1229,32 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
           const boundaryError = toRunBoundaryError(error)
           const diagnosticError = unwrapResponseStreamError(error)
           const errorLogMessage = formatErrorForLog(diagnosticError)
+          const failedSettings = currentStepSettings
           console.error(
-            `${llmTag} error provider=${provider} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${errorLogMessage}`
+            `${llmTag} error provider=${failedSettings.provider} model=${failedSettings.model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} committed=${streamCommitted}: ${errorLogMessage}`
           )
+          if (boundaryError instanceof PluginExecutionError) throw boundaryError
 
           // Codex OAuth: force-refresh token on 401 and retry immediately.
           if (
             !streamCommitted &&
-            settings.provider === 'openai-codex' &&
-            settings.codexSessionPath?.trim() &&
+            failedSettings.provider === 'openai-codex' &&
+            failedSettings.codexSessionPath?.trim() &&
             (error as { statusCode?: number }).statusCode === 401 &&
             attempt < RETRY_MAX_ATTEMPTS
           ) {
             try {
               const { readCodexSessionAuth } = await import('../providers/codexSessionAuth.ts')
               const { accessToken, accountId } = await readCodexSessionAuth(
-                settings.codexSessionPath,
+                failedSettings.codexSessionPath,
                 true
               )
-              settings = {
-                ...settings,
-                apiKey: accessToken,
-                ...(accountId ? { codexAccountId: accountId } : {})
+              if (settings.codexSessionPath === failedSettings.codexSessionPath) {
+                settings = {
+                  ...settings,
+                  apiKey: accessToken,
+                  ...(accountId ? { codexAccountId: accountId } : {})
+                }
               }
               console.warn(`${llmTag} refreshed Codex token after 401, retrying`)
               continue
@@ -1122,15 +1270,14 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             contextStripCompactRetries < CONTEXT_STRIP_COMPACT_MAX_RETRIES &&
             attempt < RETRY_MAX_ATTEMPTS
           ) {
-            const compactedMessages = applyStripCompact(
-              preparedMessages,
-              request.tools ? Object.keys(request.tools).length : 0,
-              undefined,
+            const compactedMessages = await compactMessages(
+              hasStepHooks ? harnessMessages : preparedMessages,
               FORCED_STRIP_COMPACT_TOKEN_THRESHOLD
             )
             if (measurePromptPayload(compactedMessages) < measurePromptPayload(preparedMessages)) {
               contextStripCompactRetries++
               preparedMessages = compactedMessages
+              harnessMessages = compactedMessages
               console.warn(
                 `${llmTag} retrying with context compaction after context-window error ` +
                   `attempt=${contextStripCompactRetries}/${CONTEXT_STRIP_COMPACT_MAX_RETRIES}: ${errorLogMessage}`

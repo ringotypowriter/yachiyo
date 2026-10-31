@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -10,6 +10,9 @@ import { createWorkerSubagentRunnerFactory } from './workerSubagentRunner.ts'
 import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../../settings/namedSubagents.ts'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
 import type { YachiyoStorage } from '../../../storage/storage.ts'
+import type { SettingsConfig } from '@yachiyo/shared/protocol'
+import { DEFAULT_SETTINGS_CONFIG } from '../../../settings/settingsDefaults.ts'
+import { readPluginDiagnostics } from '../../../services/plugins/pluginDiagnostics.ts'
 
 async function withRunner(
   streamReply: ModelRuntime['streamReply'],
@@ -18,13 +21,16 @@ async function withRunner(
   ) => Promise<void>,
   hasPendingMessages: () => boolean = () => false,
   unavailableTools?: readonly string[],
-  sourceQueryStorage?: YachiyoStorage
+  sourceQueryStorage?: YachiyoStorage,
+  config?: SettingsConfig,
+  readConfig?: () => SettingsConfig
 ): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'worker-completion-'))
   const factory = createWorkerSubagentRunnerFactory({
     profileId: 'explore',
     profile: { systemPrompt: 'Inspect and report.', allowedTools: ['read'], maxToolSteps: 4 },
     dependencies: {
+      config,
       settings: {
         providerName: 'test',
         provider: 'openai',
@@ -33,7 +39,7 @@ async function withRunner(
         baseUrl: ''
       },
       parentToolContext: { workspacePath },
-      parentDependencies: { unavailableTools, sourceQueryStorage },
+      parentDependencies: { unavailableTools, sourceQueryStorage, readConfig },
       createModelRuntime: () => ({ streamReply }) as ModelRuntime
     }
   })
@@ -63,6 +69,87 @@ async function withRunner(
     await rm(workspacePath, { recursive: true, force: true })
   }
 }
+
+test('worker turns use plugin input, model, step and lifecycle hooks with their own context', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-worker-plugins-'))
+  const previousHome = process.env.YACHIYO_HOME
+  process.env.YACHIYO_HOME = root
+  t.after(async () => {
+    if (previousHome === undefined) delete process.env.YACHIYO_HOME
+    else process.env.YACHIYO_HOME = previousHome
+    await rm(root, { recursive: true, force: true })
+  })
+  await mkdir(join(root, 'plugins'))
+  await writeFile(
+    join(root, 'plugins', 'worker.js'),
+    `export default {apiVersion: 1, hooks: {
+    runStart({context}) {if (context.purpose !== 'subagent') throw new Error('wrong purpose'); return {maxSteps: 2}},
+    beforeInput({text}) {return {text: text + ':handled'}},
+    beforeModel({messages}) {return {messages: [...messages, {role: 'system', content: 'worker-hook'}]}},
+    afterStep() {return {stop: true}},
+    runEnd() {}
+  }}`
+  )
+  let requests = 0
+  let liveConfig: SettingsConfig = {
+    ...DEFAULT_SETTINGS_CONFIG,
+    plugins: { enabled: ['worker.js'] },
+    chat: { stripCompact: false }
+  }
+  await withRunner(
+    async function* (request) {
+      requests++
+      if (requests === 2) {
+        assert.equal(request.prepareStep, undefined)
+        assert.equal(request.maxToolSteps, 4)
+        yield 'Disabled'
+        return
+      }
+      assert.equal(request.maxToolSteps, 2)
+      assert.ok(
+        request.messages.some(
+          (message) => message.role === 'user' && message.content === 'Inspect:handled'
+        )
+      )
+      assert.ok(request.prepareStep)
+      const prepared = await request.prepareStep({
+        messages: request.messages,
+        settings: request.settings,
+        stepNumber: 0,
+        options: {}
+      })
+      assert.equal(prepared.messages?.at(-1)?.content, 'worker-hook')
+      assert.deepEqual(
+        await request.onStepEnd?.({
+          stepNumber: 0,
+          text: 'Done',
+          finishReason: 'stop',
+          messages: prepared.messages!,
+          usage: { promptTokens: 10, completionTokens: 2 }
+        }),
+        { stop: true }
+      )
+      yield 'Done'
+    },
+    async (runner) => {
+      assert.equal((await runner.runTurn(turn)).output, 'Done')
+      liveConfig = { ...liveConfig, plugins: { enabled: [] } }
+      assert.equal((await runner.runTurn({ ...turn, turnId: 'second' })).output, 'Disabled')
+    },
+    undefined,
+    undefined,
+    undefined,
+    liveConfig,
+    () => liveConfig
+  )
+  assert.equal(requests, 2)
+  const [report] = (await readPluginDiagnostics('worker.js', join(root, 'plugins'))) as Array<{
+    status: string
+    hooks: Array<{ hook: string; calls: number }>
+  }>
+  assert.equal(report.status, 'completed')
+  assert.equal(report.hooks.find((hook) => hook.hook === 'runEnd')?.calls, 1)
+})
 
 const turn = {
   turnId: 'turn',

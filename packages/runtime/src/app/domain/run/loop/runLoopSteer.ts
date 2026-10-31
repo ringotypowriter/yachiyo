@@ -57,6 +57,7 @@ export type HandleSteerPendingResult =
     }
 
 interface HandleSteerPendingInput {
+  pluginSnapshot?: ExecuteRunInput['pluginSnapshot']
   accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
   activeRun: RunState
   carriedToolFailLoopSteers: number
@@ -135,7 +136,8 @@ export async function handleSteerPendingResult(
       const result = await context.seamlessHandoffCoordinator?.handoffAtCheckpoint(
         input.loopInput.thread.id,
         input.result.assistantMessageId,
-        pendingContextHandoff.reason
+        pendingContextHandoff.reason,
+        input.pluginSnapshot
       )
       handoffCompleted = result?.kind === 'completed' || result?.kind === 'already-covered'
     } finally {

@@ -1,4 +1,6 @@
-import type { ProviderSettings } from '@yachiyo/shared/protocol'
+import type { ProviderSettings, SettingsConfig } from '@yachiyo/shared/protocol'
+import type { PluginToolInvocation } from '../../../services/plugins/pluginToolHooks.ts'
+import { createPluginModelHooks } from '../../../services/plugins/pluginHarness.ts'
 import {
   estimateMessageTokenCount,
   estimateTokenCount
@@ -56,6 +58,7 @@ export interface WorkerHistoryCompactor {
 }
 
 export interface CreateWorkerHistoryCompactorInput {
+  getPlugins?: () => (PluginToolInvocation & { config: SettingsConfig }) | undefined
   createModelRuntime: () => ModelRuntime
   settings: ProviderSettings
   systemPrompt: string
@@ -276,11 +279,32 @@ export function createWorkerHistoryCompactor(
 
   return {
     async compactIfNeeded(compactionInput): Promise<WorkerCompactionResult> {
+      const plugins = input.getPlugins?.()
+      const context = plugins ? { ...plugins.context, purpose: 'compaction' as const } : undefined
+      const before =
+        plugins && context
+          ? await plugins.session.dispatch(
+              'beforeCompact',
+              context,
+              {
+                kind: 'handoff',
+                messages: compactionInput.history,
+                thresholdTokens: input.thresholdTokens
+              },
+              compactionInput.signal
+            )
+          : undefined
+      if (before?.messages) compactionInput = { ...compactionInput, history: before.messages }
+      if (before?.skip)
+        return { history: compactionInput.history, promptTokens: 0, completionTokens: 0 }
       const estimatedTokens = Math.max(
         estimateTokenCount(compactionInput.history, input.toolCount),
         compactionInput.previousPromptTokens ?? 0
       )
-      if (estimatedTokens <= input.thresholdTokens) {
+      if (
+        estimatedTokens <= (before?.thresholdTokens ?? input.thresholdTokens) &&
+        !before?.summary
+      ) {
         return {
           history: compactionInput.history,
           promptTokens: 0,
@@ -310,27 +334,46 @@ export function createWorkerHistoryCompactor(
 
       const phase: WorkerCompactionPhase = previousSummary ? 'maintenance' : 'initial'
       const prompt = buildSummaryPrompt(messagesToSummarize, previousSummary)
-      let summary = ''
+      let summary = before?.summary ?? ''
       let promptTokens = 0
       let completionTokens = 0
       const runtime = input.createModelRuntime()
-      for await (const delta of runtime.streamReply({
-        messages: [
-          { role: 'system', content: SUMMARIZATION_SYSTEM_PROMPT },
-          { role: 'user', content: prompt }
-        ],
-        settings: input.settings,
-        signal: compactionInput.signal,
-        purpose: `worker-compaction:${phase}`,
-        max_token: Math.floor(COMPACTION_RESERVE_TOKENS * 0.8),
-        toolChoice: 'none',
-        onFinish: (usage) => {
-          promptTokens = usage.promptTokens
-          completionTokens = usage.completionTokens
+      if (!before?.summary)
+        for await (const delta of runtime.streamReply({
+          ...(plugins && context
+            ? createPluginModelHooks({ ...plugins, context, toolCount: 0 })
+            : {}),
+          messages: [
+            { role: 'system', content: SUMMARIZATION_SYSTEM_PROMPT },
+            { role: 'user', content: prompt }
+          ],
+          settings: input.settings,
+          signal: compactionInput.signal,
+          purpose: `worker-compaction:${phase}`,
+          max_token: Math.floor(COMPACTION_RESERVE_TOKENS * 0.8),
+          toolChoice: 'none',
+          onFinish: (usage) => {
+            promptTokens = usage.promptTokens
+            completionTokens = usage.completionTokens
+          }
+        })) {
+          summary += delta
         }
-      })) {
-        summary += delta
-      }
+
+      const after =
+        plugins && context
+          ? await plugins.session.dispatch(
+              'afterCompact',
+              context,
+              {
+                kind: 'handoff',
+                messages: compactionInput.history,
+                summary
+              },
+              compactionInput.signal
+            )
+          : undefined
+      if (after?.summary) summary = after.summary
 
       const normalizedSummary = summary.trim()
       if (!normalizedSummary)

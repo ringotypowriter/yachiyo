@@ -44,7 +44,7 @@ test('the real SDK loop sees plugin context updated after an existing tool execu
       }
     }
   }
-  applyPluginToolHooks(tools, session, context, signal)
+  applyPluginToolHooks(tools, () => ({ session, context, signal }))
   let calls = 0
   const model = new MockLanguageModelV4({
     doStream: async (options) => {
@@ -110,8 +110,9 @@ test('the real SDK loop sees plugin context updated after an existing tool execu
     },
     tools,
     signal,
-    prepareMessages: ({ messages, stepNumber }) =>
-      session.beforeModel(context, messages, stepNumber, signal)
+    prepareStep: async ({ messages, stepNumber }) => ({
+      messages: await session.beforeModel(context, messages, stepNumber, signal)
+    })
   }))
     text += chunk
   assert.equal(text, 'Done')
@@ -127,6 +128,7 @@ test('context preparation runs before every model step without replacing tools',
       ({ responses: () => ({ modelId: 'test', provider: 'openai.responses' }) }) as never,
     streamTextImpl: ((input: {
       tools?: unknown
+      onStepEnd: (event: unknown) => Promise<void>
       prepareStep: (value: {
         messages: ModelMessage[]
         stepNumber: number
@@ -138,6 +140,13 @@ test('context preparation runs before every model step without replacing tools',
           messages: [{ role: 'user', content: 'first' }],
           stepNumber: 0
         })
+        await input.onStepEnd({
+          stepNumber: 0,
+          text: 'second',
+          finishReason: 'tool-calls',
+          usage: {},
+          response: { messages: [{ role: 'assistant', content: 'second' }] }
+        })
         const second = await input.prepareStep({
           messages: [...first.messages, { role: 'assistant', content: 'second' }],
           stepNumber: 1
@@ -146,7 +155,8 @@ test('context preparation runs before every model step without replacing tools',
           second.messages.map((message) => message.content),
           ['first', 'hook:0', 'second', 'hook:1']
         )
-        assert.deepEqual(Object.keys(second), ['messages'])
+        assert.equal('tools' in second, false)
+        assert.equal('activeTools' in second, false)
         yield 'done'
       })()
     })) as never
@@ -163,9 +173,11 @@ test('context preparation runs before every model step without replacing tools',
     },
     signal: new AbortController().signal,
     tools: tools as never,
-    prepareMessages: async (input) => {
+    prepareStep: async (input) => {
       seen.push(input)
-      return [...input.messages, { role: 'system', content: `hook:${input.stepNumber}` }]
+      return {
+        messages: [...input.messages, { role: 'system', content: `hook:${input.stepNumber}` }]
+      }
     }
   }))
     chunks.push(chunk)

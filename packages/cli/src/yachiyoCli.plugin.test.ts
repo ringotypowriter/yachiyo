@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { runYachiyoCli } from './yachiyoCli.ts'
+import { PluginVersions } from '@yachiyo/runtime/services/plugins/pluginVersions'
 
 test('plugin CLI checks, enables, lists, and disables a broken plugin without executing it', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-plugin-'))
@@ -79,4 +80,49 @@ test('enabling a plugin rejects tool registration and directory traversal', asyn
     ),
     /Invalid plugin filename/
   )
+})
+
+test('plugin CLI trials draft hooks and rolls back active code independently of the draft', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-plugin-versions-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const directory = join(root, 'plugins')
+  await mkdir(directory)
+  await writeFile(join(root, 'config.toml'), '')
+  await writeFile(
+    join(root, 'fixture.json'),
+    JSON.stringify({ events: [{ hook: 'beforeInput', event: { text: 'hello' } }] })
+  )
+  const run = async (...args: string[]): Promise<Record<string, unknown>> => {
+    let output = ''
+    await runYachiyoCli([...args, '--settings', join(root, 'config.toml')], {
+      stdout: {
+        write: (value) => {
+          output += String(value)
+          return true
+        }
+      }
+    })
+    return JSON.parse(output) as Record<string, unknown>
+  }
+  const draft = (text: string): string =>
+    `export default {apiVersion: 1, hooks: {beforeInput() {return {text: '${text}'}}}}`
+  await writeFile(join(directory, 'context.js'), draft('first'))
+  const first = await run('plugin', 'enable', 'context.js')
+  await writeFile(join(directory, 'context.js'), draft('second'))
+  assert.equal(
+    (await new PluginVersions(directory).readEnabled(['context.js']))[0].revision,
+    first.revision
+  )
+  const trial = await run('plugin', 'trial', 'context.js', join(root, 'fixture.json'))
+  assert.deepEqual((trial.events as Array<{ result: unknown }>)[0].result, { text: 'second' })
+  const second = await run('plugin', 'activate', 'context.js')
+  assert.notEqual(first.revision, second.revision)
+  await writeFile(join(directory, 'context.js'), 'broken draft')
+  const restored = await run('plugin', 'rollback', 'context.js')
+  assert.equal(restored.revision, first.revision)
+  assert.equal(restored.enabled, true)
+  const status = await run('plugin', 'status', 'context.js')
+  assert.equal(status.active, first.revision)
+  assert.equal(status.previous, second.revision)
+  assert.equal((status.revisions as string[]).length, 2)
 })

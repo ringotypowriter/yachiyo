@@ -195,6 +195,7 @@ export interface RunExecutionDeps {
   }) => void
   /** Performs an immediate context handoff before the next model request. */
   performContextHandoff?: (input: {
+    pluginSnapshot?: PluginRunSnapshot
     threadId: string
     checkpointMessageId: string
     reason: 'preflight' | 'step-boundary' | 'context-window-error' | string

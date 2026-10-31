@@ -20,6 +20,8 @@ import {
   type SeamlessHandoffCoordinatorDeps
 } from './seamlessHandoffCoordinator.ts'
 import { prepareThreadHandoffContext } from './threadHandoffContext.ts'
+import type { PluginRunSnapshot } from '../../../../services/plugins/pluginTypes.ts'
+import { finishPluginRun } from '../../../../services/plugins/pluginHarness.ts'
 
 function createThread(): ThreadRecord {
   return {
@@ -170,6 +172,73 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances context h
   } finally {
     await rm(workspacePath, { recursive: true, force: true })
   }
+})
+
+test('plugin handoff summaries bypass the provider, and a failing hook cannot advance the watermark', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-plugin-handoff-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+  for (const fails of [false, true]) {
+    const thread = createThread()
+    const requests: ModelStreamRequest[] = []
+    const coordinator = createCoordinator({
+      thread,
+      workspacePath,
+      messages: createSegmentMessages(thread),
+      requests,
+      events: []
+    })
+    const snapshot: PluginRunSnapshot = {
+      directory: join(workspacePath, 'plugins'),
+      sources: [
+        {
+          name: 'summary.js',
+          revision: 'test',
+          source: `export default {apiVersion: 1, hooks: {
+        beforeCompact({kind}) { if (kind === 'handoff') return {summary: 'plugin checkpoint'} },
+        afterCompact({summary}) { ${fails ? "throw new Error('checkpoint failed')" : "return {summary: summary + ': verified'}"} }
+      }}`
+        }
+      ]
+    }
+    if (fails) {
+      await assert.rejects(
+        coordinator.handoffAtCheckpoint(thread.id, 'a2', 'step-boundary', snapshot),
+        /checkpoint failed/
+      )
+      assert.equal(thread.contextHandoffWatermarkMessageId, 'a1')
+    } else {
+      const result = await coordinator.handoffAtCheckpoint(
+        thread.id,
+        'a2',
+        'step-boundary',
+        snapshot
+      )
+      assert.equal(result.kind, 'completed')
+      assert.equal(thread.contextHandoffSummary, 'plugin checkpoint: verified')
+      assert.equal(thread.contextHandoffWatermarkMessageId, 'a2')
+    }
+    assert.equal(requests.length, 0)
+    await finishPluginRun(snapshot, fails ? 'failed' : 'completed')
+  }
+})
+
+test('cancellation after the final summary chunk cannot commit a handoff checkpoint', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-handoff-cancel-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+  const thread = createThread()
+  const coordinator = createCoordinator({
+    thread,
+    workspacePath,
+    messages: createSegmentMessages(thread),
+    requests: [],
+    events: [],
+    streamReply: async function* () {
+      yield 'summary'
+      coordinator.abort()
+    }
+  })
+  await assert.rejects(coordinator.handoffAtCheckpoint(thread.id, 'a2', 'step-boundary'), /abort/i)
+  assert.equal(thread.contextHandoffWatermarkMessageId, 'a1')
 })
 
 test('SeamlessHandoffCoordinator builds summary generation from the shared handoff context prefix', async () => {

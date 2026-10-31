@@ -44,6 +44,7 @@ import { resolveChannelPolicy } from '../../../channels/shared/channelPolicy.ts'
 import { isLatestRunPlanMode } from '@yachiyo/shared/planMode'
 import { RECAP_PROMPT } from './recap/recapPrompt.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
+import { finishPluginRun } from '../../../services/plugins/pluginHarness.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from './execution/runExecutionTypes.ts'
 import { ReadRecordCache } from '../../../tools/agentTools.ts'
 import { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
@@ -1168,6 +1169,7 @@ export class YachiyoServerRunDomain {
 
         if (result.kind === 'steer-pending') {
           const steerResult = await handleSteerPendingResult(this.createRunLoopSteerContext(), {
+            pluginSnapshot,
             accumulatedUsage,
             activeRun,
             carriedToolFailLoopSteers,
@@ -1278,6 +1280,7 @@ export class YachiyoServerRunDomain {
         result = { kind: 'failed' }
       }
     } finally {
+      await finishPluginRun(pluginSnapshot, result.kind)
       // Resolve any dangling recap promise on cancellation/unexpected exit.
       const finalRun = this.activeRuns.get(input.runId)
       if (finalRun?.recapResolve) {

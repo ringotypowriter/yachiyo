@@ -242,6 +242,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           availableWorkspaces: subagentAvailableWorkspaces,
           settings: deps.readSettings(),
           config: input.preparedContext.config,
+          readConfig: deps.readConfig,
           createModelRuntime: deps.createModelRuntime,
           ...(canUseWorkerDelegate
             ? {

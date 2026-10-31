@@ -234,6 +234,8 @@ export interface AgentToolDependencies {
   settings?: ProviderSettings
   /** Full settings config for resolving subagent preferred models. */
   config?: SettingsConfig
+  /** Reads current settings when a long-lived Worker starts another turn. */
+  readConfig?: () => SettingsConfig
   /** Factory for creating a ModelRuntime for worker subagents. */
   createModelRuntime?: () => ModelRuntime
 }

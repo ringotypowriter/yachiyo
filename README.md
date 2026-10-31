@@ -34,7 +34,7 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 
 - **Fully agentic runtime** — Yachiyo can search, read, edit, browse, recall memory, ask follow-up questions, run background shell tasks, and act on your local workspace with file attachments instead of staying a pure chat box.
 - **Built-in general-purpose skills** — Core capabilities like browser work, document handling, spreadsheets, Zotero, terminal control, and CLI self-management ship as reusable skill modules.
-- **Local hook plugins** — Write JS/TS hooks to change model context and observe or block existing tool calls. The assistant can edit and manage them through its existing tools. [Plugin reference](packages/core-skills/core-skills/yachiyo-help/references/plugins.md).
+- **Local hook plugins** — Write JS/TS hooks for context, model calls, compaction and execution flow. Trial edits, keep scoped state, and roll back activated versions through the CLI. [Plugin reference](packages/core-skills/core-skills/yachiyo-help/references/plugins.md).
 - **Worker subagents** — Hand wide searches, plans, reviews, and edits to built-in Explore, Plan, Review, and General workers. Each runs in its own context on the model you choose for it, in parallel when the work splits cleanly, and reports back into the same thread.
 - **Scheduled runs** — Create one-off or cron-based tasks, keep run history, and let Yachiyo execute prompts on its own.
 - **Reply branching** — Messages form a tree. Branch from any turn and navigate alternate replies instead of flattening everything into one timeline.

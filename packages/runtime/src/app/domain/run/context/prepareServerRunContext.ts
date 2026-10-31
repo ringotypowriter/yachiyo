@@ -47,6 +47,9 @@ import { readChannelsConfig } from '../../../../runtime/config/channelsConfig.ts
 import { buildPlanModeReminderSection, ensurePlanDocument } from '../plan/planModeContext.ts'
 import { preprocessImagesForNonVisionModel } from '../../../../runtime/context/contextLayers.ts'
 import { applyStripCompact } from '../../../../runtime/context/contextStripCompact.ts'
+import { compactWithPlugins } from '../../../../services/plugins/pluginHarness.ts'
+import type { PluginSession } from '../../../../services/plugins/pluginSession.ts'
+import type { PluginContext } from '../../../../services/plugins/pluginTypes.ts'
 import type { ModelMessage } from '../../../../runtime/models/types.ts'
 import { readSoulDocument, type SoulDocument } from '../../../../runtime/profiles/soul.ts'
 import { readUserDocument, type UserDocument } from '../../../../runtime/profiles/user.ts'
@@ -181,6 +184,11 @@ export interface PreparedServerRunContext {
 }
 
 export interface PrepareServerRunContextInput {
+  preparePlugins?: (input: {
+    workspacePath: string
+    config: SettingsConfig
+    maxSteps: number
+  }) => Promise<{ session: PluginSession; context: PluginContext; maxSteps: number } | undefined>
   runId: string
   thread: ThreadRecord
   requestMessageId: string
@@ -237,7 +245,7 @@ export async function prepareServerRunContext(
       `[yachiyo] external channel run: user=${channelUser?.username ?? 'unknown'}, role=${channelUser?.role ?? 'guest'}, isGuest=${isGuest}, isOwnerDm=${isOwnerDm}`
     )
   }
-  const maxToolSteps =
+  let maxToolSteps =
     input.maxToolStepsOverride ??
     (isExternalChannel && !isOwnerDm ? EXTERNAL_CHANNEL_MAX_TOOL_STEPS : DEFAULT_MAX_TOOL_STEPS)
   const pyReplAvailable =
@@ -336,6 +344,22 @@ export async function prepareServerRunContext(
   }
 
   const config = deps.readConfig()
+  const plugins =
+    isLocalOrOwnerDm && input.maxToolStepsOverride !== 0
+      ? await input.preparePlugins?.({ workspacePath, config, maxSteps: maxToolSteps })
+      : undefined
+  if (plugins) {
+    maxToolSteps = plugins.maxSteps
+    const transformed = await plugins.session.dispatch(
+      'beforeInput',
+      plugins.context,
+      {
+        text: fileMentionResolution.augmentedUserQuery
+      },
+      input.abortController.signal
+    )
+    if (transformed) fileMentionResolution.augmentedUserQuery = transformed.text
+  }
   const contextTimeZone = config.general?.contextTimeZone || undefined
   let memoryEntries: string[] = []
   let recallDecision: RecallDecisionSnapshot | undefined
@@ -625,8 +649,8 @@ export async function prepareServerRunContext(
     input.runId,
     input.requestMessageId
   )
-  const finalMessages =
-    input.applyStripCompact !== false && stripCompactEnabled
+  let finalMessages =
+    !plugins && input.applyStripCompact !== false && stripCompactEnabled
       ? applyStripCompact(
           messages,
           modelEnabledTools.length,
@@ -634,6 +658,27 @@ export async function prepareServerRunContext(
           config.chat?.stripCompactThresholdTokens
         )
       : messages
+  if (plugins && input.applyStripCompact !== false) {
+    const compacted = await compactWithPlugins({
+      session: plugins.session,
+      context: plugins.context,
+      event: {
+        kind: 'strip',
+        messages,
+        thresholdTokens: config.chat?.stripCompactThresholdTokens,
+        skip: !stripCompactEnabled
+      },
+      signal: input.abortController.signal,
+      compact: (event) =>
+        applyStripCompact(
+          event.messages,
+          modelEnabledTools.length,
+          previousActualPromptTokens,
+          event.thresholdTokens
+        )
+    })
+    finalMessages = compacted.messages
+  }
 
   if (input.emitContextEvents !== false) {
     deps.emit<RunContextCompiledEvent>({

@@ -22,6 +22,13 @@ import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/thread
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
 import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration.ts'
 import { prepareThreadHandoffContext } from './threadHandoffContext.ts'
+import {
+  startPluginRun,
+  finishPluginRun,
+  createPluginModelHooks
+} from '../../../../services/plugins/pluginHarness.ts'
+import type { PluginContext, PluginRunSnapshot } from '../../../../services/plugins/pluginTypes.ts'
+import { PluginExecutionError } from '../../../../runtime/models/runtimeErrors.ts'
 
 export interface StreamCompactThreadHandoffContext {
   deps: RunDomainDeps
@@ -96,6 +103,8 @@ export async function streamCompactThreadHandoff(
     isAborted: () => activeRun.abortController.signal.aborted
   })
 
+  const pluginSnapshot: PluginRunSnapshot = {}
+  let pluginStatus = 'failed'
   try {
     const sourceThread = deps.requireThread(input.sourceThreadId)
     const handoffContext = await prepareThreadHandoffContext({
@@ -109,38 +118,96 @@ export async function streamCompactThreadHandoff(
       abortController: activeRun.abortController
     })
     const { preparedContext } = handoffContext
+    const pluginContext: PluginContext = {
+      runId: input.runId,
+      threadId: input.sourceThreadId,
+      workspacePath: preparedContext.workspacePath,
+      runMode: preparedContext.runMode,
+      purpose: 'compaction'
+    }
+    const plugins =
+      !preparedContext.isExternalChannel || preparedContext.isOwnerDm
+        ? await startPluginRun({
+            snapshot: pluginSnapshot,
+            config,
+            context: pluginContext,
+            maxSteps: preparedContext.maxToolSteps,
+            signal: activeRun.abortController.signal
+          })
+        : undefined
+    const before = await plugins?.dispatch(
+      'beforeCompact',
+      pluginContext,
+      { kind: 'handoff', messages: preparedContext.messages },
+      activeRun.abortController.signal
+    )
+    if (before?.skip) throw new PluginExecutionError('Plugin declined this context handoff')
 
     let handoffUsage: ModelUsage | undefined
-    for await (const delta of runtime.streamReply({
-      messages: preparedContext.messages,
-      settings,
-      signal: activeRun.abortController.signal,
-      purpose: 'thread-handoff',
-      promptCacheKey: input.sourceThreadId,
-      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-      ...(handoffContext.tools
-        ? {
-            tools: handoffContext.tools,
-            stopWhen: handoffContext.stopWhen,
-            onToolCallError: handoffContext.onToolCallError
-          }
-        : {}),
-      onReasoningDelta: (reasoningDelta) => {
-        reasoningDeltaBatcher.push(reasoningDelta)
-      },
-      onFinish: (usage) => {
-        handoffUsage = usage
-      }
-    })) {
-      if (!delta) {
-        continue
-      }
+    if (before?.summary) textDeltaBatcher.push(before.summary)
+    else
+      for await (const delta of runtime.streamReply({
+        ...(plugins
+          ? createPluginModelHooks({
+              session: plugins,
+              context: pluginContext,
+              config,
+              signal: activeRun.abortController.signal,
+              toolCount: Object.keys(handoffContext.tools ?? {}).length
+            })
+          : {}),
+        messages: before?.messages ?? preparedContext.messages,
+        settings,
+        ...(plugins
+          ? {
+              maxToolSteps: Math.min(
+                pluginSnapshot.maxSteps ?? preparedContext.maxToolSteps,
+                preparedContext.maxToolSteps
+              )
+            }
+          : {}),
+        signal: activeRun.abortController.signal,
+        purpose: 'thread-handoff',
+        promptCacheKey: input.sourceThreadId,
+        ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+        ...(handoffContext.tools
+          ? {
+              tools: handoffContext.tools,
+              stopWhen: handoffContext.stopWhen,
+              onToolCallError: handoffContext.onToolCallError
+            }
+          : {}),
+        onReasoningDelta: (reasoningDelta) => {
+          reasoningDeltaBatcher.push(reasoningDelta)
+        },
+        onFinish: (usage) => {
+          handoffUsage = usage
+        }
+      })) {
+        if (!delta) {
+          continue
+        }
 
-      textDeltaBatcher.push(delta)
-    }
+        textDeltaBatcher.push(delta)
+      }
 
     textDeltaBatcher.flush()
     reasoningDeltaBatcher.flush()
+    const after = await plugins?.dispatch(
+      'afterCompact',
+      pluginContext,
+      {
+        kind: 'handoff',
+        messages: before?.messages ?? preparedContext.messages,
+        summary: bufferParts.join('')
+      },
+      activeRun.abortController.signal
+    )
+    if (after?.summary) {
+      bufferParts.splice(0, bufferParts.length, after.summary)
+      if (handoffUsage) handoffUsage = { ...handoffUsage, responseMessages: undefined }
+    }
+    activeRun.abortController.signal.throwIfAborted()
 
     const timestamp = deps.timestamp()
     const handoffResponseMessages =
@@ -276,7 +343,9 @@ export async function streamCompactThreadHandoff(
         threadId: input.thread.id
       })
     }
+    pluginStatus = 'completed'
   } catch (error) {
+    pluginSnapshot.error = error instanceof Error ? error.message : String(error)
     // Drain buffered deltas so cancelled/failed handoff messages include all
     // already-received output, consistent with the main run path.
     textDeltaBatcher.flush()
@@ -285,6 +354,7 @@ export async function streamCompactThreadHandoff(
     const timestamp = deps.timestamp()
     const message = error instanceof Error ? error.message : String(error)
     const wasAborted = activeRuns.get(input.runId)?.abortController.signal.aborted ?? false
+    pluginStatus = wasAborted ? 'cancelled' : 'failed'
 
     if (wasAborted) {
       deps.storage.cancelRun({
@@ -322,5 +392,7 @@ export async function streamCompactThreadHandoff(
         error: message
       })
     }
+  } finally {
+    await finishPluginRun(pluginSnapshot, pluginStatus)
   }
 }

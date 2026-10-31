@@ -41,6 +41,39 @@ export interface ModelToolCallErrorEvent {
 export type ModelProviderOptionsMode = 'default' | 'auxiliary'
 export type ModelProcessingTier = 'standard' | 'priority'
 
+export interface ModelGenerationOptions {
+  temperature?: number
+  topP?: number
+  topK?: number
+  maxOutputTokens?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
+  stopSequences?: string[]
+  seed?: number
+  reasoningEffort?: ComposerReasoningSelection
+}
+
+export interface ModelStepInput {
+  messages: ModelMessage[]
+  stepNumber: number
+  settings: ProviderSettings
+  options: ModelGenerationOptions
+}
+
+export interface ModelStepResult {
+  stepNumber: number
+  text: string
+  finishReason: string
+  messages: ModelMessage[]
+  usage: { promptTokens: number; completionTokens: number }
+}
+
+export interface ModelStepControl {
+  stop?: boolean
+  messages?: ModelMessage[]
+  compact?: boolean
+}
+
 export interface ModelUsage {
   /** Output of the last model call; never accumulated across run legs. */
   lastCompletionTokens?: number
@@ -78,11 +111,11 @@ export interface ModelStreamRequest {
   reasoningEffort?: ComposerReasoningSelection
   maxToolSteps?: number
   tools?: ToolSet
-  /** Transform the context before each model step without changing the tool set. */
-  prepareMessages?: (input: {
-    messages: ModelMessage[]
-    stepNumber: number
-  }) => Promise<ModelMessage[]>
+  /** Only model-call fields are exposed here. The tool set remains owned by the caller. */
+  prepareStep?: (input: ModelStepInput) => Promise<Partial<Omit<ModelStepInput, 'stepNumber'>>>
+  onStepEnd?: (result: ModelStepResult) => Promise<ModelStepControl | undefined>
+  transformText?: (text: string, stepNumber: number) => Promise<string>
+  compactMessages?: (messages: ModelMessage[], thresholdTokens: number) => Promise<ModelMessage[]>
   toolChoice?: ToolChoice<ToolSet>
   onToolCallPreparing?: (event: { toolCallId: string; toolName: string }) => void
   onToolInputDelta?: (event: { toolCallId: string; toolName: string; delta: string }) => void

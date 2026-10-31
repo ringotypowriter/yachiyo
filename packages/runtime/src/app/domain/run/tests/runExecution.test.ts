@@ -10,7 +10,7 @@ import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
 import { executeServerRun } from '../execution/executeServerRun.ts'
 import { mergeRunUsage } from '../execution/runUsage.ts'
 import { formatDateLine } from '../../../../runtime/context/queryReminder.ts'
-import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
+import type { ExecuteRunInput, RunExecutionDeps } from '../execution/runExecutionTypes.ts'
 import { RetryableRunError, toRunBoundaryError } from '../../../../runtime/models/runtimeErrors.ts'
 import { ResponsesWebSocketStreamError } from '../../../../runtime/providers/responsesWebSocket.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
@@ -216,14 +216,16 @@ test('run plugins prepare model context, block existing tools, and stay out of g
       createModelRuntime: () => ({
         streamReply: async function* (request) {
           modelCalls++
-          hookAvailable = request.prepareMessages !== undefined
+          hookAvailable = request.prepareStep !== undefined
           if (source === 'local') {
-            assert.ok(request.prepareMessages)
-            const prepared = await request.prepareMessages({
+            assert.ok(request.prepareStep)
+            const prepared = await request.prepareStep({
               messages: request.messages,
-              stepNumber: 0
+              stepNumber: 0,
+              settings: request.settings,
+              options: {}
             })
-            assert.equal(prepared.at(-1)?.content, 'plugin context')
+            assert.equal(prepared.messages?.at(-1)?.content, 'plugin context')
             assert.notEqual(request.messages.at(-1)?.content, 'plugin context')
             const output: unknown = Reflect.apply(
               request.tools!.write.execute!,
@@ -243,7 +245,7 @@ test('run plugins prepare model context, block existing tools, and stay out of g
         }
       })
     }
-    const result = await executeServerRun(deps, {
+    const execution: ExecuteRunInput = {
       enabledTools: ['write'],
       runMode: 'auto',
       runTrigger: 'local',
@@ -270,7 +272,11 @@ test('run plugins prepare model context, block existing tools, and stay out of g
           }
         ]
       }
+    }
+    t.after(async () => {
+      await execution.pluginSnapshot?.session?.dispose()
     })
+    const result = await executeServerRun(deps, execution)
     assert.equal(result.kind, 'completed')
     assert.equal(modelCalls, 1)
     assert.equal(hookAvailable, source === 'local')

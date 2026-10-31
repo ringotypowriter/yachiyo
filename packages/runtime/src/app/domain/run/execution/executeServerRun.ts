@@ -1,6 +1,10 @@
 import { isStepCount, type StopCondition, type ToolSet } from 'ai'
 import { performance } from 'node:perf_hooks'
-import { readPluginSources } from '../../../../services/plugins/pluginFiles.ts'
+import {
+  createPluginModelHooks,
+  startPluginRun,
+  finishPluginRun
+} from '../../../../services/plugins/pluginHarness.ts'
 import { PluginSession } from '../../../../services/plugins/pluginSession.ts'
 import { applyPluginToolHooks } from '../../../../services/plugins/pluginToolHooks.ts'
 import type { PluginContext } from '../../../../services/plugins/pluginTypes.ts'
@@ -216,6 +220,21 @@ function buildActualToolReminder(input: {
 }
 
 export async function executeServerRun(
+  deps: RunExecutionDeps,
+  input: ExecuteRunInput
+): Promise<ExecuteRunResult> {
+  const snapshot = input.pluginSnapshot ?? {}
+  let status = 'failed'
+  try {
+    const result = await executeServerRunLeg(deps, { ...input, pluginSnapshot: snapshot })
+    status = result.kind
+    return result
+  } finally {
+    if (!input.pluginSnapshot) await finishPluginRun(snapshot, status)
+  }
+}
+
+async function executeServerRunLeg(
   deps: RunExecutionDeps,
   input: ExecuteRunInput
 ): Promise<ExecuteRunResult> {
@@ -478,6 +497,8 @@ export async function executeServerRun(
   let cumulativeCompletionTokens = input.priorUsage?.totalCompletionTokens ?? 0
   let tools: ToolSet | undefined
   let plugins: PluginSession | undefined
+  let pluginContext: PluginContext | undefined
+  const pluginSnapshot = input.pluginSnapshot!
   let streamStartedAt: number | undefined
   const renderUiStreams = new Map<
     string,
@@ -549,6 +570,29 @@ export async function executeServerRun(
 
   const hasPendingSteer = deps.hasPendingSteer
   const buildPrepareInput = (thread: typeof input.thread): PrepareServerRunContextInput => ({
+    preparePlugins: async ({ workspacePath, config, maxSteps }) => {
+      pluginContext = {
+        runId: input.runId,
+        threadId: thread.id,
+        workspacePath,
+        runMode: input.runMode,
+        purpose: 'chat'
+      }
+      plugins = await startPluginRun({
+        snapshot: pluginSnapshot,
+        config,
+        context: pluginContext,
+        maxSteps,
+        signal: input.abortController.signal
+      })
+      return plugins
+        ? {
+            session: plugins,
+            context: pluginContext,
+            maxSteps: Math.min(pluginSnapshot.maxSteps!, maxSteps)
+          }
+        : undefined
+    },
     runId: input.runId,
     thread,
     requestMessageId: input.requestMessageId,
@@ -600,6 +644,7 @@ export async function executeServerRun(
       if (!checkpointMessageId) return prepared
 
       const result = await deps.performContextHandoff({
+        pluginSnapshot,
         threadId: thread.id,
         checkpointMessageId,
         reason: 'preflight'
@@ -624,29 +669,6 @@ export async function executeServerRun(
     })
     const { workspacePath, maxToolSteps } = preparedContext
     let finalMessages = preparedContext.messages
-    const pluginContext: PluginContext = {
-      runId: input.runId,
-      threadId: input.thread.id,
-      workspacePath,
-      runMode: preparedContext.runMode
-    }
-    const pluginSnapshot = input.pluginSnapshot ?? {}
-    const canUsePlugins =
-      (!preparedContext.isExternalChannel || preparedContext.isOwnerDm) &&
-      input.maxToolStepsOverride !== 0
-    if (pluginSnapshot.sources === undefined) {
-      pluginSnapshot.sources = canUsePlugins
-        ? await readPluginSources(preparedContext.config.plugins?.enabled ?? [])
-        : []
-    }
-    if (canUsePlugins && pluginSnapshot.sources.length > 0) {
-      plugins = await PluginSession.create(pluginSnapshot.sources, {
-        signal: input.abortController.signal
-      })
-      console.log(
-        `[yachiyo][plugins] run=${input.runId} ${plugins.descriptors.map((plugin) => `${plugin.name}@${plugin.revision.slice(0, 12)}`).join(', ')}`
-      )
-    }
     if (!snapshotTracker) {
       snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
       snapshotTracker.startBaselineScan()
@@ -657,7 +679,11 @@ export async function executeServerRun(
       ...(plugins
         ? {
             applyToolHooks: (toolSet) =>
-              applyPluginToolHooks(toolSet, plugins!, pluginContext, input.abortController.signal)
+              applyPluginToolHooks(toolSet, () => ({
+                session: plugins!,
+                context: pluginContext!,
+                signal: input.abortController.signal
+              }))
           }
         : {}),
       advanceAgentStep,
@@ -748,15 +774,13 @@ export async function executeServerRun(
     const stream = runtime.streamReply({
       messages: finalMessages,
       ...(plugins
-        ? {
-            prepareMessages: ({ messages, stepNumber }) =>
-              plugins!.beforeModel(
-                pluginContext,
-                messages,
-                stepNumber,
-                input.abortController.signal
-              )
-          }
+        ? createPluginModelHooks({
+            session: plugins,
+            context: pluginContext!,
+            config: preparedContext.config,
+            signal: input.abortController.signal,
+            toolCount: actualEnabledTools.length
+          })
         : {}),
       settings,
       signal: input.abortController.signal,
@@ -1286,6 +1310,8 @@ export async function executeServerRun(
       toolLifecycle
     })
   } catch (error) {
+    if (pluginSnapshot.context)
+      pluginSnapshot.error = error instanceof Error ? error.message : String(error)
     clearRenderUiStreams(true)
     deckSummaries?.close()
     flushDeltas()
@@ -1359,7 +1385,6 @@ export async function executeServerRun(
     })
   } finally {
     clearRenderUiStreams(false)
-    await plugins?.dispose()
     await disposeAgentToolSet(tools).catch(() => {})
   }
 }

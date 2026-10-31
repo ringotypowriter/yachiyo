@@ -13,8 +13,13 @@ export const NAMESPACE_HELP: Record<string, string> = {
 
   plugin list                            List local hook plugins and enabled state.
   plugin check <filename>                Load a JS/TS plugin and validate its hook exports.
-  plugin enable <filename>               Check and enable a plugin for the next run.
+  plugin trial <filename> <fixture.json>  Execute hook events with temporary managed state.
+  plugin enable <filename>               Check, pin and enable a version for the next run.
+  plugin activate <filename>             Publish an edited draft and enable it.
   plugin disable <filename>              Disable a plugin without loading its code.
+  plugin status <filename>               Show the active and previous revisions.
+  plugin history <filename>              List retained revisions.
+  plugin rollback <filename> [revision]  Restore a retained version without loading its code.
 
   Files live in the plugins directory beside config.toml. Plugins expose hooks only.
   check/enable execute the module in a worker; hook behavior still needs a conversation test.`,

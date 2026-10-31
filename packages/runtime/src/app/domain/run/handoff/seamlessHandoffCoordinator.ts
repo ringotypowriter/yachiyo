@@ -12,6 +12,17 @@ import type {
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
 import { buildSeamlessThreadHandoffPrompt } from '../../../../runtime/context/threadHandoff.ts'
 import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.ts'
+import {
+  createPluginModelHooks,
+  startPluginRun,
+  finishPluginRun
+} from '../../../../services/plugins/pluginHarness.ts'
+import type {
+  PluginCompactInput,
+  PluginContext,
+  PluginRunSnapshot
+} from '../../../../services/plugins/pluginTypes.ts'
+import { PluginExecutionError } from '../../../../runtime/models/runtimeErrors.ts'
 import type { RunDomainDeps } from '../runTypes.ts'
 import { createSeamlessHandoffDump, type SeamlessHandoffDump } from './seamlessHandoffDump.ts'
 import {
@@ -132,7 +143,28 @@ export class SeamlessHandoffCoordinator {
   async handoffAtCheckpoint(
     threadId: string,
     checkpointMessageId: string,
-    reason: SeamlessHandoffReason
+    reason: SeamlessHandoffReason,
+    pluginSnapshot?: PluginRunSnapshot
+  ): Promise<SeamlessHandoffResult> {
+    const snapshot = pluginSnapshot ?? {}
+    let status = 'failed'
+    try {
+      const result = await this.performHandoff(threadId, checkpointMessageId, reason, snapshot)
+      status = result.kind
+      return result
+    } catch (error) {
+      snapshot.error = error instanceof Error ? error.message : String(error)
+      throw error
+    } finally {
+      if (!pluginSnapshot) await finishPluginRun(snapshot, status)
+    }
+  }
+
+  private async performHandoff(
+    threadId: string,
+    checkpointMessageId: string,
+    reason: SeamlessHandoffReason,
+    snapshot: PluginRunSnapshot
   ): Promise<SeamlessHandoffResult> {
     const thread = this.deps.storage.getThread(threadId)
     if (!thread) return { kind: 'skipped', reason: 'thread-not-found' }
@@ -196,29 +228,79 @@ export class SeamlessHandoffCoordinator {
 
     const summaryParts: string[] = []
     try {
-      for await (const delta of runtime.streamReply({
-        messages: handoffContext.preparedContext.messages,
-        settings,
-        signal: controller.signal,
-        purpose: 'thread-handoff',
-        promptCacheKey: thread.id,
-        ...(handoffContext.tools
-          ? {
-              tools: handoffContext.tools,
-              stopWhen: handoffContext.stopWhen,
-              onToolCallError: handoffContext.onToolCallError
-            }
-          : {})
-      })) {
-        if (delta) summaryParts.push(delta)
+      const prepared = handoffContext.preparedContext
+      const context: PluginContext = {
+        runId: snapshot.context?.runId ?? checkpointMessageId,
+        threadId,
+        workspacePath: prepared.workspacePath,
+        runMode: prepared.runMode,
+        purpose: 'compaction'
       }
+      const session =
+        !prepared.isExternalChannel || prepared.isOwnerDm
+          ? (snapshot.session ??
+            (await startPluginRun({
+              snapshot,
+              config,
+              context,
+              maxSteps: prepared.maxToolSteps,
+              signal: controller.signal
+            })))
+          : undefined
+      const event: PluginCompactInput = { kind: 'handoff', messages: prepared.messages }
+      const before = await session?.dispatch('beforeCompact', context, event, controller.signal)
+      if (before?.skip) return { kind: 'skipped', reason: 'plugin-requested' }
+      if (before?.summary) summaryParts.push(before.summary)
+      else
+        for await (const delta of runtime.streamReply({
+          messages: before?.messages ?? prepared.messages,
+          ...(session
+            ? createPluginModelHooks({
+                session,
+                context,
+                config,
+                signal: controller.signal,
+                toolCount: Object.keys(handoffContext.tools ?? {}).length
+              })
+            : {}),
+          settings,
+          ...(session
+            ? {
+                maxToolSteps: Math.min(
+                  snapshot.maxSteps ?? prepared.maxToolSteps,
+                  prepared.maxToolSteps
+                )
+              }
+            : {}),
+          signal: controller.signal,
+          purpose: 'thread-handoff',
+          promptCacheKey: thread.id,
+          ...(handoffContext.tools
+            ? {
+                tools: handoffContext.tools,
+                stopWhen: handoffContext.stopWhen,
+                onToolCallError: handoffContext.onToolCallError
+              }
+            : {})
+        })) {
+          if (delta) summaryParts.push(delta)
+        }
+      const after = await session?.dispatch(
+        'afterCompact',
+        context,
+        { ...event, ...before, summary: summaryParts.join('').trim() },
+        controller.signal
+      )
+      if (after?.summary) summaryParts.splice(0, summaryParts.length, after.summary)
     } catch (error) {
+      if (error instanceof PluginExecutionError) throw error
       if (controller.signal.aborted) throw error
       return { kind: 'skipped', reason: 'summary-generation-failed' }
     } finally {
       this.controllers.delete(controller)
     }
 
+    controller.signal.throwIfAborted()
     const summary = summaryParts.join('').trim()
     if (!summary) return { kind: 'skipped', reason: 'empty-summary' }
 
