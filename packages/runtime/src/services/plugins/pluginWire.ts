@@ -1,4 +1,4 @@
-/** Self-contained: its compiled function is also embedded in the worker. */
+/** Convert URLs before Node's structured clone loses their value. */
 export function normalizePluginValue(value: unknown): unknown {
   function normalize(input: unknown): unknown {
     if (input instanceof URL) return input.href

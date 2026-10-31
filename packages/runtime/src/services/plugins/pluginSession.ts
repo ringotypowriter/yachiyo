@@ -1,9 +1,9 @@
 import { Worker } from 'node:worker_threads'
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import { PluginExecutionError } from '../../runtime/models/runtimeErrors.ts'
-import { PLUGIN_WORKER_SCRIPT } from './pluginWorkerScript.ts'
+import { pluginWorkerPath } from './pluginWorkerPath.ts'
 import { normalizePluginValue } from './pluginWire.ts'
-import { pluginResultSchemas } from './pluginContract.ts'
+import { PLUGIN_HOOK_NAMES, pluginResultSchemas } from './pluginContract.ts'
 import { PluginState } from './pluginState.ts'
 import type {
   PluginContext,
@@ -27,7 +27,7 @@ interface PendingCall {
   stateBinding?: { name: string; context: PluginContext }
 }
 
-/** The worker is an interruption boundary, not a security sandbox. */
+/** QuickJS isolates plugin code; the worker also makes cancellation interruptible. */
 export class PluginSession {
   readonly descriptors: PluginDescriptor[] = []
   private readonly worker: Worker
@@ -43,8 +43,8 @@ export class PluginSession {
   private constructor(timeoutMs: number, state: PluginState) {
     this.timeoutMs = timeoutMs
     this.state = state
-    this.worker = new Worker(PLUGIN_WORKER_SCRIPT, {
-      eval: true,
+    this.worker = new Worker(pluginWorkerPath, {
+      name: 'yachiyo-plugins',
       execArgv: [],
       stdout: true,
       stderr: true
@@ -90,7 +90,7 @@ export class PluginSession {
     )
     try {
       const descriptors = await session.request(
-        { type: 'initialize', sources },
+        { type: 'initialize', sources, hookNames: PLUGIN_HOOK_NAMES },
         'Loading plugins',
         options.signal
       )
@@ -272,7 +272,9 @@ export class PluginSession {
       })
       signal?.addEventListener('abort', abort, { once: true })
       try {
-        this.worker.postMessage(normalizePluginValue({ ...payload, id }))
+        this.worker.postMessage(
+          normalizePluginValue({ ...payload, id, deadline: Date.now() + this.timeoutMs })
+        )
       } catch (error) {
         this.fail(new Error(`${label} could not be sent to the worker.`, { cause: error }))
       }

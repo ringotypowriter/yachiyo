@@ -25,6 +25,10 @@ await mkdir(out, { recursive: true })
 const workspacePlugin = {
   name: 'yachiyo-workspace',
   setup(builder) {
+    builder.onLoad({ filter: /[\\/]services[\\/]plugins[\\/]pluginWorkerPath\.ts$/ }, () => ({
+      contents: `export const pluginWorkerPath = new URL('./pluginWorker.mjs', import.meta.url)`,
+      loader: 'js'
+    }))
     builder.onResolve({ filter: /^@yachiyo\// }, ({ path }) => {
       const [, name, ...rest] = path.split('/')
       if (!['runtime', 'shared', 'cli'].includes(name) || rest.length === 0) {
@@ -38,7 +42,8 @@ const workspacePlugin = {
 await build({
   entryPoints: {
     main: join(app, 'src/main.ts'),
-    jsReplWorker: join(root, 'packages/runtime/src/tools/agentTools/jsReplWorker.ts')
+    jsReplWorker: join(root, 'packages/runtime/src/tools/agentTools/jsReplWorker.ts'),
+    pluginWorker: join(root, 'packages/runtime/src/services/plugins/pluginWorker.ts')
   },
   outdir: out,
   outExtension: { '.js': '.mjs' },

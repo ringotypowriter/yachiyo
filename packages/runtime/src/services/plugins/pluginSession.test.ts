@@ -223,7 +223,7 @@ test('a hook stuck in synchronous code is terminated by its timeout', async (t) 
   t.after(() => session.dispose())
   await assert.rejects(
     session.beforeModel(context, [], 0, signal),
-    /stuck.js beforeModel timed out/
+    /stuck.js beforeModel.*timed out/
   )
 })
 

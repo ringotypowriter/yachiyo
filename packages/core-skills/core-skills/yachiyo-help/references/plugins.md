@@ -8,9 +8,10 @@ registration, schemas, implementations, availability and permissions.
 
 Save a single ES module in `$YACHIYO_HOME/plugins/` (default `~/.yachiyo/plugins/`). Names
 start with a lowercase letter, contain lowercase letters, digits or hyphens, and end in
-`.js`, `.mjs` or `.ts`. Node transforms TypeScript; it does not type-check the source.
-Node built-in imports work. Relative and package imports are not supported by the
-single-file loader. Read project files through `context.workspacePath`.
+`.js`, `.mjs` or `.ts`. The host transforms TypeScript without type-checking it, then runs
+the JavaScript in QuickJS. Each plugin has its own virtual machine. Use a single file;
+Node built-ins, package imports, relative imports and URL imports are unavailable.
+`context.workspacePath` is a path label, not filesystem access.
 
 For example, save `project-context.ts`:
 
@@ -72,8 +73,7 @@ yachiyo plugin status project-context.ts
 events, validates results and reports their duration. Events run in fixture order in one
 worker. Fixture events are explicit inputs; one event's result is reported, not automatically
 copied into the next fixture event. Managed state is temporary during a trial. No provider
-or tool is called by the trial runner. Plugin code still has ordinary Node access and can
-perform its own filesystem or network operations.
+or tool is called by the trial runner. Trials use the same QuickJS environment as live hooks.
 
 A fixture can supply `context` with `runId`, `threadId`, `workspacePath` and `runMode`.
 Its purpose is always `trial`. Live model-loop behavior should also be checked in a new
@@ -92,8 +92,8 @@ yachiyo plugin disable project-context.ts
 ```
 
 `rollback` and `disable` do not load plugin code. Rollback changes the active revision and
-preserves enablement. It does not overwrite the draft or undo state writes and external
-effects. `list` reports draft files and enablement. `status` includes active/previous
+preserves enablement. It does not overwrite the draft or undo state writes.
+`list` reports draft files and enablement. `status` includes active/previous
 revisions and recent run diagnostics. A missing draft does not remove an activated source.
 
 Changes take effect on the next run. Previously enabled files without an activation record
@@ -142,6 +142,8 @@ not rewrite configured providers or the thread's selected model.
 Replacement messages carry forward through the loop. Replace your own context block to
 avoid duplicates. Preserve matching tool-call/result pairs, media and provider reasoning
 metadata. URL values cross the worker as strings; binary media retain their bytes.
+Hook data supports plain objects, arrays, primitives, `Uint8Array` and `ArrayBuffer`.
+Other host objects and cyclic values are rejected.
 Stored conversation messages are not rewritten by context hooks.
 
 `afterStep` runs after the model and its tools finish. It receives full context including
@@ -187,6 +189,8 @@ Assign this function to `afterStep`. Reads return `{ version, value }`, initiall
 `{ version: 0, value: null }`. Writes require the version that was read and return the new
 record. A concurrent writer causes an explicit conflict; read again before retrying.
 Use `null` to clear a value. Values must be JSON and each record must fit in 1 MiB.
+Await state operations inside the hook. An API object saved by an earlier hook cannot
+access state during a later hook.
 
 | Scope       | Lifetime and sharing                                                           |
 | ----------- | ------------------------------------------------------------------------------ |
@@ -215,20 +219,29 @@ main runs, owner DMs, Worker turns and context-handoff calls support plugins. Gu
 runs, ephemeral recaps, unrelated auxiliary calls such as title generation, and ACP-owned
 loops do not load them. ACP owns its model loop outside Yachiyo.
 
-Initialization and each hook have a ten-second deadline. Cancellation, worker exit and
-timeout reject pending hooks and terminate the worker. Plugin failures do not trigger
+Initialization and each hook have a ten-second deadline. Each plugin has a 128 MiB heap
+limit and a 1 MiB stack limit. Hook data is limited to 16 MiB, counting UTF-16 JSON and
+binary bytes, with at most 100 nesting levels. Each hook can make up to 100 state calls.
+Cancellation, worker exit and timeout reject pending hooks and terminate the worker.
+Plugin failures do not trigger
 provider retries or provider context-window recovery. Context/model-hook failures stop the
-reply; tool-hook failures surface as tool errors. Completed state writes and external effects
-remain committed.
+reply; tool-hook failures surface as tool errors. Completed state writes remain committed.
 
 Diagnostics contain revision, run outcome, hook counts, duration and errors. They omit event
 payloads. The latest twenty run reports per plugin are retained in `.diagnostics`; `status`
 shows the latest five. Use `rollback` to restore working code, or `disable` to stop loading
 it. There is no silent fallback to an older revision.
 
-Plugin code is trusted local Node code with the user's filesystem and network access. The
-worker provides interruption, not an OS sandbox. Source pinning covers the plugin file;
-files or services it reads at runtime remain external dependencies.
+Plugins execute in [QuickJS compiled to WebAssembly](https://github.com/justjake/quickjs-emscripten),
+inside a Worker that the host can terminate. JavaScript built-ins, promises, top-level
+`await`, `Uint8Array` and `ArrayBuffer` are available. Node and browser APIs such as
+`process`, `require`, `Buffer`, `fetch`, `console`, `URL` and timers are not provided.
+Plugins have no direct filesystem, network or process access. Their host access is limited
+to hook inputs, validated hook results and the scoped state API. The tool registry stays
+under host control.
+
+Existing plugins that import Node modules must be rewritten before activation. They fail
+explicitly when loaded; the host never falls back to executing them in Node.
 
 ## Extension references
 

@@ -109,6 +109,18 @@ function emitQuickJsWasm(): Plugin {
   }
 }
 
+function bundlePluginWorker(): Plugin {
+  return {
+    name: 'bundle-plugin-worker',
+    load(id) {
+      if (id.endsWith('/services/plugins/pluginWorkerPath.ts')) {
+        return `export { default as pluginWorkerPath } from './pluginWorker.ts?modulePath'`
+      }
+      return null
+    }
+  }
+}
+
 export default defineConfig(({ command }) => ({
   main: {
     resolve: {
@@ -134,6 +146,7 @@ export default defineConfig(({ command }) => ({
       }
     },
     plugins: [
+      bundlePluginWorker(),
       emitQuickJsWasm(),
       copyDrizzleMigrations(command === 'serve'),
       ...(command === 'serve' ? [copyCoreSkills()] : []),
