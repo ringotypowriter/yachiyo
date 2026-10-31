@@ -41,7 +41,7 @@ export function createPluginGuest(codec: PluginCodec): {
     },
     async invoke(definition, hook, packet, call) {
       const request = async (input: unknown): Promise<unknown> => {
-        const encoded = codec.encode(input)
+        const encoded = codec.encode(input, [])
         if (encoded.buffers.length) throw new Error('Plugin state requires JSON values')
         return parse(await call(encoded.json))
       }
@@ -53,7 +53,10 @@ export function createPluginGuest(codec: PluginCodec): {
         }
       }
       const fn = definition.hooks[hook] as (event: unknown, api: unknown) => unknown
-      return codec.encode(await fn.call(definition.hooks, codec.decode(packet), api))
+      return codec.encode(
+        await fn.call(definition.hooks, codec.decode(packet), api),
+        packet.strings
+      )
     }
   }
 }

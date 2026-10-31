@@ -220,8 +220,11 @@ runs, ephemeral recaps, unrelated auxiliary calls such as title generation, and 
 loops do not load them. ACP owns its model loop outside Yachiyo.
 
 Initialization and each hook have a ten-second deadline. Each plugin has a 128 MiB heap
-limit and a 1 MiB stack limit. Hook data is limited to 16 MiB, counting UTF-16 JSON and
-binary bytes, with at most 100 nesting levels. Each hook can make up to 100 state calls.
+limit and a 1 MiB stack limit. Each plugin caches up to 4 MiB of immutable input text
+(measured as UTF-16) within that heap limit. Unchanged text can be reused across hooks.
+Hook data is limited to 16 MiB, counting UTF-16 text, structural JSON and binary bytes,
+with at most 100 nesting levels. Repeated text and binary values count toward that limit
+on every occurrence. Each hook can make up to 100 state calls.
 Cancellation, worker exit and timeout reject pending hooks and terminate the worker.
 Plugin failures do not trigger
 provider retries or provider context-window recovery. Context/model-hook failures stop the

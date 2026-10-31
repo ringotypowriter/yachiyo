@@ -249,3 +249,147 @@ test('initialization and a runaway promise queue remain interruptible', async (t
     /timed out|interrupted/
   )
 })
+
+test('large text retains Unicode, NULs and lone surrogates through hooks and state', async (t) => {
+  const session = await load(
+    t,
+    `export default {apiVersion: 1, hooks: {
+    async beforeInput({text}, {state}) {
+      const previous = await state.read('run', 'text')
+      await state.write('run', 'text', previous.version, text)
+      return {text: (await state.read('run', 'text')).value + ':edited'}
+    }
+  }}`
+  )
+  for (const text of [
+    '项目上下文🙂'.repeat(400),
+    'prefix'.repeat(300) + '\0suffix',
+    '\ud800' + 'middle'.repeat(300) + '\udc00'
+  ]) {
+    assert.deepEqual(await session.dispatch('beforeInput', context, { text }), {
+      text: text + ':edited'
+    })
+  }
+})
+
+test('text retained by a plugin never resolves against a later invocation or another plugin', async (t) => {
+  const session = await load(
+    t,
+    `let previous
+     export default {apiVersion: 1, hooks: {beforeInput({text}) {
+       const result = {text: previous === undefined ? text : previous + ':' + text}
+       previous = text
+       return result
+     }}}`,
+    `export default {apiVersion: 1, hooks: {beforeInput({text}) {return {text: text + ':second'}}}}`
+  )
+  const first = 'first'.repeat(400)
+  const second = 'second'.repeat(400)
+  assert.deepEqual(await session.dispatch('beforeInput', context, { text: first }), {
+    text: first + ':second'
+  })
+  assert.deepEqual(await session.dispatch('beforeInput', context, { text: second }), {
+    text: first + ':' + second + ':second'
+  })
+})
+
+test('repeating unchanged text cannot bypass the result size limit', async (t) => {
+  const session = await load(
+    t,
+    `export default {apiVersion: 1, hooks: {
+    beforeModel({messages}) {return {messages: Array(3).fill(messages[0])}}
+  }}`
+  )
+  await assert.rejects(
+    session.dispatch('beforeModel', context, {
+      stepNumber: 0,
+      messages: [{ role: 'user', content: 'x'.repeat(3 * 1024 * 1024) }]
+    }),
+    /16 MiB|out of memory/
+  )
+})
+
+test('synchronous hooks and custom thenables apply the same ordered transformations', async (t) => {
+  const session = await load(
+    t,
+    `export default {apiVersion: 1, hooks: {beforeInput({text}) {return {text: text + ':sync'}}}}`,
+    `export default {apiVersion: 1, hooks: {beforeInput({text}) {
+      return {then(resolve) {Promise.resolve().then(() => resolve({text: text + ':async'}))}}
+    }}}`
+  )
+  assert.deepEqual(await session.dispatch('beforeInput', context, { text: 'input' }), {
+    text: 'input:sync:async'
+  })
+})
+
+test('thenable hooks read the then getter once and preserve its receiver', async (t) => {
+  const session = await load(
+    t,
+    `export default {apiVersion: 1, hooks: {
+    beforeInput({text}) {
+      let reads = 0
+      return {text, get then() {
+        if (++reads > 1) throw new Error('then getter was read twice')
+        return function(resolve) {resolve({text: this.text + ':' + reads})}
+      }}
+    }
+  }}`
+  )
+  assert.deepEqual(await session.dispatch('beforeInput', context, { text: 'value' }), {
+    text: 'value:1'
+  })
+})
+
+test('evicting cached text preserves plugin-held values and subsequent input', async (t) => {
+  const session = await load(
+    t,
+    `let saved
+    export default {apiVersion: 1, hooks: {beforeInput({text}) {
+      saved ??= text
+      return {text: text + ':' + saved.slice(-32)}
+    }}}`
+  )
+  const original = 'original'.repeat(128 * 1024)
+  for (const text of [
+    original,
+    'second'.repeat(180 * 1024),
+    'third'.repeat(220 * 1024),
+    original,
+    'large'.repeat(500 * 1024)
+  ]) {
+    assert.deepEqual(await session.dispatch('beforeInput', context, { text }), {
+      text: text + ':' + original.slice(-32)
+    })
+  }
+})
+
+test('retained message objects and edited fields resolve against their own text', async (t) => {
+  const session = await load(
+    t,
+    `let previous
+    export default {apiVersion: 1, hooks: {beforeModel({messages}) {
+      messages[0].content += ':edited'
+      const result = previous ? [previous, ...messages] : messages
+      previous = messages[0]
+      return {messages: result}
+    }}}`
+  )
+  const first = 'first'.repeat(400)
+  const second = 'second'.repeat(400)
+  await session.dispatch('beforeModel', context, {
+    messages: [{ role: 'user', content: first }],
+    stepNumber: 0
+  })
+  assert.deepEqual(
+    await session.dispatch('beforeModel', context, {
+      messages: [{ role: 'user', content: second }],
+      stepNumber: 1
+    }),
+    {
+      messages: [
+        { role: 'user', content: first + ':edited' },
+        { role: 'user', content: second + ':edited' }
+      ]
+    }
+  )
+})

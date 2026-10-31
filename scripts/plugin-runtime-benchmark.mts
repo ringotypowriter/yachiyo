@@ -70,6 +70,13 @@ interface Case {
   verify(value: unknown, iteration: number): void
 }
 
+function contextMessages(bytes: number): { role: 'user' | 'assistant'; content: string }[] {
+  return Array.from({ length: 64 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: String(index).padStart(4, '0') + 'x'.repeat(bytes / 64 - 4)
+  }))
+}
+
 async function child(bundle: string, mode: string, count: number): Promise<void> {
   const { PluginSession, PluginState } = (await import(pathToFileURL(bundle).href)) as {
     PluginSession: typeof Session
@@ -77,7 +84,7 @@ async function child(bundle: string, mode: string, count: number): Promise<void>
   }
   const directory = await mkdtemp(join(tmpdir(), 'yachiyo-plugin-bench-state-'))
   try {
-    if (mode === 'memory') {
+    if (mode === 'memory' || mode === 'memory-context') {
       assert(global.gc, 'Memory measurements require --expose-gc')
       global.gc()
       const before = process.memoryUsage().rss
@@ -87,11 +94,17 @@ async function child(bundle: string, mode: string, count: number): Promise<void>
       try {
         for (let index = 0; index < 100; index++)
           await session.dispatch('textDelta', context, { text: 'warmup', stepNumber: 0 })
+        if (mode === 'memory-context') {
+          const messages = contextMessages(1024 * 1024)
+          for (let index = 0; index < 20; index++) {
+            await session.dispatch('beforeModel', context, { messages, stepNumber: index })
+          }
+        }
         global.gc()
         console.log(
           JSON.stringify([
             {
-              name: `rss-added-${count}-plugins`,
+              name: `rss-added-${count}-plugins${mode === 'memory-context' ? '-1024KiB-context' : ''}`,
               unit: 'MiB',
               values: [(process.memoryUsage().rss - before) / 1024 ** 2]
             }
@@ -103,6 +116,8 @@ async function child(bundle: string, mode: string, count: number): Promise<void>
       return
     }
     const samples: Sample[] = []
+    const firstContext: number[] = []
+    const initialMessages = contextMessages(1024 * 1024)
     for (const pluginCount of [1, 5, 10]) {
       const values: number[] = []
       for (let index = 0; index < 16; index++) {
@@ -113,6 +128,16 @@ async function child(bundle: string, mode: string, count: number): Promise<void>
         const elapsed = performance.now() - started
         try {
           assert.equal(session.descriptors.length, pluginCount)
+          if (pluginCount === 1) {
+            const callStarted = performance.now()
+            const value = await session.dispatch('beforeModel', context, {
+              messages: initialMessages,
+              stepNumber: 0
+            })
+            const callElapsed = performance.now() - callStarted
+            assert.deepEqual(value!.messages, initialMessages)
+            if (index > 0) firstContext.push(callElapsed)
+          }
         } finally {
           await session.dispose()
         }
@@ -120,6 +145,7 @@ async function child(bundle: string, mode: string, count: number): Promise<void>
       }
       samples.push({ name: `worker-start-${pluginCount}-plugins`, unit: 'ms', values })
     }
+    samples.push({ name: 'context-1024KiB-first-call', unit: 'ms', values: firstContext })
     const cases: Case[] = []
     for (const pluginCount of [1, 5]) {
       cases.push({
@@ -137,10 +163,7 @@ async function child(bundle: string, mode: string, count: number): Promise<void>
       [1024 * 1024, 1],
       [128 * 1024, 5]
     ]) {
-      const messages = Array.from({ length: 64 }, (_, index) => ({
-        role: index % 2 ? ('assistant' as const) : ('user' as const),
-        content: 'x'.repeat(bytes / 64)
-      }))
+      const messages = contextMessages(bytes)
       cases.push({
         name: `context-${bytes / 1024}KiB-${pluginCount}-plugins`,
         count: pluginCount,
@@ -154,6 +177,22 @@ async function child(bundle: string, mode: string, count: number): Promise<void>
         }
       })
     }
+    const rewritten = contextMessages(1024 * 1024)
+    cases.push({
+      name: 'rewrite-1024KiB-1-plugins',
+      count: 1,
+      hook: 'beforeModel',
+      source: `export default {apiVersion: 1, hooks: {beforeModel({messages}) {
+        return {messages: messages.map(message => ({...message, content: message.content.toUpperCase()}))}
+      }}}`,
+      event: { messages: rewritten, stepNumber: 0 },
+      iterations: 60,
+      verify(value) {
+        const result = value as { messages: typeof rewritten }
+        assert.equal(result.messages.length, rewritten.length)
+        assert.equal(result.messages.at(-1)!.content, rewritten.at(-1)!.content.toUpperCase())
+      }
+    })
     const binary = new Uint8Array(1024 * 1024).fill(73)
     cases.push({
       name: 'binary-1024KiB-1-plugins',
@@ -258,7 +297,7 @@ async function main(): Promise<void> {
   const { build } = require('esbuild') as typeof import('esbuild')
   const revisions = [
     {
-      name: 'quickjs',
+      name: 'current',
       source: root,
       commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
     }
@@ -286,10 +325,10 @@ async function main(): Promise<void> {
         ['archive', commit, 'packages/runtime/src', 'packages/shared/src'],
         { cwd: root, maxBuffer: 128 * 1024 * 1024 }
       )
-      const source = join(directory, 'baseline')
+      const source = join(directory, 'baseline-source')
       await mkdir(source)
       execFileSync('tar', ['-x', '-C', source], { input: archive })
-      revisions.unshift({ name: 'node-worker', source, commit })
+      revisions.unshift({ name: 'baseline', source, commit })
     }
     await symlink(
       join(root, 'packages/runtime/node_modules'),
@@ -367,7 +406,13 @@ async function main(): Promise<void> {
       }
     }
     for (const revision of revisions) {
-      for (const count of [1, 5, 10]) {
+      for (const [mode, count] of [
+        ['memory', 1],
+        ['memory', 5],
+        ['memory', 10],
+        ['memory-context', 1],
+        ['memory-context', 5]
+      ] as const) {
         for (let index = 0; index < 3; index++) {
           const run = spawnSync(
             process.execPath,
@@ -377,7 +422,7 @@ async function main(): Promise<void> {
               fileURLToPath(import.meta.url),
               '--child',
               bundles.get(revision.name)!,
-              'memory',
+              mode,
               String(count)
             ],
             { encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: 30_000 }
@@ -390,6 +435,17 @@ async function main(): Promise<void> {
     const engines = revisions.map((revision) => ({
       name: revision.name,
       commit: revision.commit,
+      workingTreeChanges:
+        revision.source === root
+          ? execFileSync(
+              'git',
+              ['status', '--porcelain', '--', 'packages/runtime/src/services/plugins'],
+              { cwd: root, encoding: 'utf8' }
+            )
+              .trim()
+              .split('\n')
+              .filter(Boolean)
+          : [],
       metrics: [...new Set(results.get(revision.name)!.map((sample) => sample.name))].map(
         (name) => {
           const samples = results.get(revision.name)!.filter((sample) => sample.name === name)
@@ -411,9 +467,9 @@ async function main(): Promise<void> {
             steady:
               'serial dispatch including worker IPC, plugin execution, and host result validation; 30 warmup calls per case',
             memory:
-              'process RSS increase after startup and 100 small hooks; separate fresh process per sample; 3 samples per plugin count; host GC before snapshots',
+              'process RSS increase after startup and 100 small hooks; context variants also execute 20 hooks with 1 MiB of text; fresh process per sample, 3 samples per case, host GC before snapshots',
             exclusions:
-              'no provider, network, renderer, tool execution or real conversation data; context sizes count ASCII content bytes, excluding message envelopes'
+              'no provider, network, renderer, tool execution or real conversation data; contexts use 64 distinct ASCII message bodies; sizes exclude message envelopes'
           },
           engines
         },

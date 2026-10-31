@@ -22,6 +22,7 @@ interface Invocation {
 }
 
 const PAYLOAD_LIMIT = 16 * 1024 * 1024
+const TEXT_CACHE_LIMIT = 4 * 1024 * 1024
 
 export async function createQuickJsPlugin(
   quickjs: QuickJSWASMModule,
@@ -39,9 +40,34 @@ export async function createQuickJsPlugin(
   })
   const vm = runtime.newContext()
   const codec = createPluginCodec()
+  const textCache = new Map<string, { text: string; handle: QuickJSHandle }>()
+  let cachedBytes = 0
   let guest: QuickJSHandle | undefined
   let definition: QuickJSHandle | undefined
   let wake: (() => void) | undefined
+
+  function textToVm(text: string): QuickJSHandle {
+    const cached = textCache.get(text)
+    if (cached) {
+      // Keep the original host string instead of retaining a fresh IPC copy on every hit.
+      textCache.delete(cached.text)
+      textCache.set(cached.text, cached)
+      return cached.handle.dup()
+    }
+    const handle = vm.newString(text)
+    const size = text.length * 2
+    if (size <= TEXT_CACHE_LIMIT) {
+      while (cachedBytes + size > TEXT_CACHE_LIMIT) {
+        const [oldText, oldEntry] = textCache.entries().next().value!
+        textCache.delete(oldText)
+        cachedBytes -= oldText.length * 2
+        oldEntry.handle.dispose()
+      }
+      textCache.set(text, { text, handle: handle.dup() })
+      cachedBytes += size
+    }
+    return handle
+  }
 
   async function settle(handle: QuickJSHandle, invocation?: Invocation): Promise<QuickJSHandle> {
     while (true) {
@@ -100,6 +126,20 @@ export async function createQuickJsPlugin(
       } finally {
         buffers.dispose()
       }
+      const strings = vm.newArray()
+      try {
+        for (const [index, text] of packet.strings.entries()) {
+          const handle = textToVm(text)
+          try {
+            vm.setProp(strings, index, handle)
+          } finally {
+            handle.dispose()
+          }
+        }
+        vm.setProp(object, 'strings', strings)
+      } finally {
+        strings.dispose()
+      }
       return object
     } catch (error) {
       object.dispose()
@@ -133,7 +173,28 @@ export async function createQuickJsPlugin(
           handle.dispose()
         }
       }
-      return { json, buffers }
+      const stringsHandle = vm.getProp(packet, 'strings')
+      const strings: string[] = []
+      try {
+        const count = vm.getProp(stringsHandle, 'length').consume((handle) => vm.getNumber(handle))
+        if (!Number.isInteger(count) || count < 0 || count > PAYLOAD_LIMIT)
+          throw new Error('Invalid plugin text attachments')
+        for (let index = 0; index < count; index++) {
+          const handle = vm.getProp(stringsHandle, index)
+          try {
+            if (vm.typeof(handle) !== 'string') throw new Error('Invalid plugin text attachment')
+            const text = vm.getString(handle)
+            bytes += text.length * 2
+            if (bytes > PAYLOAD_LIMIT) throw new Error('Plugin data exceeds 16 MiB')
+            strings.push(text)
+          } finally {
+            handle.dispose()
+          }
+        }
+      } finally {
+        stringsHandle.dispose()
+      }
+      return { json, buffers, strings }
     } finally {
       array.dispose()
     }
@@ -153,7 +214,7 @@ export async function createQuickJsPlugin(
       if (invocation.bytes + bytes > PAYLOAD_LIMIT) {
         return { error: vm.newError('Plugin state request exceeds its payload limit') }
       }
-      const input = codec.decode({ json, buffers: [] })
+      const input = codec.decode({ json, buffers: [], strings: [] })
       const deferred = vm.newPromise()
       invocation.pending.add(deferred)
       invocation.bytes += bytes
@@ -186,6 +247,8 @@ export async function createQuickJsPlugin(
   }
 
   function dispose(): void {
+    for (const { handle } of textCache.values()) handle.dispose()
+    textCache.clear()
     definition?.dispose()
     guest?.dispose()
     vm.dispose()
@@ -194,7 +257,7 @@ export async function createQuickJsPlugin(
 
   try {
     guest = vm.unwrapResult(
-      vm.evalCode(`(${createPluginGuest.toString()})((${createPluginCodec.toString()})())`)
+      vm.evalCode(`(${createPluginGuest.toString()})((${createPluginCodec.toString()})(true))`)
     )
     const evaluated = vm.unwrapResult(vm.evalCode(source.source, source.name, { type: 'module' }))
     try {
@@ -227,7 +290,8 @@ export async function createQuickJsPlugin(
         try {
           const hookHandle = vm.newString(hook)
           handles.push(hookHandle)
-          const packet = packetToVm(codec.encode(event))
+          const input = codec.encode(event)
+          const packet = packetToVm(input)
           handles.push(packet)
           const bridge = stateBridge(invocation, callState)
           handles.push(bridge)
@@ -237,7 +301,7 @@ export async function createQuickJsPlugin(
           handles.push(result)
           const settled = await settle(result, invocation)
           handles.push(settled)
-          return codec.decode(packetFromVm(settled))
+          return codec.decode(packetFromVm(settled), input.strings)
         } finally {
           invocation.active = false
           for (const deferred of invocation.pending) deferred.dispose()

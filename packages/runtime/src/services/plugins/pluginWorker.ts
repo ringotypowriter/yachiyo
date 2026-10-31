@@ -73,7 +73,12 @@ port.on('message', async (request: Request) => {
   } catch (error) {
     port.postMessage({
       id: request.id,
-      error: error instanceof Error ? error.message : String(error)
+      error:
+        Date.now() >= request.deadline
+          ? 'Plugin execution timed out'
+          : error instanceof Error
+            ? error.message
+            : String(error)
     })
   }
 })
