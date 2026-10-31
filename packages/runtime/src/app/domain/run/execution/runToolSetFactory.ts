@@ -40,6 +40,7 @@ interface PendingUserAnswer {
 }
 
 export interface CreateRunToolSetInput {
+  applyToolHooks?: (tools: ToolSet) => void
   advanceAgentStep: (options?: { notifyTodoReminder?: boolean }) => number
   createToolCall: (toolCall: ToolCallRecord) => void
   deps: RunExecutionDeps
@@ -156,6 +157,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
   })()
 
   return createAgentToolSet(toolContext, {
+    applyToolHooks: input.applyToolHooks,
     ...(deps.onBackgroundBashStarted || deps.onBackgroundBashAdopted
       ? {
           backgroundBashContext: {

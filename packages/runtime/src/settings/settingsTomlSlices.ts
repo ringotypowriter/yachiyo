@@ -207,6 +207,16 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     }
   },
   {
+    key: 'plugins',
+    read(doc) {
+      const plugins = readTomlTable(doc['plugins'])
+      return plugins ? { plugins: plugins as SettingsConfig['plugins'] } : {}
+    },
+    write(config) {
+      return { plugins: { enabled: config.plugins?.enabled ?? [] } }
+    }
+  },
+  {
     key: 'toolModel',
     read(doc) {
       const toolModel = readTomlTable(doc['toolModel'])

@@ -224,6 +224,12 @@ describe('diffSettings', () => {
     const remote = config({ remote: { enabled: true, tunnel: 'named', port: 48000 } })
     assert.deepEqual(diffSettings(local, remote), [])
   })
+
+  it('keeps enabled executable plugins local to each device', () => {
+    const local = config({ plugins: { enabled: ['local.ts'] } })
+    const remote = config({ plugins: { enabled: ['peer.ts'] } })
+    assert.deepEqual(diffSettings(local, remote), [])
+  })
 })
 
 describe('mergeSettings', () => {

@@ -264,8 +264,8 @@ fn local_only_settings_header(line: &str) -> bool {
         return false;
     };
     let name = rest[..end].trim();
-    // `sync` holds this device's sync folder; `remote` holds this Mac's tunnel and ports.
-    ["sync", "remote"]
+    // Executable plugins, sync folders, and remote access are configured per device.
+    ["sync", "remote", "plugins"]
         .iter()
         .any(|table| name == *table || name.starts_with(&format!("{table}.")))
 }
@@ -5565,6 +5565,18 @@ mod tests {
         assert!(merged.contains("codexSessionPath = \"/local/auth.json\""));
         assert_eq!(merged.matches("codexFastMode = true").count(), 2);
         assert!(!merge_local_only_settings_tables(&remote, "").contains("codexSessionPath"));
+    }
+
+    #[test]
+    fn settings_plugins_are_local_only() {
+        let local = "[general]\nthemeId = \"ume\"\n\n[plugins]\nenabled = [\"local.ts\"]\n";
+        let remote = "[general]\nthemeId = \"dawn\"\n\n[plugins]\nenabled = [\"peer.ts\"]\n";
+        let exported = strip_local_only_settings_tables(local);
+        assert!(!exported.contains("local.ts"));
+        let merged = merge_local_only_settings_tables(remote, local);
+        assert!(merged.contains("dawn"));
+        assert!(merged.contains("local.ts"));
+        assert!(!merged.contains("peer.ts"));
     }
 
     #[test]

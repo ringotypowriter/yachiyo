@@ -2,6 +2,179 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createAiSdkModelRuntime } from './modelRuntime.ts'
 import { isRetryableRunError } from './runtimeErrors.ts'
+import type { ModelMessage } from './types.ts'
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider'
+import { MockLanguageModelV4 } from 'ai/test'
+import { z } from 'zod'
+import { PluginSession } from '../../services/plugins/pluginSession.ts'
+import { applyPluginToolHooks } from '../../services/plugins/pluginToolHooks.ts'
+
+test('the real SDK loop sees plugin context updated after an existing tool executes', async (t) => {
+  const session = await PluginSession.create([
+    {
+      name: 'context.js',
+      revision: 'test',
+      source: `
+      let last = 'none'
+      export default {apiVersion: 1, hooks: {
+        afterTool({output}) {last = output.text},
+        beforeModel({messages}) {return {messages: [
+          ...messages.filter(message => message.role !== 'system' || !message.content.startsWith('plugin:')),
+          {role: 'system', content: 'plugin:' + last}
+        ]}}
+      }}
+    `
+    }
+  ])
+  t.after(() => session.dispose())
+  const signal = new AbortController().signal
+  const context = {
+    runId: 'run',
+    threadId: 'thread',
+    workspacePath: '/workspace',
+    runMode: 'auto' as const
+  }
+  let executions = 0
+  const tools = {
+    read: {
+      inputSchema: z.object({ path: z.string() }),
+      execute: async () => {
+        executions++
+        return { text: 'from-file' }
+      }
+    }
+  }
+  applyPluginToolHooks(tools, session, context, signal)
+  let calls = 0
+  const model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      const step = calls++
+      assert.ok(
+        options.prompt.some(
+          (message) =>
+            message.role === 'system' &&
+            message.content === (step === 0 ? 'plugin:none' : 'plugin:from-file')
+        )
+      )
+      assert.deepEqual(
+        options.tools?.map((tool) => tool.name),
+        ['read']
+      )
+      const parts: LanguageModelV4StreamPart[] = [
+        { type: 'stream-start', warnings: [] },
+        ...(step === 0
+          ? [
+              {
+                type: 'tool-call' as const,
+                toolCallId: 'call-1',
+                toolName: 'read',
+                input: '{"path":"STATUS.md"}'
+              }
+            ]
+          : [
+              { type: 'text-start' as const, id: 'text-1' },
+              { type: 'text-delta' as const, id: 'text-1', delta: 'Done' },
+              { type: 'text-end' as const, id: 'text-1' }
+            ]),
+        {
+          type: 'finish',
+          finishReason: { unified: step === 0 ? 'tool-calls' : 'stop', raw: undefined },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 5, text: 5, reasoning: 0 }
+          }
+        }
+      ]
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            for (const part of parts) controller.enqueue(part)
+            controller.close()
+          }
+        })
+      }
+    }
+  })
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () => ({ responses: () => model }) as never
+  })
+  let text = ''
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Read status' }],
+    settings: {
+      providerName: 'test',
+      provider: 'openai-responses',
+      model: 'test',
+      apiKey: 'test',
+      baseUrl: ''
+    },
+    tools,
+    signal,
+    prepareMessages: ({ messages, stepNumber }) =>
+      session.beforeModel(context, messages, stepNumber, signal)
+  }))
+    text += chunk
+  assert.equal(text, 'Done')
+  assert.equal(calls, 2)
+  assert.equal(executions, 1)
+})
+
+test('context preparation runs before every model step without replacing tools', async () => {
+  const seen: Array<{ stepNumber: number; messages: ModelMessage[] }> = []
+  const tools = { read: { description: 'read' } }
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({ responses: () => ({ modelId: 'test', provider: 'openai.responses' }) }) as never,
+    streamTextImpl: ((input: {
+      tools?: unknown
+      prepareStep: (value: {
+        messages: ModelMessage[]
+        stepNumber: number
+      }) => Promise<{ messages: ModelMessage[] }>
+    }) => ({
+      textStream: (async function* () {
+        assert.equal(input.tools, tools)
+        const first = await input.prepareStep({
+          messages: [{ role: 'user', content: 'first' }],
+          stepNumber: 0
+        })
+        const second = await input.prepareStep({
+          messages: [...first.messages, { role: 'assistant', content: 'second' }],
+          stepNumber: 1
+        })
+        assert.deepEqual(
+          second.messages.map((message) => message.content),
+          ['first', 'hook:0', 'second', 'hook:1']
+        )
+        assert.deepEqual(Object.keys(second), ['messages'])
+        yield 'done'
+      })()
+    })) as never
+  })
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'first' }],
+    settings: {
+      providerName: 'test',
+      provider: 'openai-responses',
+      model: 'test',
+      apiKey: 'test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal,
+    tools: tools as never,
+    prepareMessages: async (input) => {
+      seen.push(input)
+      return [...input.messages, { role: 'system', content: `hook:${input.stepNumber}` }]
+    }
+  }))
+    chunks.push(chunk)
+  assert.deepEqual(chunks, ['done'])
+  assert.deepEqual(
+    seen.map((entry) => entry.stepNumber),
+    [0, 1]
+  )
+})
 
 test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK tool loop', async () => {
   let call: {

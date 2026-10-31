@@ -78,6 +78,11 @@ export interface ModelStreamRequest {
   reasoningEffort?: ComposerReasoningSelection
   maxToolSteps?: number
   tools?: ToolSet
+  /** Transform the context before each model step without changing the tool set. */
+  prepareMessages?: (input: {
+    messages: ModelMessage[]
+    stepNumber: number
+  }) => Promise<ModelMessage[]>
   toolChoice?: ToolChoice<ToolSet>
   onToolCallPreparing?: (event: { toolCallId: string; toolName: string }) => void
   onToolInputDelta?: (event: { toolCallId: string; toolName: string; delta: string }) => void

@@ -1043,6 +1043,27 @@ test('invalid remote values fall back to defaults field by field', () => {
   })
 })
 
+test('plugin order and filenames round-trip through normalized TOML', () => {
+  const parsed = parseSettingsToml(
+    '[plugins]\nenabled = ["project.ts", "policy.mjs", "project.ts"]\n'
+  )
+  const normalized = normalizeSettingsConfig(parsed)
+  assert.deepEqual(normalized.plugins, { enabled: ['project.ts', 'policy.mjs'] })
+  assert.deepEqual(
+    normalizeSettingsConfig(parseSettingsToml(stringifySettingsToml(normalized))).plugins,
+    normalized.plugins
+  )
+  assert.deepEqual(normalizeSettingsConfig({}).plugins, { enabled: [] })
+  assert.throws(
+    () => normalizeSettingsConfig({ plugins: { enabled: ['../outside.ts'] } }),
+    /Invalid plugin filename/
+  )
+  assert.throws(
+    () => normalizeSettingsConfig({ plugins: { enabled: 'project.ts' } }),
+    /must be an array/
+  )
+})
+
 test('default run mode round-trips and rejects invalid values', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-default-mode-'))
   try {

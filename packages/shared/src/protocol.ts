@@ -1156,6 +1156,7 @@ export interface SettingsConfig {
   sync?: { syncDir?: string }
   toolModel?: ToolModelConfig
   skills?: SkillsConfig
+  plugins?: { enabled: string[] }
   memory?: MemoryConfig
   webSearch?: WebSearchConfig
   prompts?: UserPrompt[]

@@ -917,6 +917,7 @@ export class YachiyoServerRunDomain {
     let carriedSnapshotTracker: SnapshotTracker | undefined
     let carriedToolFailLoopSteers = 0
     let isSteerLeg = false
+    const pluginSnapshot: NonNullable<ExecuteRunInput['pluginSnapshot']> = {}
 
     try {
       while (true) {
@@ -1015,6 +1016,7 @@ export class YachiyoServerRunDomain {
           {
             abortController,
             enabledTools: executionEnabledTools,
+            pluginSnapshot,
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
             runMode: executionRunMode,
             reasoningEffort: activeRun.reasoningEffort ?? input.reasoningEffort,

@@ -16,6 +16,7 @@ import {
   normalizeDefaultModel,
   normalizeGeneralConfig,
   normalizeMemoryConfig,
+  normalizePluginsConfig,
   normalizeRemoteConfig,
   normalizeSkillsConfig,
   normalizeSyncConfig,
@@ -56,6 +57,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
     workspace: normalizeWorkspaceConfig(input['workspace']),
     sync: normalizeSyncConfig(input['sync']),
     skills: normalizeSkillsConfig(input['skills']),
+    plugins: normalizePluginsConfig(input['plugins']),
     toolModel:
       toolModel.mode === 'custom'
         ? resolvedToolProvider

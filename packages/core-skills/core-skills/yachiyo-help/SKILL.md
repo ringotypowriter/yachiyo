@@ -1,6 +1,6 @@
 ---
 name: yachiyo-help
-description: Complete cross-platform reference for the Yachiyo CLI — diagnostics, soul traits, provider management, agent profiles, config, thread search, scheduled tasks, channel users/groups, group monitor status control, and send commands
+description: Complete cross-platform reference for the Yachiyo CLI — diagnostics, soul traits, providers, agents, config, executable hook plugins, context customization, thread search, schedules, channels, and send commands
 ---
 
 # Yachiyo Help
@@ -17,6 +17,7 @@ Read the detailed reference for each namespace before running unfamiliar command
 - [providers.md](references/providers.md) — Manage AI providers
 - [agents.md](references/agents.md) — Manage coding agent profiles
 - [config.md](references/config.md) — Read and write configuration values
+- [plugins.md](references/plugins.md) — Write and manage JS/TS context and execution hooks
 - [threads.md](references/threads.md) — Search historical conversations
 - [schedule.md](references/schedule.md) — Manage scheduled tasks and view run history
 - [channel.md](references/channel.md) — List channel users/groups and change group monitor status
@@ -36,6 +37,7 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 | `provider` | Manage AI providers                                       | [providers.md](references/providers.md) |
 | `agent`    | Manage coding agent profiles                              | [agents.md](references/agents.md)       |
 | `config`   | Read and write configuration                              | [config.md](references/config.md)       |
+| `plugin`   | Manage local context and execution hooks                  | [plugins.md](references/plugins.md)     |
 | `thread`   | Search historical conversations                           | [threads.md](references/threads.md)     |
 | `schedule` | Manage scheduled tasks                                    | [schedule.md](references/schedule.md)   |
 | `channel`  | List channel users/groups and change group monitor status | [channel.md](references/channel.md)     |

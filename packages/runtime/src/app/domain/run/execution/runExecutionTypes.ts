@@ -21,6 +21,7 @@ import type { ImageToTextService } from '../../../../services/imageToText/imageT
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { ProcessBroker } from '../../../../services/processBroker/processBroker.ts'
+import type { PluginRunSnapshot } from '../../../../services/plugins/pluginTypes.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../../../services/webRead/browserWebPageSnapshot.ts'
 import type { BrowserAutomationToolBackend } from '../../../../services/browserAutomation/browserAutomationToolBackend.ts'
 import type { SearchService } from '../../../../services/search/searchService.ts'
@@ -62,6 +63,7 @@ import type {
 import type { ThingDomain } from '../../things/thingDomain.ts'
 
 export interface ExecuteRunInput {
+  pluginSnapshot?: PluginRunSnapshot
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   runMode: RunModeId

@@ -9,6 +9,15 @@ export const GLOBAL_FLAGS_HELP = `Global flags:
   --help              Show help for a command or namespace`
 
 export const NAMESPACE_HELP: Record<string, string> = {
+  plugin: `Usage: yachiyo plugin <action> [filename]
+
+  plugin list                            List local hook plugins and enabled state.
+  plugin check <filename>                Load a JS/TS plugin and validate its hook exports.
+  plugin enable <filename>               Check and enable a plugin for the next run.
+  plugin disable <filename>              Disable a plugin without loading its code.
+
+  Files live in the plugins directory beside config.toml. Plugins expose hooks only.
+  check/enable execute the module in a worker; hook behavior still needs a conversation test.`,
   chat: `Usage: yachiyo chat [prompt] [--thread <id>] [--workspace <path>] [--json]
 
   Requires yachiyo serve to be running with the same YACHIYO_HOME.
@@ -156,6 +165,6 @@ export const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags..
 All output is JSON unless noted. The app must be running for "send", "update", and "remote" commands.
 Use "yachiyo <namespace> --help" for detailed help on a specific namespace.
 
-Namespaces: chat, doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote
+Namespaces: chat, doctor, soul, provider, agent, config, plugin, thread, schedule, channel, send, update, remote
 
 ${Object.values(NAMESPACE_HELP).join('\n\n')}\n\n${GLOBAL_FLAGS_HELP}`

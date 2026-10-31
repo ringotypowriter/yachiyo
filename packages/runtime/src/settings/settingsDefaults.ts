@@ -52,6 +52,9 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   skills: {
     enabled: []
   },
+  plugins: {
+    enabled: []
+  },
   toolModel: {
     mode: DEFAULT_TOOL_MODEL_MODE,
     providerId: '',

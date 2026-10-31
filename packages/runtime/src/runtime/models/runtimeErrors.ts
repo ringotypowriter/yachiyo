@@ -46,6 +46,11 @@ export class ContextWindowExceededRunError extends Error {
   }
 }
 
+/** Plugin failures must not enter provider retry or context-handoff recovery. */
+export class PluginExecutionError extends Error {
+  override readonly name = 'PluginExecutionError'
+}
+
 export function isRetryableRunError(error: unknown): error is RetryableRunError {
   return error instanceof RetryableRunError
 }
@@ -239,7 +244,11 @@ function isDirectTransientTransportError(error: unknown): boolean {
  * pattern-match on the original class. Idempotent.
  */
 export function toRunBoundaryError(error: unknown): unknown {
-  if (error instanceof RetryableRunError || error instanceof ContextWindowExceededRunError) {
+  if (
+    error instanceof RetryableRunError ||
+    error instanceof ContextWindowExceededRunError ||
+    error instanceof PluginExecutionError
+  ) {
     return error
   }
   if (isContextWindowExceededError(error)) {

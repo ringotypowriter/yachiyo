@@ -1,5 +1,9 @@
 import { isStepCount, type StopCondition, type ToolSet } from 'ai'
 import { performance } from 'node:perf_hooks'
+import { readPluginSources } from '../../../../services/plugins/pluginFiles.ts'
+import { PluginSession } from '../../../../services/plugins/pluginSession.ts'
+import { applyPluginToolHooks } from '../../../../services/plugins/pluginToolHooks.ts'
+import type { PluginContext } from '../../../../services/plugins/pluginTypes.ts'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
 
 import { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
@@ -473,6 +477,7 @@ export async function executeServerRun(
   let lastUsage: ModelUsage | undefined
   let cumulativeCompletionTokens = input.priorUsage?.totalCompletionTokens ?? 0
   let tools: ToolSet | undefined
+  let plugins: PluginSession | undefined
   let streamStartedAt: number | undefined
   const renderUiStreams = new Map<
     string,
@@ -619,6 +624,29 @@ export async function executeServerRun(
     })
     const { workspacePath, maxToolSteps } = preparedContext
     let finalMessages = preparedContext.messages
+    const pluginContext: PluginContext = {
+      runId: input.runId,
+      threadId: input.thread.id,
+      workspacePath,
+      runMode: preparedContext.runMode
+    }
+    const pluginSnapshot = input.pluginSnapshot ?? {}
+    const canUsePlugins =
+      (!preparedContext.isExternalChannel || preparedContext.isOwnerDm) &&
+      input.maxToolStepsOverride !== 0
+    if (pluginSnapshot.sources === undefined) {
+      pluginSnapshot.sources = canUsePlugins
+        ? await readPluginSources(preparedContext.config.plugins?.enabled ?? [])
+        : []
+    }
+    if (canUsePlugins && pluginSnapshot.sources.length > 0) {
+      plugins = await PluginSession.create(pluginSnapshot.sources, {
+        signal: input.abortController.signal
+      })
+      console.log(
+        `[yachiyo][plugins] run=${input.runId} ${plugins.descriptors.map((plugin) => `${plugin.name}@${plugin.revision.slice(0, 12)}`).join(', ')}`
+      )
+    }
     if (!snapshotTracker) {
       snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
       snapshotTracker.startBaselineScan()
@@ -626,6 +654,12 @@ export async function executeServerRun(
     deps.onSnapshotTrackerReady?.(snapshotTracker)
     const runtime = deps.createModelRuntime()
     tools = createRunToolSet({
+      ...(plugins
+        ? {
+            applyToolHooks: (toolSet) =>
+              applyPluginToolHooks(toolSet, plugins!, pluginContext, input.abortController.signal)
+          }
+        : {}),
       advanceAgentStep,
       createToolCall: instrumentedCreateToolCall,
       deps,
@@ -713,6 +747,17 @@ export async function executeServerRun(
     streamStartedAt = performance.now()
     const stream = runtime.streamReply({
       messages: finalMessages,
+      ...(plugins
+        ? {
+            prepareMessages: ({ messages, stepNumber }) =>
+              plugins!.beforeModel(
+                pluginContext,
+                messages,
+                stepNumber,
+                input.abortController.signal
+              )
+          }
+        : {}),
       settings,
       signal: input.abortController.signal,
       purpose: 'chat',
@@ -1314,6 +1359,7 @@ export async function executeServerRun(
     })
   } finally {
     clearRenderUiStreams(false)
+    await plugins?.dispose()
     await disposeAgentToolSet(tools).catch(() => {})
   }
 }

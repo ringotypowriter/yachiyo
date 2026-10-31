@@ -649,6 +649,13 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             // after unwrapping transport causes instead of the SDK's HTTP 200 envelope.
             onError: () => {},
             messages: preparedMessages,
+            ...(request.prepareMessages
+              ? {
+                  prepareStep: async ({ messages, stepNumber }) => ({
+                    messages: await request.prepareMessages!({ messages, stepNumber })
+                  })
+                }
+              : {}),
             model: createLanguageModel(
               settings,
               resolvedDependencies,

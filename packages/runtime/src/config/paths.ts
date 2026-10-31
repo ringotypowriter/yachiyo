@@ -144,6 +144,10 @@ export function resolveYachiyoJotdownsDir(): string {
   return join(resolveYachiyoDataDir(), YACHIYO_JOTDOWNS_DIR_NAME)
 }
 
+export function resolveYachiyoPluginsDir(): string {
+  return join(resolveYachiyoDataDir(), 'plugins')
+}
+
 export const YACHIYO_FILE_HISTORY_DIR_NAME = 'file-history'
 
 export function resolveYachiyoFileHistoryDir(): string {

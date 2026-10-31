@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -170,6 +170,112 @@ function createRunContextDeps(input: {
     }
   }
 }
+
+test('run plugins prepare model context, block existing tools, and stay out of guest runs', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-plugin-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  for (const source of ['local', 'telegram'] as const) {
+    const thread: ThreadRecord = {
+      id: `thread-plugin-${source}`,
+      title: 'Thread',
+      source,
+      workspacePath: root,
+      updatedAt: '2026-04-28T00:00:00.000Z'
+    }
+    const requestMessage: MessageRecord = {
+      id: `request-${source}`,
+      threadId: thread.id,
+      role: 'user',
+      content: 'Create a report',
+      status: 'completed',
+      createdAt: thread.updatedAt
+    }
+    const base = createRunContextDeps({
+      events: [],
+      messages: [requestMessage],
+      workspacePath: root
+    })
+    let modelCalls = 0
+    let hookAvailable = false
+    const deps: RunExecutionDeps = {
+      ...base,
+      readThread: () => thread,
+      storage: {
+        ...base.storage,
+        upsertRunRecoveryCheckpoint: () => {},
+        deleteRunRecoveryCheckpoint: () => {},
+        createToolCall: () => {},
+        updateToolCall: () => {},
+        listThreadToolCalls: () => [],
+        completeRun: () => {},
+        cancelRun: () => {},
+        failRun: () => {},
+        saveThreadMessage: () => {},
+        updateRunSnapshot: () => {}
+      },
+      createModelRuntime: () => ({
+        streamReply: async function* (request) {
+          modelCalls++
+          hookAvailable = request.prepareMessages !== undefined
+          if (source === 'local') {
+            assert.ok(request.prepareMessages)
+            const prepared = await request.prepareMessages({
+              messages: request.messages,
+              stepNumber: 0
+            })
+            assert.equal(prepared.at(-1)?.content, 'plugin context')
+            assert.notEqual(request.messages.at(-1)?.content, 'plugin context')
+            const output: unknown = Reflect.apply(
+              request.tools!.write.execute!,
+              request.tools!.write,
+              [
+                { path: 'report.txt', content: 'report' },
+                { toolCallId: 'write-plugin', messages: [] }
+              ]
+            )
+            await assert.rejects(async () => {
+              for await (const value of output as AsyncIterable<unknown>) void value
+            }, /plugin prevented writing/)
+            await assert.rejects(access(join(root, 'report.txt')), /ENOENT/)
+          }
+          yield 'Done.'
+          request.onFinish?.(makeUsage(10, 2))
+        }
+      })
+    }
+    const result = await executeServerRun(deps, {
+      enabledTools: ['write'],
+      runMode: 'auto',
+      runTrigger: 'local',
+      inactivityTimeoutMs: 30_000,
+      runId: `run-plugin-${source}`,
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null,
+      // A resumed run must recheck access even if it already captured a plugin source.
+      pluginSnapshot: {
+        sources: [
+          {
+            name: 'context.js',
+            revision: 'test',
+            source: `
+        export default {apiVersion: 1, hooks: {
+          beforeModel({messages}) {return {messages: [...messages, {role: 'system', content: 'plugin context'}]}},
+          beforeTool({toolName}) {if (toolName === 'write') return {block: 'plugin prevented writing'}}
+        }}
+      `
+          }
+        ]
+      }
+    })
+    assert.equal(result.kind, 'completed')
+    assert.equal(modelCalls, 1)
+    assert.equal(hookAvailable, source === 'local')
+  }
+})
 
 test('executeServerRun does not preflight context handoff from rough token estimates', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-no-estimated-handoff-'))

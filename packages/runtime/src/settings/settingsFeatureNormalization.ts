@@ -24,6 +24,7 @@ import {
 } from '@yachiyo/shared/protocol'
 import { normalizeRunModeId } from '@yachiyo/shared/toolModes'
 import { DEFAULT_SETTINGS_CONFIG } from './settingsDefaults.ts'
+import { assertPluginFileName } from '../services/plugins/pluginFiles.ts'
 import {
   asRecord,
   normalizeOptionalBool,
@@ -229,6 +230,17 @@ export function normalizeSkillsConfig(
     enabled: normalizeStringList(input['enabled'] ?? fallback.enabled),
     ...(disabled.length > 0 ? { disabled } : {})
   }
+}
+
+export function normalizePluginsConfig(value: unknown): NonNullable<SettingsConfig['plugins']> {
+  if (value === undefined) return { enabled: [...DEFAULT_SETTINGS_CONFIG.plugins!.enabled] }
+  const input = asRecord(value)
+  const enabled = input['enabled']
+  if (!Array.isArray(enabled) || enabled.some((name) => typeof name !== 'string')) {
+    throw new Error('plugins.enabled must be an array of plugin filenames.')
+  }
+  for (const name of enabled) assertPluginFileName(name)
+  return { enabled: [...new Set(enabled as string[])] }
 }
 
 export function normalizeDefaultModel(value: unknown): ThreadModelOverride | undefined {

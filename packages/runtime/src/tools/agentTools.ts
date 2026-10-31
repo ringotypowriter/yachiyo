@@ -229,6 +229,7 @@ export interface AgentToolDependencies {
   planModeExitEnabled?: boolean
   /** Extra tools merged into the tool set (e.g. schedule-only tools). */
   extraTools?: ToolSet
+  applyToolHooks?: (tools: ToolSet) => void
   /** Provider settings for worker subagent model calls. */
   settings?: ProviderSettings
   /** Full settings config for resolving subagent preferred models. */
@@ -1217,6 +1218,9 @@ export function createAgentToolSet(
     delete tools[name]
     delete nestedFileTools[name]
   }
+
+  dependencies.applyToolHooks?.(tools)
+  dependencies.applyToolHooks?.(nestedFileTools)
 
   return Object.keys(tools).length > 0 ? tools : undefined
 }
