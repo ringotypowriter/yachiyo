@@ -1,5 +1,19 @@
 # @yachiyo/desktop
 
+## 1.8.1
+
+### Patch Changes
+
+- [`65a3145`](https://github.com/ringotypowriter/yachiyo/commit/65a3145cf678faa7a12f87cf804f2eb0a2dad86b) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Add a headless runtime, Obelisk history integration, and local harness hook plugins with QuickJS isolation and lower context serialization overhead.
+
+  Add dream memory cleanup to self-review. Improve provider credential synchronization with automatic key agreement, use adaptive thinking for newer Claude models, and show desktop run errors on iOS.
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.8.1
+  - @yachiyo/runtime@1.8.1
+  - @yachiyo/shared@1.8.1
+  - @yachiyo/core-skills@1.8.1
+
 ## 1.8.0
 
 ### Minor Changes
