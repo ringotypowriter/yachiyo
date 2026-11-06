@@ -30,7 +30,7 @@ export function ResponseShareDialog({
     toolOverrides: {},
     hiddenBlocks: []
   })
-  const [layout, setLayout] = useState<'auto' | 'long' | 'pages'>('auto')
+  const [layout, setLayout] = useState<'long' | 'pages'>('long')
   const [pages, setPages] = useState<Blob[]>([])
   const [pageIndex, setPageIndex] = useState(0)
   const [previewUrl, setPreviewUrl] = useState<string>()
@@ -95,7 +95,7 @@ export function ResponseShareDialog({
         const src = await blobDataUrl(pages[pageIndex])
         if (!isCurrent()) return
         await window.api.yachiyo.copyImageToClipboard({ src })
-        if (isCurrent()) setNotice('Current page copied.')
+        if (isCurrent()) setNotice(pages.length > 1 ? 'Current page copied.' : 'Image copied.')
       } else if (pages.length === 1) {
         const pngData = await pages[0].arrayBuffer()
         if (!isCurrent()) return
@@ -151,7 +151,6 @@ export function ResponseShareDialog({
             <SimpleSelect
               value={layout}
               options={[
-                { value: 'auto', label: 'Auto' },
                 { value: 'long', label: 'Long image' },
                 { value: 'pages', label: 'Pages' }
               ]}
@@ -252,21 +251,25 @@ export function ResponseShareDialog({
             )}
           </div>
           <div className="response-share-toolbar">
-            <button
-              aria-label="Previous page"
-              disabled={pageIndex === 0 || generating}
-              onClick={() => setPageIndex((value) => value - 1)}
-            >
-              <ChevronLeft size={17} />
-            </button>
-            <span>{pages.length ? `${pageIndex + 1} / ${pages.length}` : 'Preview'}</span>
-            <button
-              aria-label="Next page"
-              disabled={pageIndex >= pages.length - 1 || generating}
-              onClick={() => setPageIndex((value) => value + 1)}
-            >
-              <ChevronRight size={17} />
-            </button>
+            {pages.length > 1 ? (
+              <>
+                <button
+                  aria-label="Previous page"
+                  disabled={pageIndex === 0 || generating}
+                  onClick={() => setPageIndex((value) => value - 1)}
+                >
+                  <ChevronLeft size={17} />
+                </button>
+                <span>{`${pageIndex + 1} / ${pages.length}`}</span>
+                <button
+                  aria-label="Next page"
+                  disabled={pageIndex >= pages.length - 1 || generating}
+                  onClick={() => setPageIndex((value) => value + 1)}
+                >
+                  <ChevronRight size={17} />
+                </button>
+              </>
+            ) : null}
             <span className="response-share-spacer" />
             <button
               disabled={!pages.length || generating || saving || !hasContent}

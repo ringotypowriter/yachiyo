@@ -1,6 +1,6 @@
 export const SHARE_WIDTH = 720
 export const SHARE_PAGE_HEIGHT = 1080
-export const SHARE_LONG_HEIGHT = 6000
+export const SHARE_LONG_HEIGHT = 16000
 export const SHARE_MAX_PAGES = 30
 export type ShareLayout = 'auto' | 'pages' | 'long'
 
@@ -38,7 +38,7 @@ export function allocateSharePages<T extends ShareUnit>(
     chromeHeight + units.reduce((sum, unit, index) => sum + cost(unit, units[index - 1]), 0)
   if (layout === 'long') {
     if (fullHeight > SHARE_LONG_HEIGHT)
-      throw new Error('Long image exceeds 6000px. Choose Pages instead.')
+      throw new Error(`Long image exceeds ${SHARE_LONG_HEIGHT}px. Choose Pages instead.`)
     return [[...units]]
   }
   if (fullHeight <= SHARE_PAGE_HEIGHT) return [[...units]]

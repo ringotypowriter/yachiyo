@@ -44,12 +44,12 @@ test('headings travel with their following content without losing units', () => 
 
 test('long image rejects overflow explicitly, rather than falling back or cropping', () => {
   assert.equal(
-    allocateSharePages([{ height: 5900 }], { layout: 'long', chromeHeight: 100 }).length,
+    allocateSharePages([{ height: 15900 }], { layout: 'long', chromeHeight: 100 }).length,
     1
   )
   assert.throws(
-    () => allocateSharePages([{ height: 5901 }], { layout: 'long', chromeHeight: 100 }),
-    /6000/
+    () => allocateSharePages([{ height: 15901 }], { layout: 'long', chromeHeight: 100 }),
+    /16000/
   )
 })
 
@@ -79,4 +79,9 @@ test('invalid measurements and unsplittable content fail explicitly', () => {
       }),
     /heading/
   )
+})
+
+test('long image preserves an entire response beyond the former 6000px limit', () => {
+  const units = Array.from({ length: 10 }, () => ({ height: 800 }))
+  assert.deepEqual(allocateSharePages(units, { layout: 'long', chromeHeight: 200 }), [units])
 })
