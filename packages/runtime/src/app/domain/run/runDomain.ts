@@ -1002,6 +1002,15 @@ export class YachiyoServerRunDomain {
         const executionEnabledTools = policyTools
           ? modeEnabledTools.filter((tool) => policyTools.includes(tool))
           : modeEnabledTools
+        // reviewThings is the schedule-only counterpart of useThings, so it is
+        // absent from mode presets. Grant it only when both the schedule and mode allow it.
+        if (
+          !currentThread.channelUserId &&
+          schedule?.enabledTools?.includes('reviewThings') &&
+          modeEnabledTools.includes('useThings')
+        ) {
+          executionEnabledTools.push('reviewThings')
+        }
 
         result = await executeServerRun(
           buildRunExecutionDeps(this.createRunExecutionDepsContext(), {

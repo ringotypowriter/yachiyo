@@ -1295,8 +1295,34 @@ test('a deleted schedule cannot regain Auto tools on a later thread run', async 
     const available = resolveAvailableToolNamesFromToolSet(modelRequests.at(-1)?.tools)
     assert.equal(available.includes('bash'), false)
     assert.equal(available.includes('write'), false)
+    assert.equal(available.includes('reviewThings'), false)
   })
 })
+
+for (const runMode of ['auto', 'code', 'explore', 'plan', 'chat'] as const) {
+  test(`Things Daily Review preserves its dedicated tool within ${runMode} mode permissions`, async () => {
+    await withServer(async ({ server, completeRun, modelRequests, storage }) => {
+      const schedule = storage.getSchedule('bundled:things-daily-review')!
+      const thread = await server.createThread({
+        runMode,
+        createdFromScheduleId: schedule.id,
+        source: 'local'
+      })
+      const accepted = await server.sendChat({ threadId: thread.id, content: schedule.prompt })
+      await completeRun(accepted.runId)
+
+      const available = resolveAvailableToolNamesFromToolSet(modelRequests.at(-1)?.tools)
+      const canReviewThings = runMode === 'auto' || runMode === 'code'
+      assert.equal(available.includes('reviewThings'), canReviewThings)
+      if (canReviewThings) {
+        assert.equal(available.includes('querySource'), true)
+        assert.equal(available.includes('useThings'), false)
+      }
+      assert.equal(available.includes('bash'), false)
+      assert.equal(available.includes('write'), false)
+    })
+  })
+}
 
 test('an existing schedule without a tool cap retains its thread mode tools', async () => {
   await withServer(async ({ server, completeRun, modelRequests, storage }) => {
@@ -1320,6 +1346,7 @@ test('an existing schedule without a tool cap retains its thread mode tools', as
     const available = resolveAvailableToolNamesFromToolSet(modelRequests.at(-1)?.tools)
     assert.equal(available.includes('bash'), true)
     assert.equal(available.includes('write'), true)
+    assert.equal(available.includes('reviewThings'), false)
   })
 })
 
