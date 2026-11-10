@@ -1,5 +1,19 @@
 # @yachiyo/desktop
 
+## 1.8.2
+
+### Patch Changes
+
+- [`972fa09`](https://github.com/ringotypowriter/yachiyo/commit/972fa0963442f08d7d8e3a5e8e109c701ac484de) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Export response screenshots as long images by default and support images up to 16,000 pixels tall.
+
+  Restore the Things review tool in scheduled daily reviews when the schedule and run mode allow it.
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.8.2
+  - @yachiyo/runtime@1.8.2
+  - @yachiyo/shared@1.8.2
+  - @yachiyo/core-skills@1.8.2
+
 ## 1.8.1
 
 ### Patch Changes
