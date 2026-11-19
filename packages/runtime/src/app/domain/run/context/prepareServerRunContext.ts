@@ -493,7 +493,7 @@ export async function prepareServerRunContext(
   if (input.persistTurnContext !== false && requestMessage) {
     const turnContext: MessageTurnContext = {
       ...requestMessage.turnContext,
-      ...(hiddenQueryReminder ? { reminder: hiddenQueryReminder } : {}),
+      ...(effectiveReminder ? { reminder: effectiveReminder } : {}),
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
       ...(activityText ? { activityText } : {}),
       ...(thingMentionResolutions.length > 0 ? { thingMentions: thingMentionResolutions } : {}),

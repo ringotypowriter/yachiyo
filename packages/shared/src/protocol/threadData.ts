@@ -50,6 +50,8 @@ export interface MessageTurnContext {
   reminder?: string
   memoryEntries?: string[]
   activityText?: string
+  /** Appended after memory and activity, as a separate text block for image messages. */
+  toolReminder?: string
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId

@@ -212,3 +212,18 @@ test('turn context does not infer sentinel wake from false or invalid values', (
   assert.equal(parseTurnContext(serializeTurnContext({ sentinelWake: false })), undefined)
   assert.equal(parseTurnContext('{"sentinelWake":"true"}'), undefined)
 })
+
+for (const context of [
+  { activityText: 'Activity snapshot' },
+  { toolReminder: '<reminder>Tool snapshot</reminder>' },
+  {
+    reminder: 'Time snapshot',
+    memoryEntries: ['Memory snapshot'],
+    activityText: 'Activity snapshot',
+    toolReminder: 'Tool snapshot'
+  }
+]) {
+  test(`turn context round-trips ${Object.keys(context).join(', ')}`, () => {
+    assert.deepEqual(parseTurnContext(serializeTurnContext(context)), context)
+  })
+}

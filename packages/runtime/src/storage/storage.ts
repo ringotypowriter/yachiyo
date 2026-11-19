@@ -1189,6 +1189,8 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
   const hasReminder = turnContext.reminder?.trim()
   const sentinelWake = turnContext.sentinelWake === true
   const hasMemory = turnContext.memoryEntries && turnContext.memoryEntries.length > 0
+  const hasActivity = turnContext.activityText?.trim()
+  const hasToolReminder = turnContext.toolReminder?.trim()
   const hasEnabledTools = turnContext.enabledTools !== undefined
   const hasEnabledSkillNames = turnContext.enabledSkillNames !== undefined
   const hasRunMode = turnContext.runMode !== undefined
@@ -1198,6 +1200,8 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
     !hasReminder &&
     !sentinelWake &&
     !hasMemory &&
+    !hasActivity &&
+    !hasToolReminder &&
     !hasEnabledTools &&
     !hasEnabledSkillNames &&
     !hasRunMode &&
@@ -1210,6 +1214,8 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
     ...(sentinelWake ? { sentinelWake: true } : {}),
     ...(hasReminder ? { reminder: turnContext.reminder } : {}),
     ...(hasMemory ? { memoryEntries: turnContext.memoryEntries } : {}),
+    ...(hasActivity ? { activityText: turnContext.activityText } : {}),
+    ...(hasToolReminder ? { toolReminder: turnContext.toolReminder } : {}),
     ...(hasEnabledTools
       ? { enabledTools: normalizeEnabledTools(turnContext.enabledTools, []) }
       : {}),
@@ -1236,6 +1242,14 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
     const memoryEntries = Array.isArray(parsed.memoryEntries)
       ? parsed.memoryEntries.filter((item): item is string => typeof item === 'string')
       : []
+    const activityText =
+      typeof parsed.activityText === 'string' && parsed.activityText.trim()
+        ? parsed.activityText
+        : undefined
+    const toolReminder =
+      typeof parsed.toolReminder === 'string' && parsed.toolReminder.trim()
+        ? parsed.toolReminder
+        : undefined
     const enabledTools: ToolCallName[] | undefined = Array.isArray(parsed.enabledTools)
       ? normalizeEnabledTools(parsed.enabledTools, [])
       : undefined
@@ -1250,6 +1264,8 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
       reminder === undefined &&
       !sentinelWake &&
       memoryEntries.length === 0 &&
+      activityText === undefined &&
+      toolReminder === undefined &&
       enabledTools === undefined &&
       enabledSkillNames === undefined &&
       runMode === undefined &&
@@ -1261,6 +1277,8 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
       ...(sentinelWake ? { sentinelWake: true } : {}),
       ...(reminder !== undefined ? { reminder } : {}),
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
+      ...(activityText !== undefined ? { activityText } : {}),
+      ...(toolReminder !== undefined ? { toolReminder } : {}),
       ...(enabledTools !== undefined ? { enabledTools } : {}),
       ...(enabledSkillNames !== undefined ? { enabledSkillNames } : {}),
       ...(runMode !== undefined ? { runMode } : {}),

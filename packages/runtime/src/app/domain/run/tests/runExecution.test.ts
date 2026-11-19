@@ -26,6 +26,8 @@ import type {
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
 import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import { toModelHistoryMessages } from '../../../../runtime/context/contextLayers.ts'
+import { parseTurnContext, serializeTurnContext } from '../../../../storage/storage.ts'
 import { runRenderUiTool } from '../../../../tools/agentTools/renderUiTool.ts'
 
 function makeUsage(promptTokens: number, completionTokens: number): ModelUsage {
@@ -959,98 +961,114 @@ test('prepareServerRunContext skips foreground activity for hidden steer request
   }
 })
 
-test('executeServerRun injects actual available tools into the current turn reminder', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-tool-reminder-'))
-  const thread: ThreadRecord = {
-    id: 'thread-tool-reminder',
-    title: 'Thread',
-    workspacePath: root,
-    updatedAt: '2026-04-28T00:00:00.000Z'
-  }
-  const requestMessage: MessageRecord = {
-    id: 'msg-tool-reminder',
-    threadId: thread.id,
-    role: 'user',
-    content: 'continue',
-    status: 'completed',
-    createdAt: '2026-04-28T00:00:00.000Z'
-  }
-  const events: unknown[] = []
-  const updatedMessages: MessageRecord[] = []
-  let streamedMessages: ModelMessage[] = []
-  let reportedEnabledTools: string[] = []
-  const baseDeps = createRunContextDeps({
-    events,
-    messages: [requestMessage],
-    updatedMessages,
-    workspacePath: root
+for (const withImage of [false, true]) {
+  test(`executeServerRun preserves ${withImage ? 'image' : 'text'} user prefix across persisted history replay`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-tool-reminder-'))
+    const thread: ThreadRecord = {
+      id: 'thread-tool-reminder',
+      title: 'Thread',
+      lastDelegatedSession: {
+        agentName: 'test-agent',
+        sessionId: 'session-1',
+        workspacePath: root,
+        timestamp: '2026-04-28T00:00:00.000Z'
+      },
+      workspacePath: root,
+      updatedAt: '2026-04-28T00:00:00.000Z'
+    }
+    const requestMessage: MessageRecord = {
+      id: 'msg-tool-reminder',
+      threadId: thread.id,
+      role: 'user',
+      content: 'continue',
+      ...(withImage
+        ? { images: [{ dataUrl: 'data:image/png;base64,AAAA', mediaType: 'image/png' }] }
+        : {}),
+      status: 'completed',
+      createdAt: '2026-04-28T00:00:00.000Z'
+    }
+    const events: unknown[] = []
+    const updatedMessages: MessageRecord[] = []
+    let streamedMessages: ModelMessage[] = []
+    let reportedEnabledTools: string[] = []
+    const baseDeps = createRunContextDeps({
+      events,
+      messages: [requestMessage],
+      updatedMessages,
+      workspacePath: root
+    })
+    baseDeps.buildMemoryLayerEntries = async () => ({ entries: ['Recalled memory'] })
+    const storage: RunExecutionDeps['storage'] = {
+      ...baseDeps.storage,
+      getMessage: (id) =>
+        updatedMessages.findLast((message) => message.id === id) ?? baseDeps.storage.getMessage(id),
+      upsertRunRecoveryCheckpoint: () => {},
+      deleteRunRecoveryCheckpoint: () => {},
+      createToolCall: () => {},
+      updateToolCall: () => {},
+      listThreadToolCalls: () => [],
+      completeRun: () => {},
+      cancelRun: () => {},
+      failRun: () => {},
+      saveThreadMessage: () => {},
+      updateRunSnapshot: () => {}
+    }
+    const deps: RunExecutionDeps = {
+      ...baseDeps,
+      storage,
+      onEnabledToolsUsed: (enabledTools) => {
+        reportedEnabledTools = enabledTools
+      },
+      createModelRuntime: () => ({
+        streamReply: async function* (request) {
+          streamedMessages = request.messages
+          yield 'Done.'
+          request.onFinish?.({
+            promptTokens: 1,
+            completionTokens: 1,
+            totalPromptTokens: 1,
+            totalCompletionTokens: 1
+          })
+        }
+      })
+    }
+
+    try {
+      await executeServerRun(deps, {
+        enabledTools: ['read', 'write', 'bash'],
+        runMode: 'auto',
+        inactivityTimeoutMs: 30_000,
+        runTrigger: 'local',
+        runId: 'run-tool-reminder',
+        thread,
+        requestMessageId: requestMessage.id,
+        abortController: new AbortController(),
+        updateHeadOnComplete: true,
+        previousEnabledTools: ['read', 'bash'],
+        previousRunMode: 'auto'
+      })
+
+      const sentUserMessage = streamedMessages.find((message) => message.role === 'user')!
+      const userContent = JSON.stringify(sentUserMessage.content)
+      assert.match(userContent, /Tool availability changed for this turn/)
+      assert.match(userContent, /Enabled tools: .*write/)
+      assert.match(userContent, /Enabled tools: .*querySource/)
+      const storedMessage = updatedMessages.at(-1)!
+      const replayed = toModelHistoryMessages({
+        ...storedMessage,
+        turnContext: parseTurnContext(serializeTurnContext(storedMessage.turnContext))
+      })
+      assert.deepEqual(replayed, [sentUserMessage])
+      assert.ok(reportedEnabledTools.includes('querySource'))
+      assert.match(
+        updatedMessages.at(-1)?.turnContext?.toolReminder ?? '',
+        /Enabled tools: .*querySource/
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
-  const storage: RunExecutionDeps['storage'] = {
-    ...baseDeps.storage,
-    upsertRunRecoveryCheckpoint: () => {},
-    deleteRunRecoveryCheckpoint: () => {},
-    createToolCall: () => {},
-    updateToolCall: () => {},
-    listThreadToolCalls: () => [],
-    completeRun: () => {},
-    cancelRun: () => {},
-    failRun: () => {},
-    saveThreadMessage: () => {},
-    updateRunSnapshot: () => {}
-  }
-  const deps: RunExecutionDeps = {
-    ...baseDeps,
-    storage,
-    onEnabledToolsUsed: (enabledTools) => {
-      reportedEnabledTools = enabledTools
-    },
-    createModelRuntime: () => ({
-      streamReply: async function* (request) {
-        streamedMessages = request.messages
-        yield 'Done.'
-        request.onFinish?.({
-          promptTokens: 1,
-          completionTokens: 1,
-          totalPromptTokens: 1,
-          totalCompletionTokens: 1
-        })
-      }
-    })
-  }
-
-  try {
-    await executeServerRun(deps, {
-      enabledTools: ['read', 'write', 'bash'],
-      runMode: 'auto',
-      inactivityTimeoutMs: 30_000,
-      runTrigger: 'local',
-      runId: 'run-tool-reminder',
-      thread,
-      requestMessageId: requestMessage.id,
-      abortController: new AbortController(),
-      updateHeadOnComplete: true,
-      previousEnabledTools: ['read', 'bash'],
-      previousRunMode: 'auto'
-    })
-
-    const userContent = streamedMessages
-      .filter((message) => message.role === 'user')
-      .map((message) => message.content)
-      .filter((content): content is string => typeof content === 'string')
-      .join('\n')
-
-    assert.match(userContent, /Tool availability changed for this turn/)
-    assert.match(userContent, /Enabled tools: .*write/)
-    assert.match(userContent, /Enabled tools: .*querySource/)
-    assert.ok(reportedEnabledTools.includes('querySource'))
-    assert.match(
-      updatedMessages.at(-1)?.turnContext?.reminder ?? '',
-      /Enabled tools: .*querySource/
-    )
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
+}
 
 test('executeServerRun does not mark exitPlanMode disabled in Plan Mode reminders', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-plan-exit-reminder-'))
@@ -1121,7 +1139,7 @@ test('executeServerRun does not mark exitPlanMode disabled in Plan Mode reminder
       previousRunMode: 'auto'
     })
 
-    const reminder = updatedMessages.at(-1)?.turnContext?.reminder ?? ''
+    const reminder = updatedMessages.at(-1)?.turnContext?.toolReminder ?? ''
     const userContent = streamedMessages
       .filter((message) => message.role === 'user')
       .map((message) => message.content)

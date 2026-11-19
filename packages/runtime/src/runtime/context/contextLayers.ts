@@ -249,6 +249,9 @@ function buildHistoricalTurnContextParts(turnContext: MessageTurnContext | undef
   if (turnContext.activityText?.trim()) {
     parts.push(turnContext.activityText.trim())
   }
+  if (turnContext.toolReminder?.trim()) {
+    parts.push(turnContext.toolReminder.trim())
+  }
   return parts
 }
 

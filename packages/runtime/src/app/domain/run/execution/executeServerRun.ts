@@ -165,7 +165,6 @@ function injectToolReminder(
 }
 
 function persistToolReminder(input: {
-  baseReminder: string | undefined
   deps: RunExecutionDeps
   executionInput: ExecuteRunInput
   reminder: string | undefined
@@ -177,15 +176,11 @@ function persistToolReminder(input: {
       ? candidate
       : undefined
   if (!requestMessage) return
-  const existingReminder = requestMessage.turnContext?.reminder?.trim()
-  const reminder = [input.baseReminder?.trim() || existingReminder, input.reminder]
-    .filter(Boolean)
-    .join('\n\n')
   input.deps.storage.updateMessage({
     ...requestMessage,
     turnContext: {
       ...requestMessage.turnContext,
-      reminder
+      toolReminder: input.reminder
     }
   })
 }
@@ -709,7 +704,6 @@ async function executeServerRunLeg(
     })
     finalMessages = injectToolReminder(finalMessages, toolReminder)
     persistToolReminder({
-      baseReminder: preparedContext.hiddenQueryReminder,
       deps,
       executionInput: input,
       reminder: toolReminder
